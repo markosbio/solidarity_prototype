@@ -436,6 +436,121 @@ def server_error(exc):
     logger.error("Internal server error: {}", exc)
     return render_template('error.html', code=500, message='An internal error occurred. Please try again.'), 500
 
+# ── Simple USSD route (in-process session dict) ────────────────────────────────
+
+ussd_sessions: dict = {}
+
+
+@app.route('/ussd', methods=['GET', 'POST'])
+def ussd():
+    phone = request.values.get("phoneNumber", "")
+    text = request.values.get("text", "")
+    user = User.query.filter_by(phone=phone).first()
+
+    inputs = text.split('*') if text else []
+    step = len(inputs)
+
+    def r(msg, end=False):
+        return f"{'END' if end else 'CON'} {msg}"
+
+    if not user:
+        if step == 0:
+            return r("Welcome. Not registered.\n1. Register\n2. Exit")
+        elif step == 1 and inputs[0] == "1":
+            return r("Enter your full name:")
+        elif step == 2:
+            name = inputs[1]
+            new_user = User(phone=phone, name=name, sub_wallet_balance=0.0, trust_score=0.5)
+            db.session.add(new_user)
+            db.session.commit()
+            return r(f"Registered {name}. Thank you.", end=True)
+        else:
+            return r("Goodbye.", end=True)
+
+    if step == 0:
+        return r(f"Hi {user.name}\n1. Balance\n2. Request care\n3. My trust score\n4. Exit")
+
+    choice = inputs[0]
+
+    if choice == "1":
+        state = SystemState.query.first()
+        pool = state.communal_pool_balance if state else 0
+        return r(f"Your wallet: ${user.sub_wallet_balance:.2f}\nPool: ${pool:.2f}\n0. Back")
+
+    if choice == "3":
+        from trust_engine import get_combined_score
+        score = get_combined_score(user.id)
+        return r(f"Trust score: {score:.2f}\n0. Back")
+
+    if choice == "2":
+        if step == 1:
+            return r("Enter amount (USD):")
+        elif step == 2:
+            try:
+                amount = float(inputs[1])
+                ussd_sessions[phone] = {"amount": amount}
+                return r("Enter provider ID (e.g., clinic name):")
+            except (ValueError, IndexError):
+                return r("Invalid amount.", end=True)
+        elif step == 3:
+            provider = inputs[2]
+            amount = ussd_sessions.get(phone, {}).get("amount", 0)
+            if amount <= 0:
+                return r("Session expired.", end=True)
+
+            ceiling = compute_draw_ceiling(user.id)
+            from_sub = min(user.sub_wallet_balance, amount)
+            remaining = amount - from_sub
+            user.sub_wallet_balance -= from_sub
+
+            from_pool = 0.0
+            social_credit = 0.0
+            state = SystemState.query.first()
+            if remaining > 0:
+                allowed = min(remaining, ceiling - from_sub, state.communal_pool_balance)
+                from_pool = max(allowed, 0.0)
+                state.communal_pool_balance -= from_pool
+                social_credit = remaining - from_pool
+                if social_credit > 0:
+                    user.total_social_credit += social_credit
+                    update_recovery_parameters(user.id, social_credit)
+                db.session.commit()
+
+            try:
+                witnesses = select_witnesses(user.id, provider)
+            except WitnessSelectionError:
+                witnesses = []
+
+            req = WitnessRequest(
+                user_id=user.id,
+                needed_amount=amount,
+                provider_id=provider,
+                from_sub=from_sub,
+                from_pool=from_pool,
+                social_credit=social_credit,
+                status='pending',
+                witness_ids=','.join(str(w.id) for w in witnesses),
+            )
+            db.session.add(req)
+            db.session.commit()
+
+            try:
+                recompute_trust_score(user.id, reason='ussd_care_request')
+            except TrustEngineError as exc:
+                logger.error("TrustEngineError after ussd care request for user_id={}: {}", user.id, exc)
+
+            ussd_sessions.pop(phone, None)
+
+            msg = (f"Request done.\nFrom you: ${from_sub:.2f}\n"
+                   f"From pool: ${from_pool:.2f}\nCredit: ${social_credit:.2f}")
+            return r(msg, end=True)
+
+    if choice == "4":
+        return r("Goodbye.", end=True)
+
+    return r("Invalid choice.", end=True)
+
+
 # ── Entry point ────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True, port=5000)
