@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head><title>Witness Dashboard</title></head>
+<body>
+<h1>Witness Tasks for {{ user.name }}</h1>
+{% if pending %}
+    <ul>
+    {% for req in pending %}
+        <li>Request #{{ req.id }} for amount ${{ req.needed_amount }} at {{ req.provider_id }}
+            <a href="{{ url_for('verify_witness', request_id=req.id, response='accept') }}">✅ Confirm</a>
+            <a href="{{ url_for('verify_witness', request_id=req.id, response='reject') }}">❌ Deny</a>
+        </li>
+    {% endfor %}
+    </ul>
+{% else %}
+    <p>No pending witness requests.</p>
+{% endif %}
+<a href="{{ url_for('home') }}">Back</a>
+</body>
+</html>
