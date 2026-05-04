@@ -436,8 +436,6 @@ def server_error(exc):
     logger.error("Internal server error: {}", exc)
     return render_template('error.html', code=500, message='An internal error occurred. Please try again.'), 500
 
-
 # ── Entry point ────────────────────────────────────────────────────────────────
-
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True, port=5000)
