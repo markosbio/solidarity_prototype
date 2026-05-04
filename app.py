@@ -1,10 +1,10 @@
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
-from models import db, User, Transaction, Community, CommunityMembership, Provider, CareRequest, SystemState
+from models import db, User, Transaction, Community, CommunityMembership, Provider, CareRequest, SystemState, PaymentRecord
 from trust_graph import compute_draw_ceiling
 from witness import select_witnesses
 from recovery import update_recovery_parameters
 from payments import pay_provider
-from trust_engine import get_combined_score  # make sure this exists in trust_engine.py
+from trust_engine import get_combined_score
 import random
 import string
 from datetime import datetime
@@ -14,21 +14,19 @@ app.secret_key = 'solidarity-final-key-change-in-production'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///solidarity.db'
 db.init_app(app)
 
-# Create tables if not exist
+# Create tables and seed default data
 with app.app_context():
     db.create_all()
-    # Create a default global community if none exists
     if Community.query.count() == 0:
         default_comm = Community(name="Global Health Pool", invite_code="GLOBAL001", pool_balance=5000.0, admin_user_id=1)
         db.session.add(default_comm)
         db.session.commit()
-    # Create a test provider if none
     if Provider.query.count() == 0:
         mulago = Provider(name="Mulago Hospital", provider_code="MULAGO001", payment_type="mpesa", payment_details="254700000", verified=True)
         db.session.add(mulago)
         db.session.commit()
 
-# ---------------- Web Routes (existing, kept) ----------------
+# ------------------ Web Routes ------------------
 @app.route('/')
 def home():
     if 'user_id' in session:
@@ -49,7 +47,6 @@ def register():
                 user.referred_by = referrer.id
         db.session.add(user)
         db.session.commit()
-        # Auto-join default community
         default_comm = Community.query.first()
         if default_comm:
             membership = CommunityMembership(user_id=user.id, community_id=default_comm.id, role='member')
@@ -104,7 +101,6 @@ def request_care():
                 user.total_social_credit += social_credit
                 update_recovery_parameters(user.id, social_credit)
             db.session.commit()
-        # Create care request
         care_req = CareRequest(
             user_id=user.id,
             community_id=community.id,
@@ -118,7 +114,6 @@ def request_care():
         )
         db.session.add(care_req)
         db.session.commit()
-        # Select witnesses (from same community)
         witnesses = select_witnesses(user.id, provider_id, community_id=community.id)
         witness_ids = ','.join(str(w.id) for w in witnesses)
         care_req.witness_ids = witness_ids
@@ -149,28 +144,31 @@ def verify_witness(request_id, response):
         return "Invalid request", 400
     if str(user.id) not in care_req.witness_ids.split(','):
         return "Not authorized", 403
-    # Record vote
     votes = care_req.witness_votes.split(',') if care_req.witness_votes else []
     if f"{user.id}:{response}" not in votes:
         votes.append(f"{user.id}:{response}")
         care_req.witness_votes = ','.join(votes)
         db.session.commit()
-    # Count approvals
     yes_count = sum(1 for v in votes if v.endswith('accept'))
     total_witnesses = len(care_req.witness_ids.split(','))
-    if yes_count >= 2:  # threshold
-        # Witness approved. Check if admin needed
+    if yes_count >= 2:
         need_admin = (care_req.amount_needed > 50) or care_req.is_emergency
         if need_admin:
             care_req.status = 'pending_admin'
         else:
-            care_req.status = 'admin_approved'  # auto-approved
+            care_req.status = 'admin_approved'
             care_req.admin_approved = True
-            # Pay provider directly
-            pay_provider(care_req.provider_id, care_req.amount_from_pool)
-        db.session.commit()
+            success, ref = pay_provider(
+                care_request_id=care_req.id,
+                amount=care_req.amount_from_pool,
+                provider_id=care_req.provider_id,
+                user_id=care_req.user_id,
+                community_id=care_req.community_id
+            )
+            if success:
+                care_req.payment_transaction_id = ref
+            db.session.commit()
     elif len(votes) >= total_witnesses:
-        # All voted but insufficient yes -> reject
         care_req.status = 'rejected'
         db.session.commit()
     return redirect(url_for('witness_dashboard'))
@@ -180,7 +178,82 @@ def logout():
     session.pop('user_id', None)
     return redirect(url_for('register'))
 
-# ---------------- USSD (Africa's Talking) ----------------
+# ------------------ Provider Dashboard & Invoice ------------------
+@app.route('/provider/login', methods=['GET', 'POST'])
+def provider_login():
+    if request.method == 'POST':
+        code = request.form['provider_code']
+        provider = Provider.query.filter_by(provider_code=code.upper(), verified=True).first()
+        if provider:
+            session['provider_id'] = provider.id
+            return redirect(url_for('provider_dashboard'))
+        else:
+            return "Invalid provider code"
+    return '''
+        <form method="post">
+            Provider Code: <input name="provider_code">
+            <button type="submit">Login</button>
+        </form>
+    '''
+
+@app.route('/provider/dashboard')
+def provider_dashboard():
+    if 'provider_id' not in session:
+        return redirect(url_for('provider_login'))
+    provider = Provider.query.get(session['provider_id'])
+    payments = PaymentRecord.query.filter_by(provider_id=provider.id).order_by(PaymentRecord.created_at.desc()).all()
+    return render_template('provider_dashboard.html', provider=provider, payments=payments)
+
+@app.route('/provider/confirm/<ref>')
+def confirm_payment(ref):
+    payment = PaymentRecord.query.filter_by(reference_code=ref).first()
+    if payment and payment.status == 'sent':
+        payment.status = 'received'
+        payment.provider_confirmed_at = datetime.utcnow()
+        db.session.commit()
+    return redirect(url_for('provider_dashboard'))
+
+@app.route('/provider/start/<ref>')
+def start_treatment(ref):
+    payment = PaymentRecord.query.filter_by(reference_code=ref).first()
+    if payment and payment.status == 'received':
+        payment.status = 'treatment_started'
+        payment.treatment_started_at = datetime.utcnow()
+        db.session.commit()
+    return redirect(url_for('provider_dashboard'))
+
+@app.route('/provider/invoice', methods=['POST'])
+def provider_invoice():
+    provider_code = request.form['provider_code']
+    provider = Provider.query.filter_by(provider_code=provider_code, verified=True).first()
+    if not provider:
+        return "Provider not found"
+    patient_phone = request.form['patient_phone']
+    user = User.query.filter_by(phone=patient_phone).first()
+    if not user:
+        return "Patient not registered in the system"
+    amount = float(request.form['amount'])
+    description = request.form['description']
+    community = Community.query.get(user.primary_community_id)
+    if not community:
+        return "Patient not in any community"
+    care_req = CareRequest(
+        user_id=user.id,
+        community_id=community.id,
+        provider_id=provider.id,
+        amount_needed=amount,
+        amount_from_sub=0,
+        amount_from_pool=0,
+        social_credit=0,
+        is_emergency=False,
+        status='pending_witness',
+        witness_ids=''
+    )
+    db.session.add(care_req)
+    db.session.commit()
+    return f"Invoice submitted. Request ID: {care_req.id}. Patient will be notified."
+
+# ------------------ USSD (Africa's Talking) ------------------
 ussd_sessions = {}
 
 @app.route('/ussd', methods=['GET', 'POST'])
@@ -205,7 +278,6 @@ def ussd():
             new_user = User(phone=phone, name=name, sub_wallet_balance=0.0, trust_score=0.5)
             db.session.add(new_user)
             db.session.commit()
-            # Join default community (first one)
             default_comm = Community.query.first()
             if default_comm:
                 membership = CommunityMembership(user_id=new_user.id, community_id=default_comm.id, role='member')
@@ -328,7 +400,6 @@ def ussd():
                     user.total_social_credit += social_credit
                     update_recovery_parameters(user.id, social_credit)
                 db.session.commit()
-            # Create care request
             care_req = CareRequest(
                 user_id=user.id,
                 community_id=primary_comm.id,
@@ -342,7 +413,6 @@ def ussd():
             )
             db.session.add(care_req)
             db.session.commit()
-            # Select witnesses from same community
             witnesses = select_witnesses(user.id, provider_id, community_id=primary_comm.id)
             witness_ids = ','.join(str(w.id) for w in witnesses)
             care_req.witness_ids = witness_ids
@@ -354,9 +424,8 @@ def ussd():
                 msg += " Admin approval also required."
             return r(msg, end=True)
 
-    # Witness tasks (simplified)
+    # Witness tasks (USSD)
     if choice == "5":
-        # Find pending witness requests for this user
         pending = []
         requests = CareRequest.query.filter_by(status='pending_witness').all()
         for req in requests:
@@ -364,11 +433,9 @@ def ussd():
                 pending.append(req)
         if not pending:
             return r("No pending witness requests.")
-        # Show first
         req = pending[0]
         ussd_sessions[phone] = {"witness_req_id": req.id}
         return r(f"Request #{req.id}: ${req.amount_needed}\n1. Accept\n2. Reject")
-    # After witness choice (step 2)
     if step == 2 and choice == "5":
         req_id = ussd_sessions.get(phone, {}).get("witness_req_id")
         if not req_id:
@@ -392,7 +459,15 @@ def ussd():
             else:
                 care_req.status = 'admin_approved'
                 care_req.admin_approved = True
-                pay_provider(care_req.provider_id, care_req.amount_from_pool)
+                success, ref = pay_provider(
+                    care_request_id=care_req.id,
+                    amount=care_req.amount_from_pool,
+                    provider_id=care_req.provider_id,
+                    user_id=care_req.user_id,
+                    community_id=care_req.community_id
+                )
+                if success:
+                    care_req.payment_transaction_id = ref
             db.session.commit()
         elif len(votes) >= total:
             care_req.status = 'rejected'
@@ -426,7 +501,6 @@ def ussd():
             else:
                 return r("Invalid.", end=True)
         elif step == 3 and inputs[1] == "1":
-            # Approve/reject logic
             data = ussd_sessions.get(phone, {})
             pending_ids = data.get('admin_pending', [])
             idx = data.get('admin_idx', 0)
@@ -439,7 +513,15 @@ def ussd():
                 care_req.admin_approved = True
                 care_req.admin_id = user.id
                 care_req.status = 'admin_approved'
-                pay_provider(care_req.provider_id, care_req.amount_from_pool)
+                success, ref = pay_provider(
+                    care_request_id=care_req.id,
+                    amount=care_req.amount_from_pool,
+                    provider_id=care_req.provider_id,
+                    user_id=care_req.user_id,
+                    community_id=care_req.community_id
+                )
+                if success:
+                    care_req.payment_transaction_id = ref
                 db.session.commit()
                 msg = f"Request #{req_id} approved."
             elif action == "2":
@@ -447,7 +529,6 @@ def ussd():
                 db.session.commit()
                 msg = f"Request #{req_id} rejected."
             else:
-                # Next
                 data['admin_idx'] = idx + 1
                 ussd_sessions[phone] = data
                 next_idx = idx + 1
