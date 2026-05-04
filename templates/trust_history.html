@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Trust Score History</title>
+    <style>
+        body { font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 0 16px; }
+        h1 { margin-bottom: 4px; }
+        .subtitle { color: #666; margin-bottom: 24px; }
+        .score-badge {
+            display: inline-block;
+            font-size: 2rem;
+            font-weight: bold;
+            padding: 8px 20px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+        }
+        .score-high   { background: #d4edda; color: #155724; }
+        .score-mid    { background: #fff3cd; color: #856404; }
+        .score-low    { background: #f8d7da; color: #721c24; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        th { background: #f0f0f0; text-align: left; padding: 8px 10px; border-bottom: 2px solid #ccc; }
+        td { padding: 8px 10px; border-bottom: 1px solid #e5e5e5; vertical-align: middle; }
+        tr:hover td { background: #f9f9f9; }
+        .delta-pos { color: #28a745; font-weight: bold; }
+        .delta-neg { color: #dc3545; font-weight: bold; }
+        .delta-nil { color: #888; }
+        .factor-bar {
+            display: inline-block;
+            height: 10px;
+            background: #4a90d9;
+            border-radius: 3px;
+            vertical-align: middle;
+        }
+        .factor-cell { white-space: nowrap; }
+        .nav { margin-bottom: 20px; }
+        .nav a { margin-right: 12px; color: #4a90d9; text-decoration: none; }
+        .nav a:hover { text-decoration: underline; }
+        .empty { color: #888; font-style: italic; text-align: center; padding: 40px; }
+        .factors-legend { font-size: 0.8rem; color: #666; margin-bottom: 8px; }
+    </style>
+</head>
+<body>
+
+<div class="nav">
+    <a href="/">&#8592; Dashboard</a>
+</div>
+
+<h1>Trust Score History</h1>
+<p class="subtitle">{{ user.name }} &mdash; {{ user.phone }}</p>
+
+{% set score = user.trust_score %}
+{% if score >= 0.7 %}
+    <div class="score-badge score-high">{{ "%.2f"|format(score) }} &nbsp; Strong</div>
+{% elif score >= 0.4 %}
+    <div class="score-badge score-mid">{{ "%.2f"|format(score) }} &nbsp; Building</div>
+{% else %}
+    <div class="score-badge score-low">{{ "%.2f"|format(score) }} &nbsp; At Risk</div>
+{% endif %}
+
+<p class="factors-legend">
+    Factors: <strong>40%</strong> Repayment &nbsp;|&nbsp;
+    <strong>25%</strong> Witness accuracy &nbsp;|&nbsp;
+    <strong>20%</strong> Network quality &nbsp;|&nbsp;
+    <strong>15%</strong> Activity
+</p>
+
+{% if events %}
+<table>
+    <thead>
+        <tr>
+            <th>Date / Time</th>
+            <th>Trigger</th>
+            <th>Score</th>
+            <th>Change</th>
+            <th>Repay</th>
+            <th>Witness</th>
+            <th>Network</th>
+            <th>Activity</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for e in events %}
+        <tr>
+            <td>{{ e.timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td>{{ e.reason }}</td>
+            <td><strong>{{ "%.4f"|format(e.new_score) }}</strong></td>
+            <td>
+                {% if e.delta > 0 %}
+                    <span class="delta-pos">+{{ "%.4f"|format(e.delta) }}</span>
+                {% elif e.delta < 0 %}
+                    <span class="delta-neg">{{ "%.4f"|format(e.delta) }}</span>
+                {% else %}
+                    <span class="delta-nil">&#177;0</span>
+                {% endif %}
+            </td>
+            <td class="factor-cell">
+                <span class="factor-bar" style="width:{{ (e.f_repayment or 0) * 48 }}px"></span>
+                {{ "%.2f"|format(e.f_repayment or 0) }}
+            </td>
+            <td class="factor-cell">
+                <span class="factor-bar" style="width:{{ (e.f_witness or 0) * 48 }}px"></span>
+                {{ "%.2f"|format(e.f_witness or 0) }}
+            </td>
+            <td class="factor-cell">
+                <span class="factor-bar" style="width:{{ (e.f_network or 0) * 48 }}px"></span>
+                {{ "%.2f"|format(e.f_network or 0) }}
+            </td>
+            <td class="factor-cell">
+                <span class="factor-bar" style="width:{{ (e.f_activity or 0) * 48 }}px"></span>
+                {{ "%.2f"|format(e.f_activity or 0) }}
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% else %}
+    <p class="empty">No trust score events yet. Complete a round-up or care request to begin building your reputation.</p>
+{% endif %}
+
+</body>
+</html>

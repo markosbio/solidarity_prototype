@@ -4,13 +4,15 @@
 <body>
 <h1>Welcome, {{ user.name }}</h1>
 <p>Sub-wallet balance: ${{ "%.2f"|format(user.sub_wallet_balance) }}</p>
-<p>Your trust score: {{ user.trust_score }}</p>
-<p>Round-up intensifier: {{ user.roundup_intensifier }}</p>
+<p>Your trust score: {{ "%.4f"|format(user.trust_score) }} &mdash; <a href="{{ url_for('trust_history') }}">View history &rarr;</a></p>
+<p>Witness accuracy: {{ "%.2f"|format(user.witness_accuracy_score) }}</p>
+<p>Round-up intensifier: {{ user.roundup_intensifier }}x</p>
 <p>Social credit owed: ${{ "%.2f"|format(user.total_social_credit) }}</p>
 <hr>
 <a href="{{ url_for('simulate_roundup') }}">Simulate round-up</a><br>
 <a href="{{ url_for('request_care') }}">Request care</a><br>
 <a href="{{ url_for('witness_dashboard') }}">Witness dashboard</a><br>
+<a href="{{ url_for('trust_history') }}">Trust score history</a><br>
 <a href="{{ url_for('logout') }}">Logout</a>
 </body>
 </html>

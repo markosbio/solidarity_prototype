@@ -52,6 +52,21 @@ class SystemState(db.Model):
     communal_pool_balance = db.Column(db.Float, default=0.0)
 
 
+class TrustEvent(db.Model):
+    """Audit log of every trust score change for a user."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    old_score = db.Column(db.Float, nullable=False)
+    new_score = db.Column(db.Float, nullable=False)
+    delta = db.Column(db.Float, nullable=False)
+    reason = db.Column(db.String(100), default='auto')
+    f_repayment = db.Column(db.Float)
+    f_witness = db.Column(db.Float)
+    f_network = db.Column(db.Float)
+    f_activity = db.Column(db.Float)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 class MpesaTransaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))

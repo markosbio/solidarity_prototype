@@ -8,8 +8,9 @@ from flask_login import (
 )
 from loguru import logger
 
-from models import db, User, Transaction, WitnessRequest, SystemState, MpesaTransaction
+from models import db, User, Transaction, WitnessRequest, SystemState, MpesaTransaction, TrustEvent
 from trust_graph import compute_draw_ceiling, TrustGraphError
+from trust_engine import recompute_trust_score, TrustEngineError
 from witness import select_witnesses, record_witness_outcome, WitnessSelectionError
 from recovery import update_recovery_parameters, RecoveryError
 from ussd import ussd_bp
@@ -156,6 +157,12 @@ def simulate_roundup():
         db.session.add(tx)
         db.session.commit()
         logger.info("Round-up: user_id={} amount={:.4f}", current_user.id, round_up)
+
+        try:
+            recompute_trust_score(current_user.id, reason='roundup')
+        except TrustEngineError as exc:
+            logger.error("TrustEngineError after roundup for user_id={}: {}", current_user.id, exc)
+
         return redirect(url_for('home'))
 
     return render_template('simulate_roundup.html', user=current_user)
@@ -226,6 +233,12 @@ def request_care():
             "Care request submitted: user_id={} needed={} from_sub={} from_pool={} social_credit={}",
             current_user.id, needed_amount, from_sub, from_pool, social_credit
         )
+
+        try:
+            recompute_trust_score(current_user.id, reason='care_request')
+        except TrustEngineError as exc:
+            logger.error("TrustEngineError after care_request for user_id={}: {}", current_user.id, exc)
+
         return render_template(
             'request_result.html',
             needed=needed_amount,
@@ -280,13 +293,36 @@ def verify_witness(request_id: int, response: str):
         db.session.commit()
         record_witness_outcome(request_id, 'verified')
         logger.info("Request {} verified by consensus", request_id)
+        try:
+            recompute_trust_score(req.user_id, reason='witness_verified')
+        except TrustEngineError as exc:
+            logger.error("TrustEngineError after witness_verified for user_id={}: {}", req.user_id, exc)
     elif total_votes >= total_witnesses:
         req.status = 'flagged'
         db.session.commit()
         record_witness_outcome(request_id, 'flagged')
         logger.info("Request {} flagged — insufficient yes votes", request_id)
+        try:
+            recompute_trust_score(req.user_id, reason='witness_flagged')
+        except TrustEngineError as exc:
+            logger.error("TrustEngineError after witness_flagged for user_id={}: {}", req.user_id, exc)
 
     return redirect(url_for('witness_dashboard'))
+
+
+# ── Trust History Route ────────────────────────────────────────────────────────
+
+@app.route('/trust_history')
+@login_required
+def trust_history():
+    events = (
+        TrustEvent.query
+        .filter_by(user_id=current_user.id)
+        .order_by(TrustEvent.timestamp.desc())
+        .limit(100)
+        .all()
+    )
+    return render_template('trust_history.html', user=current_user, events=events)
 
 
 # ── M-Pesa Routes ──────────────────────────────────────────────────────────────
@@ -365,6 +401,10 @@ def mpesa_callback():
                         description=f'M-Pesa payment {tx.mpesa_receipt}',
                     ))
             logger.info("M-Pesa payment confirmed: receipt={} amount={}", tx.mpesa_receipt, tx.amount)
+            try:
+                recompute_trust_score(tx.user_id, reason='mpesa_payment')
+            except TrustEngineError as exc:
+                logger.error("TrustEngineError after mpesa_payment for user_id={}: {}", tx.user_id, exc)
         else:
             tx.status = 'failed'
             logger.warning("M-Pesa payment failed: checkout_id={} desc={}", data['checkout_request_id'], data['result_desc'])
