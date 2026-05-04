@@ -168,31 +168,32 @@ def verify_witness(request_id, response):
     req.votes += f"{user.id}:{response},"
     db.session.commit()
     # Check consensus properly
-votes_list = [vote for vote in req.votes.split(',') if vote.strip()]
+    votes_list = [vote for vote in req.votes.split(',') if vote.strip()]
 
-yes_count = 0
-for vote in votes_list:
-    if ":accept" in vote:
-        yes_count += 1
+    yes_count = 0
+    for vote in votes_list:
+        if ":accept" in vote:
+            yes_count += 1
 
-total_votes = len(votes_list)
-total_witnesses = len(req.witness_ids.split(','))
+    total_votes = len(votes_list)
+    total_witnesses = len(req.witness_ids.split(','))
 
-# Require at least 2 YES votes
-if yes_count >= 2:
-    req.status = 'verified'
-    db.session.commit()
+    # Require at least 2 YES votes
+    if yes_count >= 2:
+        req.status = 'verified'
+        db.session.commit()
 
-# If everyone voted and still not enough YES votes → flagged
-elif total_votes >= total_witnesses:
-    req.status = 'flagged'
-    db.session.commit()
+    # If everyone voted and still not enough YES votes → flagged
+    elif total_votes >= total_witnesses:
+        req.status = 'flagged'
+        db.session.commit()
+
     return redirect(url_for('witness_dashboard'))
-    
+
 @app.route('/logout')
 def logout():
     session.pop('user_id', None)
     return redirect(url_for('login'))
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(host='0.0.0.0', debug=True, port=5000)
