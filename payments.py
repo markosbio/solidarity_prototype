@@ -1,11 +1,27 @@
-from models import Provider
+from models import db, PaymentRecord, Provider, User, Community, CareRequest
+from datetime import datetime
 
-def pay_provider(provider_id, amount):
+def generate_payment_reference():
+    today = datetime.utcnow().strftime("%Y-%m%d")
+    prefix = f"SHP-{today}-"
+    last = PaymentRecord.query.filter(PaymentRecord.reference_code.startswith(prefix)).count()
+    return f"{prefix}{last+1:04d}"
+
+def pay_provider(care_request_id, amount, provider_id, user_id, community_id):
     provider = Provider.query.get(provider_id)
     if not provider:
-        print(f"ERROR: Provider {provider_id} not found")
-        return False
-    # For prototype: just log the payment
-    print(f"💰 PAYMENT: ${amount} to {provider.name} ({provider.payment_details})")
-    # In production, integrate M-Pesa STK Push here
-    return True
+        return False, None
+    reference = generate_payment_reference()
+    payment = PaymentRecord(
+        reference_code=reference,
+        care_request_id=care_request_id,
+        user_id=user_id,
+        provider_id=provider_id,
+        community_id=community_id,
+        amount=amount,
+        status='sent'
+    )
+    db.session.add(payment)
+    db.session.commit()
+    print(f"PAYMENT INITIATED: {reference} to {provider.name} for ${amount}")
+    return True, reference
