@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+<head><title>Request Result</title></head>
+<body>
+<h2>Care Request Processed</h2>
+<p>Needed: ${{ needed }}</p>
+<p>Covered from your sub-wallet: ${{ "%.2f"|format(from_sub) }}</p>
+<p>Covered from communal pool: ${{ "%.2f"|format(from_pool) }}</p>
+<p>Social credit incurred: ${{ "%.2f"|format(social_credit) }}</p>
+<p>Witnesses have been notified. They will verify via their dashboard.</p>
+<a href="{{ url_for('home') }}">Return to dashboard</a>
+</body>
+</html>
