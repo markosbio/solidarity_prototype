@@ -1,20 +1,101 @@
 <!DOCTYPE html>
 <html>
-<head><title>Witness Dashboard</title></head>
+<head><title>Witness Dashboard</title>
+<style>
+  body { font-family: sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; }
+  h1 { margin-bottom: 4px; }
+  .subtitle { color: #666; margin-bottom: 24px; }
+  .request-card {
+    border: 1px solid #ddd; border-radius: 8px; padding: 16px;
+    margin-bottom: 14px; background: #fafafa;
+  }
+  .request-card.emergency { border-left: 4px solid #dc3545; background: #fff8f8; }
+  .request-card h3 { margin: 0 0 8px 0; font-size: 1rem; }
+  .meta { font-size: 0.85em; color: #666; margin-bottom: 10px; }
+  .masked { font-style: italic; color: #888; }
+  .actions a {
+    display: inline-block; padding: 6px 16px; border-radius: 4px;
+    text-decoration: none; font-size: 0.9rem; margin-right: 8px;
+  }
+  .btn-accept { background: #28a745; color: white; }
+  .btn-reject { background: #dc3545; color: white; }
+  .btn-accept:hover { background: #218838; }
+  .btn-reject:hover { background: #c82333; }
+  .empty { color: #888; font-style: italic; padding: 20px 0; }
+  .admin-badge { background: #ffc107; color: #333; font-size: 0.75em;
+                 padding: 2px 8px; border-radius: 10px; vertical-align: middle; }
+  a.back { color: #2d7dd2; }
+</style>
+</head>
 <body>
-<h1>Witness Tasks for {{ user.name }}</h1>
-{% if pending %}
-    <ul>
-    {% for req in pending %}
-        <li>Request #{{ req.id }} for amount ${{ req.needed_amount }} at {{ req.provider_id }}
-            <a href="{{ url_for('verify_witness', request_id=req.id, response='accept') }}">✅ Confirm</a>
-            <a href="{{ url_for('verify_witness', request_id=req.id, response='reject') }}">❌ Deny</a>
-        </li>
-    {% endfor %}
-    </ul>
-{% else %}
-    <p>No pending witness requests.</p>
+
+<h1>Witness Tasks</h1>
+<p class="subtitle">{{ user.name }}
+  {% if is_admin %}<span class="admin-badge">ADMIN VIEW</span>{% endif %}
+</p>
+
+<!-- Phase 1: New CareRequest items -->
+{% if pending_care %}
+<h2 style="font-size:1.1rem;">Care Requests (new flow)</h2>
+{% for cr in pending_care %}
+<div class="request-card {% if cr.is_emergency %}emergency{% endif %}">
+  {% if cr.is_emergency %}
+  <span style="color:#dc3545; font-weight:bold;">🚨 EMERGENCY — </span>
+  {% endif %}
+  <h3>Request #{{ cr.id }}
+    {% if cr.is_emergency %} · Emergency{% endif %}
+  </h3>
+
+  {% if is_admin %}
+    <!-- Phase 4: Admin sees full details -->
+    <div class="meta">
+      Requester: <strong>{{ cr.requester.name }}</strong> ({{ cr.requester.phone }})<br>
+      Provider: <strong>{{ cr.provider.name }}</strong> ({{ cr.provider.provider_code }})<br>
+      Amount: <strong>${{ "%.2f"|format(cr.amount_needed) }}</strong> —
+      from wallet ${{ "%.2f"|format(cr.amount_from_sub) }} /
+      from pool ${{ "%.2f"|format(cr.amount_from_pool) }}<br>
+      Submitted: {{ cr.created_at.strftime('%Y-%m-%d %H:%M') }}
+    </div>
+  {% else %}
+    <!-- Phase 4: Witnesses see privacy-masked summary -->
+    <p class="masked">
+      Health care request — Amount: ${{ "%.2f"|format(cr.amount_needed) }}<br>
+      Provider type: {{ cr.provider.payment_type or 'clinic/hospital' }}<br>
+      <em>Full details visible to community admins only.</em>
+    </p>
+  {% endif %}
+
+  <div class="actions">
+    <a class="btn-accept" href="{{ url_for('verify_care', request_id=cr.id, response='accept') }}">✓ Verify</a>
+    <a class="btn-reject" href="{{ url_for('verify_care', request_id=cr.id, response='reject') }}">✗ Deny</a>
+  </div>
+</div>
+{% endfor %}
 {% endif %}
-<a href="{{ url_for('home') }}">Back</a>
+
+<!-- Legacy WitnessRequest items -->
+{% if pending_legacy %}
+<h2 style="font-size:1.1rem; margin-top:24px;">Legacy Requests</h2>
+{% for req in pending_legacy %}
+<div class="request-card">
+  <h3>Request #{{ req.id }}</h3>
+  {% if is_admin %}
+    <div class="meta">Amount: ${{ "%.2f"|format(req.needed_amount) }} · Provider: {{ req.provider_id }}</div>
+  {% else %}
+    <p class="masked">Health emergency request — Amount: ${{ "%.2f"|format(req.needed_amount) }}</p>
+  {% endif %}
+  <div class="actions">
+    <a class="btn-accept" href="{{ url_for('verify_witness', request_id=req.id, response='accept') }}">✓ Verify</a>
+    <a class="btn-reject" href="{{ url_for('verify_witness', request_id=req.id, response='reject') }}">✗ Deny</a>
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+
+{% if not pending_care and not pending_legacy %}
+<p class="empty">No pending witness requests.</p>
+{% endif %}
+
+<p><a class="back" href="{{ url_for('home') }}">← Back to dashboard</a></p>
 </body>
 </html>

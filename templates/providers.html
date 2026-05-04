@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head><title>Provider Registry</title>
+<style>
+  body { font-family: sans-serif; max-width: 720px; margin: 40px auto; padding: 0 16px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+  th { background: #f0f0f0; text-align: left; padding: 8px 10px; border-bottom: 2px solid #ccc; }
+  td { padding: 8px 10px; border-bottom: 1px solid #eee; vertical-align: middle; }
+  tr:hover td { background: #f9f9f9; }
+  .badge-verified { background: #d4edda; color: #155724; padding: 2px 10px; border-radius: 10px; font-size: 0.82em; }
+  .badge-unverified { background: #f8d7da; color: #721c24; padding: 2px 10px; border-radius: 10px; font-size: 0.82em; }
+  .btn { display: inline-block; padding: 4px 14px; border-radius: 4px; font-size: 0.85em;
+         text-decoration: none; cursor: pointer; border: none; }
+  .btn-primary { background: #2d7dd2; color: white; }
+  .btn-toggle { background: #6c757d; color: white; }
+  .empty { color: #888; font-style: italic; }
+  h1 { margin-bottom: 4px; }
+  .actions { margin-bottom: 20px; }
+</style>
+</head>
+<body>
+<h1>Provider Registry</h1>
+<p style="color:#666;">Verified providers receive care funds directly — no user intermediary.</p>
+
+{% if is_admin %}
+<div class="actions">
+  <a class="btn btn-primary" href="{{ url_for('providers.add_provider') }}">+ Add Provider</a>
+</div>
+{% endif %}
+
+{% if providers %}
+<table>
+  <thead>
+    <tr>
+      <th>Name</th><th>Code</th><th>Payment</th><th>Details</th><th>Status</th>
+      {% if is_admin %}<th>Action</th>{% endif %}
+    </tr>
+  </thead>
+  <tbody>
+  {% for p in providers %}
+  <tr>
+    <td><strong>{{ p.name }}</strong></td>
+    <td><code>{{ p.provider_code }}</code></td>
+    <td>{{ p.payment_type or '—' }}</td>
+    <td>{{ p.payment_details or '—' }}</td>
+    <td>
+      {% if p.verified %}
+        <span class="badge-verified">Verified</span>
+      {% else %}
+        <span class="badge-unverified">Unverified</span>
+      {% endif %}
+    </td>
+    {% if is_admin %}
+    <td>
+      <form method="POST" action="{{ url_for('providers.verify_provider', provider_id=p.id) }}" style="display:inline">
+        <button class="btn btn-toggle">
+          {{ 'Unverify' if p.verified else 'Verify' }}
+        </button>
+      </form>
+    </td>
+    {% endif %}
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No providers registered yet.</p>
+{% endif %}
+
+<p style="margin-top:24px;"><a href="{{ url_for('home') }}">← Dashboard</a></p>
+</body>
+</html>

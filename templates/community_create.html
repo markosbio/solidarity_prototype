@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head><title>Create Community</title>
+<style>
+  body { font-family: sans-serif; max-width: 520px; margin: 40px auto; padding: 0 16px; }
+  label { display: block; margin-top: 14px; font-weight: bold; }
+  input, textarea { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; }
+  textarea { height: 80px; resize: vertical; }
+  button { margin-top: 20px; padding: 10px 24px; background: #2d7dd2; color: white;
+           border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; }
+  .error { color: #c00; background: #fff0f0; border: 1px solid #fcc;
+           padding: 10px; border-radius: 4px; margin-bottom: 16px; }
+  .note { font-size: 0.82em; color: #888; margin-top: 8px; }
+</style>
+</head>
+<body>
+<h2>Create a Community</h2>
+<p style="color:#666;">A community gets its own solidarity pool. You become the admin.</p>
+
+{% if error %}
+<div class="error">{{ error }}</div>
+{% endif %}
+
+<form method="POST">
+  <label>Community name
+    <input type="text" name="name" placeholder="e.g. Kampala Taxi Drivers" required>
+  </label>
+
+  <label>Description (optional)
+    <textarea name="description" placeholder="Brief description of this group…"></textarea>
+  </label>
+
+  <button type="submit">Create Community</button>
+</form>
+
+<p class="note">An invite code is generated automatically. Share it with members so they can join.</p>
+
+<p style="margin-top:20px;"><a href="{{ url_for('communities.list_communities') }}">← Back</a></p>
+</body>
+</html>

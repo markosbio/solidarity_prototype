@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head><title>Communities</title>
+<style>
+  body { font-family: sans-serif; max-width: 680px; margin: 40px auto; padding: 0 16px; }
+  h1 { margin-bottom: 4px; }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 14px; background: #fafafa; }
+  .card.mine { border-left: 4px solid #2d7dd2; }
+  .card.primary { border-left: 4px solid #28a745; }
+  .card h3 { margin: 0 0 6px 0; }
+  .meta { font-size: 0.85em; color: #666; margin-bottom: 10px; }
+  .role-badge { font-size: 0.75em; padding: 2px 8px; border-radius: 10px; }
+  .role-admin { background: #ffc107; color: #333; }
+  .role-coadmin { background: #17a2b8; color: white; }
+  .role-member { background: #e9ecef; color: #333; }
+  .btn { display: inline-block; padding: 5px 14px; border-radius: 4px; font-size: 0.85em;
+         text-decoration: none; border: none; cursor: pointer; margin-right: 6px; }
+  .btn-primary { background: #2d7dd2; color: white; }
+  .btn-success { background: #28a745; color: white; }
+  .btn-sm { padding: 3px 10px; font-size: 0.8em; }
+  .join-form { display: flex; gap: 8px; margin-top: 20px; }
+  .join-form input { flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+  .pool-amount { font-weight: bold; color: #2d7dd2; }
+  .contribute-form { display: flex; gap: 6px; margin-top: 8px; }
+  .contribute-form input { width: 80px; padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px; }
+  .invite { font-size: 0.82em; background: #f0f0f0; padding: 4px 8px; border-radius: 4px;
+            font-family: monospace; }
+  .primary-label { font-size: 0.78em; background: #d4edda; color: #155724;
+                   padding: 2px 8px; border-radius: 10px; }
+</style>
+</head>
+<body>
+<h1>My Communities</h1>
+
+<div style="margin-bottom:20px;">
+  <a class="btn btn-primary" href="{{ url_for('communities.create_community') }}">+ Create Community</a>
+</div>
+
+{% for m in my_memberships %}
+{% set c = m.community %}
+<div class="card mine {% if c.id == user.primary_community_id %}primary{% endif %}">
+  <h3>{{ c.name }}
+    <span class="role-badge role-{{ m.role }}">{{ m.role }}</span>
+    {% if c.id == user.primary_community_id %}
+      <span class="primary-label">Primary</span>
+    {% endif %}
+  </h3>
+  <div class="meta">
+    {{ c.description or '' }}<br>
+    Pool: <span class="pool-amount">${{ "%.2f"|format(c.pool_balance) }}</span> ·
+    Invite code: <span class="invite">{{ c.invite_code }}</span>
+  </div>
+
+  <!-- Contribute to pool -->
+  <form class="contribute-form" method="POST"
+        action="{{ url_for('communities.contribute', community_id=c.id) }}">
+    <input type="number" name="amount" step="0.01" min="0.01" placeholder="$0.00"
+           max="{{ user.sub_wallet_balance }}">
+    <button class="btn btn-success btn-sm" type="submit">Contribute to Pool</button>
+  </form>
+
+  {% if c.id != user.primary_community_id %}
+  <form method="POST" action="{{ url_for('communities.set_primary', community_id=c.id) }}"
+        style="display:inline; margin-top:8px;">
+    <button class="btn btn-sm" style="background:#6c757d;color:white;">Set as Primary</button>
+  </form>
+  {% endif %}
+</div>
+{% endfor %}
+
+{% if not my_memberships %}
+<p style="color:#888; font-style:italic;">You're not in any community yet. Create one or join with an invite code.</p>
+{% endif %}
+
+<!-- Join by invite code -->
+<h2 style="font-size:1.1rem; margin-top:28px;">Join a Community</h2>
+<form class="join-form" method="POST" action="{{ url_for('communities.join_community') }}">
+  <input type="text" name="invite_code" placeholder="Enter invite code (e.g. ABC12345)" required>
+  <button class="btn btn-primary" type="submit">Join</button>
+</form>
+
+<p style="margin-top:28px;"><a href="{{ url_for('home') }}">← Dashboard</a></p>
+</body>
+</html>

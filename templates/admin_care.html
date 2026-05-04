@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head><title>Admin — Care Approvals</title>
+<style>
+  body { font-family: sans-serif; max-width: 780px; margin: 40px auto; padding: 0 16px; }
+  h1 { margin-bottom: 4px; }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: 18px; margin-bottom: 16px; background: #fafafa; }
+  .card.emergency { border-left: 4px solid #dc3545; background: #fff8f8; }
+  .card h3 { margin: 0 0 10px 0; }
+  .meta { font-size: 0.88em; color: #444; line-height: 1.7; }
+  .meta strong { color: #111; }
+  .amount { font-size: 1.4rem; font-weight: bold; color: #2d7dd2; }
+  .btn { display: inline-block; padding: 8px 20px; border-radius: 4px; font-size: 0.92rem;
+         border: none; cursor: pointer; margin-right: 8px; }
+  .btn-approve { background: #28a745; color: white; }
+  .btn-deny { background: #dc3545; color: white; }
+  .btn-approve:hover { background: #218838; }
+  .btn-deny:hover { background: #c82333; }
+  .empty { color: #888; font-style: italic; padding: 20px 0; }
+  .tag { display: inline-block; font-size: 0.75em; padding: 2px 8px; border-radius: 10px; }
+  .tag-emergency { background: #f8d7da; color: #721c24; }
+  .tag-large { background: #fff3cd; color: #856404; }
+  .witness-count { font-size: 0.82em; color: #555; }
+</style>
+</head>
+<body>
+<h1>Admin — Pending Approvals</h1>
+<p style="color:#666; margin-bottom:24px;">
+  These requests have passed witness consensus and are waiting for admin sign-off
+  because they exceed the ${{ "%.0f"|format(50) }} threshold.
+</p>
+
+{% if pending %}
+{% for cr in pending %}
+<div class="card {% if cr.is_emergency %}emergency{% endif %}">
+  <h3>
+    Care Request #{{ cr.id }}
+    {% if cr.is_emergency %}<span class="tag tag-emergency">EMERGENCY</span>{% endif %}
+    {% if cr.amount_needed > 50 %}<span class="tag tag-large">Large Request</span>{% endif %}
+  </h3>
+
+  <div class="meta">
+    <strong>Requester:</strong> {{ cr.requester.name }} — {{ cr.requester.phone }}<br>
+    <strong>Provider:</strong> {{ cr.provider.name }} ({{ cr.provider.provider_code }})<br>
+    <strong>Payment to:</strong> {{ cr.provider.payment_details or 'N/A' }}
+    via {{ cr.provider.payment_type or 'N/A' }}<br>
+    <strong>Submitted:</strong> {{ cr.created_at.strftime('%Y-%m-%d %H:%M UTC') }}<br>
+    <span class="witness-count">
+      Witnesses voted:
+      {{ cr.witness_votes.split(',')|selectattr('0')|list|length }} of
+      {{ cr.witness_ids.split(',')|selectattr('0')|list|length }}
+    </span>
+  </div>
+
+  <div style="margin: 14px 0;">
+    <span class="amount">${{ "%.2f"|format(cr.amount_needed) }}</span>
+    <span style="font-size:0.85em; color:#555; margin-left:12px;">
+      From wallet: ${{ "%.2f"|format(cr.amount_from_sub) }} ·
+      From pool: ${{ "%.2f"|format(cr.amount_from_pool) }} ·
+      Social credit: ${{ "%.2f"|format(cr.social_credit) }}
+    </span>
+  </div>
+
+  <form method="POST" action="{{ url_for('admin_care_action', request_id=cr.id) }}"
+        style="display:inline">
+    <input type="hidden" name="action" value="approve">
+    <button class="btn btn-approve">✓ Approve &amp; Pay Provider</button>
+  </form>
+  <form method="POST" action="{{ url_for('admin_care_action', request_id=cr.id) }}"
+        style="display:inline">
+    <input type="hidden" name="action" value="deny">
+    <button class="btn btn-deny">✗ Deny</button>
+  </form>
+</div>
+{% endfor %}
+{% else %}
+<p class="empty">No requests awaiting admin approval.</p>
+{% endif %}
+
+<p style="margin-top:24px;"><a href="{{ url_for('home') }}">← Dashboard</a></p>
+</body>
+</html>

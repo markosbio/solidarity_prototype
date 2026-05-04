@@ -1,14 +1,62 @@
 <!DOCTYPE html>
 <html>
-<head><title>Request Care</title></head>
+<head><title>Request Care</title>
+<style>
+  body { font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 0 16px; }
+  label { display: block; margin-top: 14px; font-weight: bold; }
+  select, input[type=number] { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; }
+  .emergency-row { margin-top: 14px; display: flex; align-items: center; gap: 10px; }
+  .provider-detail { font-size: 0.85em; color: #666; margin-top: 4px; }
+  button { margin-top: 20px; padding: 10px 24px; background: #2d7dd2; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; }
+  .wallet-info { background: #f0f8ff; border: 1px solid #b8daff; border-radius: 6px; padding: 12px; margin-bottom: 20px; }
+  .error { color: #c00; background: #fff0f0; border: 1px solid #fcc; padding: 10px; border-radius: 4px; margin-bottom: 16px; }
+  a { color: #2d7dd2; }
+  .threshold-note { font-size: 0.82em; color: #888; margin-top: 6px; }
+</style>
+</head>
 <body>
 <h2>Request Financial Support</h2>
+
+<div class="wallet-info">
+  <strong>Your sub-wallet:</strong> ${{ "%.2f"|format(user.sub_wallet_balance) }}<br>
+  <strong>Trust score:</strong> {{ "%.4f"|format(user.trust_score) }}
+</div>
+
+{% if error %}
+<div class="error">{{ error }}</div>
+{% endif %}
+
 <form method="POST">
-    Amount needed ($): <input type="number" step="0.01" name="needed_amount" required><br>
-    Provider ID (e.g., clinic name): <input type="text" name="provider_id" required><br>
-    <button type="submit">Submit Request</button>
+  <label>Amount needed ($)
+    <input type="number" step="0.01" min="0.01" name="needed_amount" required>
+  </label>
+  <p class="threshold-note">Requests over ${{ "%.0f"|format(50) }} will require admin approval after witness consensus.</p>
+
+  <label>Provider (verified clinics/hospitals)
+    <select name="provider_id" required>
+      <option value="">— Select a provider —</option>
+      {% for p in providers %}
+      <option value="{{ p.id }}">{{ p.name }} ({{ p.provider_code }})</option>
+      {% endfor %}
+    </select>
+  </label>
+  {% if providers %}
+  <p class="provider-detail">Payment goes directly to the provider — not to your wallet.</p>
+  {% else %}
+  <p class="provider-detail" style="color:#c00;">No verified providers available. Ask an admin to add one.</p>
+  {% endif %}
+
+  <div class="emergency-row">
+    <input type="checkbox" name="is_emergency" value="1" id="emg">
+    <label for="emg" style="margin-top:0; font-weight:normal;">
+      This is a life-threatening emergency
+      <span style="font-size:0.82em; color:#888;">(bypasses admin approval delay)</span>
+    </label>
+  </div>
+
+  <button type="submit" {% if not providers %}disabled{% endif %}>Submit Request</button>
 </form>
-<p>Your sub-wallet: ${{ "%.2f"|format(user.sub_wallet_balance) }}</p>
-<a href="{{ url_for('home') }}">Back</a>
+
+<p style="margin-top:24px;"><a href="{{ url_for('home') }}">← Back to dashboard</a></p>
 </body>
 </html>

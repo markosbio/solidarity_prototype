@@ -1,22 +1,15 @@
 """
 Trust Score Reputation Engine.
 
-Recomputes a user's trust_score from four weighted factors:
+Four weighted factors → combined score [0.10, 1.00]:
+  Repayment health   40%   round-up contributions vs. social credit drawn
+  Witness reliability25%   witness_accuracy_score
+  Network quality    20%   weighted mean trust of depth-1 recruits
+  Activity           15%   recency-weighted round-up frequency
 
-  Factor                  Weight  Source
-  ──────────────────────  ──────  ──────────────────────────────────────────────
-  Repayment health          40%   ratio of lifetime round-up contributions
-                                  to total social credit drawn
-  Witness reliability       25%   witness_accuracy_score (updated by witness.py)
-  Network quality           20%   mean trust score of depth-1 recruits,
-                                  decayed if recruits themselves have low scores
-  Activity                  15%   recency-weighted round-up frequency
-                                  (# roundups in last 30 days vs. all-time)
-
-Score is clamped to [0.10, 1.00] and rounded to 4 decimal places.
-
-A TrustEvent audit row is written every time the score changes, recording the
-old score, new score, delta, and the triggering reason.
+get_combined_score()        — read-only, used by trust_graph.py
+recompute_trust_score()     — read + write (persists score + TrustEvent audit row)
+simulate_ceiling_preview()  — hypothetical deltas for /api/ceiling_preview
 """
 from __future__ import annotations
 
@@ -42,180 +35,206 @@ class TrustEngineError(Exception):
 # ── Factor calculators ────────────────────────────────────────────────────────
 
 def _repayment_factor(user: User) -> float:
-    """
-    Ratio of total round-up contributions to total social credit drawn.
-    No social credit → healthy baseline of 0.8.
-    Perfect repayment (contributions >= credit) → 1.0.
-    Partial repayment → linear interpolation, floored at 0.0.
-    """
     total_roundups = (
         db.session.query(db.func.coalesce(db.func.sum(Transaction.amount), 0.0))
-        .filter(Transaction.user_id == user.id, Transaction.type.in_(['roundup', 'mpesa_roundup']))
+        .filter(Transaction.user_id == user.id,
+                Transaction.type.in_(['roundup', 'mpesa_roundup']))
         .scalar()
     )
     credit = user.total_social_credit or 0.0
-
     if credit <= 0:
-        return 0.80  # no debt; modest baseline (not perfect — haven't been tested yet)
-
-    ratio = total_roundups / credit
-    return min(ratio, 1.0)
+        return 0.80
+    return min(total_roundups / credit, 1.0)
 
 
 def _witness_factor(user: User) -> float:
-    """Witness accuracy score is already normalised to [0, 1]."""
     return float(user.witness_accuracy_score or 0.5)
 
 
 def _network_factor(user: User) -> float:
-    """
-    Mean trust score of direct recruits, weighted by their own repayment health.
-    Returns 0.5 (neutral) when the user has no recruits.
-    """
     recruits = user.recruits
     if not recruits:
         return 0.50
-
     weighted_sum = 0.0
     weight_total = 0.0
     for r in recruits:
-        # Recruits with higher repayment health contribute more
-        recruit_repayment = _repayment_factor(r)
-        w = 0.5 + (recruit_repayment * 0.5)  # weight in [0.5, 1.0]
+        w = 0.5 + (_repayment_factor(r) * 0.5)
         weighted_sum += r.trust_score * w
         weight_total += w
-
     return weighted_sum / weight_total if weight_total > 0 else 0.5
 
 
 def _activity_factor(user: User) -> float:
-    """
-    Recency-weighted round-up frequency.
-
-    score = (roundups_last_30_days * 2 + roundups_all_time) / (2 + roundups_all_time + 1)
-
-    Rationale: recent activity is worth twice as much as old activity.
-    A brand-new user with 0 roundups gets 0.0; a very active user trends toward 1.0.
-    Soft cap at 1.0.
-    """
     cutoff = datetime.utcnow() - timedelta(days=30)
-
     all_time: int = (
         db.session.query(db.func.count(Transaction.id))
-        .filter(Transaction.user_id == user.id, Transaction.type.in_(['roundup', 'mpesa_roundup']))
+        .filter(Transaction.user_id == user.id,
+                Transaction.type.in_(['roundup', 'mpesa_roundup']))
         .scalar()
     ) or 0
-
     recent: int = (
         db.session.query(db.func.count(Transaction.id))
-        .filter(
-            Transaction.user_id == user.id,
-            Transaction.type.in_(['roundup', 'mpesa_roundup']),
-            Transaction.timestamp >= cutoff,
-        )
+        .filter(Transaction.user_id == user.id,
+                Transaction.type.in_(['roundup', 'mpesa_roundup']),
+                Transaction.timestamp >= cutoff)
         .scalar()
     ) or 0
-
     numerator = recent * 2 + all_time
-    denominator = all_time + 3  # +3 keeps new users from dividing near-zero
+    denominator = all_time + 3
     return min(numerator / denominator, 1.0)
 
 
-# ── Read-only combined score (used by trust_graph.py) ─────────────────────────
+def _raw_score(f_r: float, f_w: float, f_n: float, f_a: float) -> float:
+    raw = (WEIGHT_REPAYMENT * f_r + WEIGHT_WITNESS * f_w
+           + WEIGHT_NETWORK * f_n + WEIGHT_ACTIVITY * f_a)
+    return round(max(SCORE_MIN, min(SCORE_MAX, raw)), 4)
+
+
+# ── Read-only combined score ──────────────────────────────────────────────────
 
 def get_combined_score(user_id: int) -> float:
-    """
-    Compute and return the live multi-factor trust score without writing anything.
-
-    Safe to call from other modules (trust_graph, ussd, etc.) without side effects.
-    Returns SCORE_MIN if the user is not found.
-    """
+    """Compute the multi-factor score without writing. Safe to call anywhere."""
     try:
         user = User.query.get(user_id)
         if not user:
-            logger.warning("get_combined_score: user_id={} not found, returning min", user_id)
             return SCORE_MIN
-
-        f_repayment = _repayment_factor(user)
-        f_witness   = _witness_factor(user)
-        f_network   = _network_factor(user)
-        f_activity  = _activity_factor(user)
-
-        raw = (
-            WEIGHT_REPAYMENT * f_repayment
-            + WEIGHT_WITNESS  * f_witness
-            + WEIGHT_NETWORK  * f_network
-            + WEIGHT_ACTIVITY * f_activity
+        return _raw_score(
+            _repayment_factor(user),
+            _witness_factor(user),
+            _network_factor(user),
+            _activity_factor(user),
         )
-        return round(max(SCORE_MIN, min(SCORE_MAX, raw)), 4)
-
     except Exception as exc:
         logger.error("get_combined_score failed for user_id={}: {}", user_id, exc)
         return SCORE_MIN
 
 
-# ── Main entry point ──────────────────────────────────────────────────────────
+# ── Persist + audit ───────────────────────────────────────────────────────────
 
 def recompute_trust_score(user_id: int, reason: str = 'auto') -> float:
-    """
-    Recompute and persist the trust score for `user_id`.
-
-    Args:
-        user_id: Primary key of the user to update.
-        reason:  Human-readable label for the triggering event, stored in TrustEvent.
-
-    Returns:
-        The new trust score (float).
-
-    Raises:
-        TrustEngineError: if the user is not found or a database error occurs.
-    """
+    """Recompute, persist, and log a TrustEvent for user_id."""
     try:
         user = User.query.get(user_id)
         if not user:
             raise TrustEngineError(f"User with id={user_id} not found")
 
         old_score = round(float(user.trust_score), 4)
+        f_r = _repayment_factor(user)
+        f_w = _witness_factor(user)
+        f_n = _network_factor(user)
+        f_a = _activity_factor(user)
 
-        f_repayment = _repayment_factor(user)
-        f_witness   = _witness_factor(user)
-        f_network   = _network_factor(user)
-        f_activity  = _activity_factor(user)
-
-        raw = (
-            WEIGHT_REPAYMENT * f_repayment
-            + WEIGHT_WITNESS  * f_witness
-            + WEIGHT_NETWORK  * f_network
-            + WEIGHT_ACTIVITY * f_activity
-        )
-        new_score = round(max(SCORE_MIN, min(SCORE_MAX, raw)), 4)
-
+        new_score = _raw_score(f_r, f_w, f_n, f_a)
         user.trust_score = new_score
 
-        event = TrustEvent(
+        db.session.add(TrustEvent(
             user_id=user_id,
             old_score=old_score,
             new_score=new_score,
             delta=round(new_score - old_score, 4),
             reason=reason,
-            f_repayment=round(f_repayment, 4),
-            f_witness=round(f_witness, 4),
-            f_network=round(f_network, 4),
-            f_activity=round(f_activity, 4),
-        )
-        db.session.add(event)
+            f_repayment=round(f_r, 4),
+            f_witness=round(f_w, 4),
+            f_network=round(f_n, 4),
+            f_activity=round(f_a, 4),
+        ))
         db.session.commit()
 
-        logger.info(
-            "Trust score updated: user_id={} {} → {} (reason={}, "
-            "repayment={:.3f} witness={:.3f} network={:.3f} activity={:.3f})",
-            user_id, old_score, new_score, reason,
-            f_repayment, f_witness, f_network, f_activity,
-        )
+        logger.info("Trust score: user_id={} {} → {} ({})", user_id, old_score, new_score, reason)
         return new_score
 
     except TrustEngineError:
         raise
     except Exception as exc:
-        logger.error("Unexpected error in recompute_trust_score for user_id={}: {}", user_id, exc)
+        logger.error("recompute_trust_score failed for user_id={}: {}", user_id, exc)
         raise TrustEngineError(f"Trust score computation failed: {exc}") from exc
+
+
+# ── Ceiling preview simulation ────────────────────────────────────────────────
+
+def simulate_ceiling_preview(user_id: int) -> dict:
+    """
+    Return how much the draw ceiling would change with:
+      - one more round-up contribution (boosts activity factor)
+      - one more recruit at neutral trust (0.50) (boosts network factor + recruit bonus)
+
+    No DB writes. Used by GET /api/ceiling_preview.
+    """
+    from models import SystemState, WitnessRequest
+    from trust_graph import _pool_health_factor, _recent_verified_boost
+
+    user = User.query.get(user_id)
+    if not user:
+        return {}
+
+    # ── Current factors ───────────────────────────────────────────────────────
+    f_r = _repayment_factor(user)
+    f_w = _witness_factor(user)
+    f_n = _network_factor(user)
+    f_a = _activity_factor(user)
+
+    current_score = _raw_score(f_r, f_w, f_n, f_a)
+
+    state = SystemState.query.first()
+    pool = state.communal_pool_balance if state else 5000.0
+    health = _pool_health_factor(pool)
+    w_boost = _recent_verified_boost(user_id)
+
+    recruit_bonus = sum(get_combined_score(r.id) * 20.0 * 0.8 for r in user.recruits)
+    current_ceiling = round(min((current_score * 100.0 + recruit_bonus) * w_boost * health, 500.0), 2)
+
+    # ── Simulate +1 roundup ───────────────────────────────────────────────────
+    cutoff = datetime.utcnow() - timedelta(days=30)
+    all_time = (db.session.query(db.func.count(Transaction.id))
+                .filter(Transaction.user_id == user_id,
+                        Transaction.type.in_(['roundup', 'mpesa_roundup']))
+                .scalar()) or 0
+    recent = (db.session.query(db.func.count(Transaction.id))
+              .filter(Transaction.user_id == user_id,
+                      Transaction.type.in_(['roundup', 'mpesa_roundup']),
+                      Transaction.timestamp >= cutoff)
+              .scalar()) or 0
+
+    sim_a = min(((recent + 1) * 2 + (all_time + 1)) / (all_time + 1 + 3), 1.0)
+    sim_score_ru = _raw_score(f_r, f_w, f_n, sim_a)
+    sim_ceiling_ru = round(
+        min((sim_score_ru * 100.0 + recruit_bonus) * w_boost * health, 500.0), 2)
+
+    # ── Simulate +1 recruit at neutral score (0.5) ────────────────────────────
+    neutral = 0.50
+    recruits = user.recruits
+    if recruits:
+        cur_ws = sum(r.trust_score * (0.5 + _repayment_factor(r) * 0.5) for r in recruits)
+        cur_wt = sum(0.5 + _repayment_factor(r) * 0.5 for r in recruits)
+        extra_w = 0.75   # neutral recruit: repayment_factor ≈ 0.5 → weight = 0.75
+        sim_n = min((cur_ws + neutral * extra_w) / (cur_wt + extra_w), 1.0)
+    else:
+        sim_n = neutral * 0.5   # first recruit shifts from 0.5 baseline
+
+    sim_score_rec = _raw_score(f_r, f_w, sim_n, f_a)
+    sim_recruit_bonus = recruit_bonus + neutral * 20.0 * 0.8
+    sim_ceiling_rec = round(
+        min((sim_score_rec * 100.0 + sim_recruit_bonus) * w_boost * health, 500.0), 2)
+
+    return {
+        'current_score': current_score,
+        'current_ceiling': current_ceiling,
+        'factors': {
+            'repayment': round(f_r, 4),
+            'witness':   round(f_w, 4),
+            'network':   round(f_n, 4),
+            'activity':  round(f_a, 4),
+        },
+        'if_one_more_roundup': {
+            'score':         sim_score_ru,
+            'ceiling':       sim_ceiling_ru,
+            'score_delta':   round(sim_score_ru   - current_score,   4),
+            'ceiling_delta': round(sim_ceiling_ru - current_ceiling, 2),
+        },
+        'if_one_more_recruit': {
+            'score':         sim_score_rec,
+            'ceiling':       sim_ceiling_rec,
+            'score_delta':   round(sim_score_rec  - current_score,   4),
+            'ceiling_delta': round(sim_ceiling_rec - current_ceiling, 2),
+        },
+    }
