@@ -167,19 +167,26 @@ def verify_witness(request_id, response):
         req.votes = ''
     req.votes += f"{user.id}:{response},"
     db.session.commit()
-    # Check consensus
-    witness_ids = [int(x) for x in req.witness_ids.split(',')]
-    total = len(witness_ids)
-    # Count affirmative responses (we consider "accept" as yes)
-    votes_list = req.votes.split(',')
-    yes_count = sum(1 for vote in votes_list if vote.endswith('accept'))
-    if yes_count >= 2:  # simple threshold: at least 2 out of 3
-        req.status = 'verified'
-        db.session.commit()
-        # Optionally release funds (already done before verification in our flow)
-    elif len(votes_list) >= total:  # all voted and no consensus -> flag
-        req.status = 'flagged'
-        db.session.commit()
+    # Check consensus properly
+votes_list = [vote for vote in req.votes.split(',') if vote.strip()]
+
+yes_count = 0
+for vote in votes_list:
+    if ":accept" in vote:
+        yes_count += 1
+
+total_votes = len(votes_list)
+total_witnesses = len(req.witness_ids.split(','))
+
+# Require at least 2 YES votes
+if yes_count >= 2:
+    req.status = 'verified'
+    db.session.commit()
+
+# If everyone voted and still not enough YES votes → flagged
+elif total_votes >= total_witnesses:
+    req.status = 'flagged'
+    db.session.commit()
     return redirect(url_for('witness_dashboard'))
     
 @app.route('/logout')
