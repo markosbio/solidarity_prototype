@@ -28,7 +28,7 @@ def home():
     if 'user_id' in session:
         user = User.query.get(session['user_id'])
         return render_template('dashboard.html', user=user)
-    return redirect(url_for('register'))
+    return redirect(url_for('login'))
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
@@ -47,6 +47,22 @@ def register():
         return redirect(url_for('home'))
     return render_template('register.html')
 
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        phone = request.form['phone']
+
+        # Find existing user by phone
+        user = User.query.filter_by(phone=phone).first()
+
+        if user:
+            session['user_id'] = user.id
+            return redirect(url_for('home'))
+        else:
+            return "User not found. Please register first."
+
+    return render_template('login.html')
+    
 @app.route('/simulate_roundup', methods=['GET', 'POST'])
 def simulate_roundup():
     if 'user_id' not in session:
@@ -165,11 +181,11 @@ def verify_witness(request_id, response):
         req.status = 'flagged'
         db.session.commit()
     return redirect(url_for('witness_dashboard'))
-
+    
 @app.route('/logout')
 def logout():
     session.pop('user_id', None)
-    return redirect(url_for('register'))
+    return redirect(url_for('login'))
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
