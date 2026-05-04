@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head><title>Provider Dashboard</title></head>
+<body>
+<h1>Welcome, {{ provider.name }}</h1>
+<p>Your Code: {{ provider.provider_code }}</p>
+<h2>Payments Received</h2>
+<table border="1">
+    <tr><th>Reference</th><th>Patient</th><th>Community</th><th>Amount</th><th>Status</th><th>Action</th></tr>
+    {% for p in payments %}
+    <tr>
+        <td>{{ p.reference_code }}</td>
+        <td>{{ p.user.name }}</td>
+        <td>{{ p.community.name }}</td>
+        <td>${{ p.amount }}</td>
+        <td>{{ p.status }}</td>
+        <td>
+            {% if p.status == 'sent' %}
+                <a href="{{ url_for('confirm_payment', ref=p.reference_code) }}">Mark as Received</a>
+            {% elif p.status == 'received' %}
+                <a href="{{ url_for('start_treatment', ref=p.reference_code) }}">Start Treatment</a>
+            {% else %}
+                {{ p.status }}
+            {% endif %}
+        </td>
+    </tr>
+    {% endfor %}
+</table>
+<hr>
+<h2>Create Invoice Request (for a patient)</h2>
+<form method="POST" action="{{ url_for('provider_invoice') }}">
+    Patient Phone: <input type="text" name="patient_phone" required><br>
+    Amount (USD): <input type="number" step="0.01" name="amount" required><br>
+    Description: <input type="text" name="description" value="Medical Treatment" required><br>
+    <input type="hidden" name="provider_code" value="{{ provider.provider_code }}">
+    <button type="submit">Submit Invoice</button>
+</form>
+</body>
+</html>
