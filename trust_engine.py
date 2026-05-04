@@ -121,6 +121,39 @@ def _activity_factor(user: User) -> float:
     return min(numerator / denominator, 1.0)
 
 
+# ── Read-only combined score (used by trust_graph.py) ─────────────────────────
+
+def get_combined_score(user_id: int) -> float:
+    """
+    Compute and return the live multi-factor trust score without writing anything.
+
+    Safe to call from other modules (trust_graph, ussd, etc.) without side effects.
+    Returns SCORE_MIN if the user is not found.
+    """
+    try:
+        user = User.query.get(user_id)
+        if not user:
+            logger.warning("get_combined_score: user_id={} not found, returning min", user_id)
+            return SCORE_MIN
+
+        f_repayment = _repayment_factor(user)
+        f_witness   = _witness_factor(user)
+        f_network   = _network_factor(user)
+        f_activity  = _activity_factor(user)
+
+        raw = (
+            WEIGHT_REPAYMENT * f_repayment
+            + WEIGHT_WITNESS  * f_witness
+            + WEIGHT_NETWORK  * f_network
+            + WEIGHT_ACTIVITY * f_activity
+        )
+        return round(max(SCORE_MIN, min(SCORE_MAX, raw)), 4)
+
+    except Exception as exc:
+        logger.error("get_combined_score failed for user_id={}: {}", user_id, exc)
+        return SCORE_MIN
+
+
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 def recompute_trust_score(user_id: int, reason: str = 'auto') -> float:
