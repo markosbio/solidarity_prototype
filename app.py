@@ -1,750 +1,469 @@
-import os
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+from models import db, User, Transaction, Community, CommunityMembership, Provider, CareRequest, SystemState
+from trust_graph import compute_draw_ceiling
+from witness import select_witnesses
+from recovery import update_recovery_parameters
+from payments import pay_provider
+from trust_engine import get_combined_score  # make sure this exists in trust_engine.py
+import random
+import string
 from datetime import datetime
 
-from dotenv import load_dotenv
-from flask import Flask, render_template, request, redirect, url_for, jsonify, abort
-from flask_login import (
-    LoginManager, login_user, logout_user, login_required, current_user,
-)
-from loguru import logger
-
-from models import (
-    db, User, Transaction, WitnessRequest, SystemState, MpesaTransaction,
-    TrustEvent, Provider, CareRequest, Community, CommunityMembership,
-)
-from trust_graph import compute_draw_ceiling, TrustGraphError
-from trust_engine import (
-    recompute_trust_score, TrustEngineError, get_combined_score,
-    simulate_ceiling_preview,
-)
-from witness import select_witnesses, record_witness_outcome, WitnessSelectionError
-from recovery import update_recovery_parameters, RecoveryError
-from providers import providers_bp, pay_provider, _is_admin
-from communities import communities_bp
-from ussd import ussd_bp
-
-load_dotenv()
-
-# ── App setup ──────────────────────────────────────────────────────────────────
-
 app = Flask(__name__)
-app.secret_key = os.getenv('SECRET_KEY', 'solidarity-demo-key-change-in-production')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///solidarity.db')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
+app.secret_key = 'solidarity-final-key-change-in-production'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///solidarity.db'
 db.init_app(app)
 
-# ── Logging ────────────────────────────────────────────────────────────────────
-
-logger.add(
-    'logs/solidarity.log',
-    rotation='10 MB', retention='14 days', level='INFO',
-    format='{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}',
-)
-
-# ── Flask-Login ────────────────────────────────────────────────────────────────
-
-login_manager = LoginManager(app)
-login_manager.login_view = 'login'
-login_manager.login_message = 'Please log in to access this page.'
-
-
-@login_manager.user_loader
-def load_user(user_id: str):
-    return User.query.get(int(user_id))
-
-
-from flask_login import UserMixin
-User.__bases__ = (UserMixin, *User.__bases__)
-
-# ── Blueprints ─────────────────────────────────────────────────────────────────
-
-app.register_blueprint(ussd_bp)
-app.register_blueprint(providers_bp)
-app.register_blueprint(communities_bp)
-
-# ── Database init + column migrations ─────────────────────────────────────────
-
-ADMIN_THRESHOLD = 50.0   # care requests above this require admin approval
-
-
-def _migrate():
-    """Add new columns to existing tables (idempotent, PostgreSQL-safe)."""
-    stmts = [
-        'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS primary_community_id INTEGER',
-        'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS is_global_admin BOOLEAN DEFAULT FALSE',
-    ]
-    for sql in stmts:
-        try:
-            db.session.execute(db.text(sql))
-            db.session.commit()
-        except Exception as e:
-            db.session.rollback()
-            logger.debug("Migration (may already exist): {}", e)
-
-
+# Create tables if not exist
 with app.app_context():
-    os.makedirs('logs', exist_ok=True)
     db.create_all()
-    _migrate()
-
-    state = SystemState.query.first()
-    if not state:
-        state = SystemState(communal_pool_balance=5000.0)
-        db.session.add(state)
+    # Create a default global community if none exists
+    if Community.query.count() == 0:
+        default_comm = Community(name="Global Health Pool", invite_code="GLOBAL001", pool_balance=5000.0, admin_user_id=1)
+        db.session.add(default_comm)
         db.session.commit()
-        logger.info("Seeded global communal pool with KES 5000")
-
-    # Seed one verified demo provider if none exist
-    if not Provider.query.first():
-        demo = Provider(
-            name='Mulago National Hospital',
-            provider_code='MULAGO001',
-            payment_type='mpesa',
-            payment_details='256700000000',
-            verified=True,
-        )
-        db.session.add(demo)
+    # Create a test provider if none
+    if Provider.query.count() == 0:
+        mulago = Provider(name="Mulago Hospital", provider_code="MULAGO001", payment_type="mpesa", payment_details="254700000", verified=True)
+        db.session.add(mulago)
         db.session.commit()
-        logger.info("Seeded demo provider: MULAGO001")
 
-# ── Context helpers ────────────────────────────────────────────────────────────
-
-def _get_pool(user: User):
-    """Return (pool_obj, attr_name) for the user's active pool."""
-    if user.primary_community_id:
-        comm = Community.query.get(user.primary_community_id)
-        if comm:
-            return comm, 'pool_balance'
-    return SystemState.query.first(), 'communal_pool_balance'
-
-
-def _pool_balance(user: User) -> float:
-    obj, attr = _get_pool(user)
-    return getattr(obj, attr, 0.0)
-
-
-def _deduct_pool(user: User, amount: float):
-    obj, attr = _get_pool(user)
-    setattr(obj, attr, getattr(obj, attr, 0.0) - amount)
-
-
-# ── Standard web routes ────────────────────────────────────────────────────────
-
+# ---------------- Web Routes (existing, kept) ----------------
 @app.route('/')
-@login_required
 def home():
-    return render_template('dashboard.html', user=current_user,
-                           is_admin=_is_admin(current_user))
-
+    if 'user_id' in session:
+        user = User.query.get(session['user_id'])
+        return render_template('dashboard.html', user=user)
+    return redirect(url_for('register'))
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
-        phone = request.form.get('phone', '').strip()
-        name = request.form.get('name', '').strip()
-        referred_by = request.form.get('referred_by', '').strip()
-
-        if not phone or not name:
-            return render_template('register.html', error='Phone and name are required.')
-        if User.query.filter_by(phone=phone).first():
-            return render_template('register.html', error='Phone number already registered.')
-
-        user = User(phone=phone, name=name, sub_wallet_balance=0.0,
-                    trust_score=0.5, region_prefix=phone[:3])
+        phone = request.form['phone']
+        name = request.form['name']
+        referred_by = request.form.get('referred_by')
+        user = User(phone=phone, name=name, sub_wallet_balance=0.0, trust_score=0.5)
         if referred_by:
             referrer = User.query.filter_by(phone=referred_by).first()
             if referrer:
                 user.referred_by = referrer.id
-
         db.session.add(user)
         db.session.commit()
-        login_user(user)
-        logger.info("Registered: phone={} name={}", phone, name)
+        # Auto-join default community
+        default_comm = Community.query.first()
+        if default_comm:
+            membership = CommunityMembership(user_id=user.id, community_id=default_comm.id, role='member')
+            db.session.add(membership)
+            user.primary_community_id = default_comm.id
+            db.session.commit()
+        session['user_id'] = user.id
         return redirect(url_for('home'))
-
     return render_template('register.html')
 
-
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        phone = request.form.get('phone', '').strip()
-        user = User.query.filter_by(phone=phone).first()
-        if user:
-            login_user(user)
-            logger.info("Login: phone={}", phone)
-            return redirect(url_for('home'))
-        logger.warning("Failed login: phone={}", phone)
-        return render_template('login.html', error='User not found. Please register first.')
-    return render_template('login.html')
-
-
-@app.route('/logout')
-@login_required
-def logout():
-    logout_user()
-    return redirect(url_for('login'))
-
-
 @app.route('/simulate_roundup', methods=['GET', 'POST'])
-@login_required
 def simulate_roundup():
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    user = User.query.get(session['user_id'])
     if request.method == 'POST':
-        try:
-            purchase_amount = float(request.form['purchase_amount'])
-        except (KeyError, ValueError):
-            return render_template('simulate_roundup.html', user=current_user,
-                                   error='Please enter a valid purchase amount.')
-
+        purchase_amount = float(request.form['purchase_amount'])
         round_up = round(purchase_amount) - purchase_amount
         if round_up <= 0:
             round_up = 0.01
-
-        current_user.sub_wallet_balance += round_up
-        db.session.add(Transaction(
-            user_id=current_user.id, amount=round_up, type='roundup',
-            description=f'Round-up from {purchase_amount:.2f}',
-        ))
+        user.sub_wallet_balance += round_up
+        tx = Transaction(user_id=user.id, amount=round_up, type='roundup', description=f'Round-up from {purchase_amount}')
+        db.session.add(tx)
         db.session.commit()
-        logger.info("Round-up: user_id={} amount={:.4f}", current_user.id, round_up)
-
-        try:
-            recompute_trust_score(current_user.id, reason='roundup')
-        except TrustEngineError as exc:
-            logger.error("TrustEngineError after roundup: {}", exc)
-
         return redirect(url_for('home'))
-    return render_template('simulate_roundup.html', user=current_user)
-
-
-# ── Phase 1: Care request with provider registry ───────────────────────────────
+    return render_template('simulate_roundup.html', user=user)
 
 @app.route('/request_care', methods=['GET', 'POST'])
-@login_required
 def request_care():
-    providers = Provider.query.filter_by(verified=True).order_by(Provider.name).all()
-
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    user = User.query.get(session['user_id'])
     if request.method == 'POST':
-        try:
-            needed_amount = float(request.form['needed_amount'])
-            provider_id = int(request.form['provider_id'])
-            is_emergency = request.form.get('is_emergency') == '1'
-        except (KeyError, ValueError):
-            return render_template('request_care.html', user=current_user,
-                                   providers=providers, error='Invalid form data.')
-
-        provider = Provider.query.get(provider_id)
-        if not provider or not provider.verified:
-            return render_template('request_care.html', user=current_user,
-                                   providers=providers, error='Selected provider is not verified.')
-
-        try:
-            ceiling = compute_draw_ceiling(current_user.id)
-        except TrustGraphError as exc:
-            logger.error("TrustGraphError for user_id={}: {}", current_user.id, exc)
-            return render_template('request_care.html', user=current_user,
-                                   providers=providers, error='Could not compute draw ceiling.')
-
-        from_sub = min(current_user.sub_wallet_balance, needed_amount)
+        needed_amount = float(request.form['needed_amount'])
+        provider_id = int(request.form['provider_id'])
+        is_emergency = 'is_emergency' in request.form
+        community = Community.query.get(user.primary_community_id)
+        if not community:
+            return "You need to join a community first."
+        ceiling = compute_draw_ceiling(user.id)
+        from_sub = min(user.sub_wallet_balance, needed_amount)
         remaining = needed_amount - from_sub
-        current_user.sub_wallet_balance -= from_sub
-
+        user.sub_wallet_balance -= from_sub
         from_pool = 0.0
         social_credit = 0.0
-
         if remaining > 0:
-            pool_balance = _pool_balance(current_user)
-            allowed = min(remaining, ceiling - from_sub, pool_balance)
-            from_pool = max(allowed, 0.0)
-            _deduct_pool(current_user, from_pool)
+            allowed = min(remaining, ceiling - from_sub, community.pool_balance)
+            from_pool = allowed
+            community.pool_balance -= from_pool
             social_credit = remaining - from_pool
             if social_credit > 0:
-                current_user.total_social_credit += social_credit
-                try:
-                    update_recovery_parameters(current_user.id, social_credit)
-                except RecoveryError as exc:
-                    logger.error("RecoveryError: {}", exc)
+                user.total_social_credit += social_credit
+                update_recovery_parameters(user.id, social_credit)
             db.session.commit()
-
-        try:
-            witnesses = select_witnesses(
-                current_user.id, provider.provider_code,
-                community_id=current_user.primary_community_id,
-            )
-        except WitnessSelectionError as exc:
-            logger.error("WitnessSelectionError: {}", exc)
-            witnesses = []
-
+        # Create care request
         care_req = CareRequest(
-            user_id=current_user.id,
+            user_id=user.id,
+            community_id=community.id,
             provider_id=provider_id,
-            community_id=current_user.primary_community_id,
             amount_needed=needed_amount,
             amount_from_sub=from_sub,
             amount_from_pool=from_pool,
             social_credit=social_credit,
-            status='pending',
             is_emergency=is_emergency,
-            witness_ids=','.join(str(w.id) for w in witnesses),
+            status='pending_witness'
         )
         db.session.add(care_req)
         db.session.commit()
-
-        logger.info(
-            "CareRequest #{} created: user_id={} provider={} needed={} emergency={}",
-            care_req.id, current_user.id, provider.provider_code, needed_amount, is_emergency,
-        )
-
-        try:
-            recompute_trust_score(current_user.id, reason='care_request')
-        except TrustEngineError:
-            pass
-
-        return render_template(
-            'request_result.html',
-            needed=needed_amount, from_sub=from_sub, from_pool=from_pool,
-            social_credit=social_credit, request_id=care_req.id,
-            provider=provider, is_emergency=is_emergency,
-        )
-
-    return render_template('request_care.html', user=current_user, providers=providers)
-
-
-# ── Phase 1+3: Witness dashboard (privacy-masked) + CareRequest verification ──
+        # Select witnesses (from same community)
+        witnesses = select_witnesses(user.id, provider_id, community_id=community.id)
+        witness_ids = ','.join(str(w.id) for w in witnesses)
+        care_req.witness_ids = witness_ids
+        db.session.commit()
+        return render_template('request_result.html', needed=needed_amount, from_sub=from_sub, from_pool=from_pool, social_credit=social_credit, request_id=care_req.id)
+    providers = Provider.query.filter_by(verified=True).all()
+    return render_template('request_care.html', user=user, providers=providers)
 
 @app.route('/witness_dashboard')
-@login_required
 def witness_dashboard():
-    # CareRequests where current user is a witness
-    pending_care = [
-        cr for cr in CareRequest.query.filter_by(status='pending').all()
-        if cr.witness_ids and str(current_user.id) in cr.witness_ids.split(',')
-    ]
-    # Legacy WitnessRequests (backward compat)
-    pending_legacy = [
-        r for r in WitnessRequest.query.filter_by(status='pending').all()
-        if r.witness_ids and str(current_user.id) in r.witness_ids.split(',')
-    ]
-    is_admin = _is_admin(current_user)
-    return render_template(
-        'witness_dashboard.html', user=current_user,
-        pending_care=pending_care, pending_legacy=pending_legacy,
-        is_admin=is_admin,
-    )
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    user = User.query.get(session['user_id'])
+    pending = []
+    requests = CareRequest.query.filter_by(status='pending_witness').all()
+    for req in requests:
+        if req.witness_ids and str(user.id) in req.witness_ids.split(','):
+            pending.append(req)
+    return render_template('witness_dashboard.html', user=user, pending=pending)
 
-
-@app.route('/care/verify/<int:request_id>/<response>')
-@login_required
-def verify_care(request_id: int, response: str):
-    if response not in ('accept', 'reject'):
-        abort(400, description='Invalid response.')
-
-    care_req = CareRequest.query.get_or_404(request_id)
-
-    if care_req.status != 'pending':
-        abort(400, description='Request is no longer pending.')
-
-    witness_ids = [w for w in (care_req.witness_ids or '').split(',') if w.strip()]
-    if str(current_user.id) not in witness_ids:
-        abort(403, description='You are not a witness for this request.')
-
-    # Prevent double-voting
-    votes = care_req.witness_votes or ''
-    if f"{current_user.id}:" in votes:
-        return redirect(url_for('witness_dashboard'))
-
-    care_req.witness_votes = votes + f"{current_user.id}:{response},"
-    db.session.commit()
-
-    votes_list = [v for v in care_req.witness_votes.split(',') if v.strip()]
-    yes_count = sum(1 for v in votes_list if ':accept' in v)
-    total_votes = len(votes_list)
-    total_witnesses = len(witness_ids)
-
-    requires_admin = (care_req.amount_needed > ADMIN_THRESHOLD) and not care_req.is_emergency
-
-    if yes_count >= 2:
-        care_req.witness_approved = True
-        if not requires_admin:
-            # Auto-approve: emergency OR small amount
-            care_req.status = 'admin_approved'
-            db.session.commit()
-            if care_req.amount_from_pool > 0:
-                pay_provider(care_req.provider_id, care_req.amount_from_pool, care_req.id)
-            logger.info("CareRequest #{} auto-approved and paid (emergency={}, amount={})",
-                        request_id, care_req.is_emergency, care_req.amount_needed)
-        else:
-            care_req.status = 'witness_approved'
-            db.session.commit()
-            logger.info("CareRequest #{} witness-approved, awaiting admin", request_id)
-
-        record_witness_outcome(request_id, 'paid', model='care')
-        try:
-            recompute_trust_score(care_req.user_id, reason='witness_verified')
-        except TrustEngineError:
-            pass
-
-    elif total_votes >= total_witnesses:
-        care_req.status = 'flagged'
-        db.session.commit()
-        record_witness_outcome(request_id, 'flagged', model='care')
-        logger.info("CareRequest #{} flagged", request_id)
-        try:
-            recompute_trust_score(care_req.user_id, reason='witness_flagged')
-        except TrustEngineError:
-            pass
-
-    return redirect(url_for('witness_dashboard'))
-
-
-# Legacy WitnessRequest verification (backward compat)
 @app.route('/verify_witness/<int:request_id>/<response>')
-@login_required
-def verify_witness(request_id: int, response: str):
-    if response not in ('accept', 'reject'):
-        abort(400, description='Invalid response value.')
-
-    req = WitnessRequest.query.get(request_id)
-    if not req or req.status != 'pending':
-        abort(400, description='Request already resolved or invalid.')
-    if not req.witness_ids or str(current_user.id) not in req.witness_ids.split(','):
-        abort(403, description='You are not a witness for this request.')
-
-    existing_votes = req.votes or ''
-    if f"{current_user.id}:" in existing_votes:
-        return redirect(url_for('witness_dashboard'))
-
-    req.votes = existing_votes + f"{current_user.id}:{response},"
-    db.session.commit()
-
-    votes_list = [v for v in req.votes.split(',') if v.strip()]
-    yes_count = sum(1 for v in votes_list if ':accept' in v)
-    total_votes = len(votes_list)
-    total_witnesses = len([w for w in req.witness_ids.split(',') if w.strip()])
-
-    if yes_count >= 2:
-        req.status = 'verified'
+def verify_witness(request_id, response):
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    user = User.query.get(session['user_id'])
+    care_req = CareRequest.query.get(request_id)
+    if not care_req or care_req.status != 'pending_witness':
+        return "Invalid request", 400
+    if str(user.id) not in care_req.witness_ids.split(','):
+        return "Not authorized", 403
+    # Record vote
+    votes = care_req.witness_votes.split(',') if care_req.witness_votes else []
+    if f"{user.id}:{response}" not in votes:
+        votes.append(f"{user.id}:{response}")
+        care_req.witness_votes = ','.join(votes)
         db.session.commit()
-        record_witness_outcome(request_id, 'verified')
-        try:
-            recompute_trust_score(req.user_id, reason='witness_verified')
-        except TrustEngineError:
-            pass
-    elif total_votes >= total_witnesses:
-        req.status = 'flagged'
+    # Count approvals
+    yes_count = sum(1 for v in votes if v.endswith('accept'))
+    total_witnesses = len(care_req.witness_ids.split(','))
+    if yes_count >= 2:  # threshold
+        # Witness approved. Check if admin needed
+        need_admin = (care_req.amount_needed > 50) or care_req.is_emergency
+        if need_admin:
+            care_req.status = 'pending_admin'
+        else:
+            care_req.status = 'admin_approved'  # auto-approved
+            care_req.admin_approved = True
+            # Pay provider directly
+            pay_provider(care_req.provider_id, care_req.amount_from_pool)
         db.session.commit()
-        record_witness_outcome(request_id, 'flagged')
-        try:
-            recompute_trust_score(req.user_id, reason='witness_flagged')
-        except TrustEngineError:
-            pass
-
+    elif len(votes) >= total_witnesses:
+        # All voted but insufficient yes -> reject
+        care_req.status = 'rejected'
+        db.session.commit()
     return redirect(url_for('witness_dashboard'))
 
+@app.route('/logout')
+def logout():
+    session.pop('user_id', None)
+    return redirect(url_for('register'))
 
-# ── Phase 3: Admin care approval ───────────────────────────────────────────────
-
-@app.route('/admin/care')
-@login_required
-def admin_care():
-    if not _is_admin(current_user):
-        abort(403, description='Admin access required.')
-    pending = CareRequest.query.filter_by(status='witness_approved').order_by(
-        CareRequest.created_at
-    ).all()
-    return render_template('admin_care.html', user=current_user, pending=pending)
-
-
-@app.route('/admin/care/<int:request_id>/action', methods=['POST'])
-@login_required
-def admin_care_action(request_id: int):
-    if not _is_admin(current_user):
-        abort(403)
-    care_req = CareRequest.query.get_or_404(request_id)
-    action = request.form.get('action', 'approve')
-
-    if action == 'approve':
-        care_req.admin_approved = True
-        care_req.admin_id = current_user.id
-        care_req.status = 'admin_approved'
-        db.session.commit()
-        if care_req.amount_from_pool > 0:
-            ok = pay_provider(care_req.provider_id, care_req.amount_from_pool, care_req.id)
-            if not ok:
-                logger.error("pay_provider failed for CareRequest #{}", request_id)
-        logger.info("CareRequest #{} admin-approved by user_id={}", request_id, current_user.id)
-    elif action == 'deny':
-        care_req.status = 'admin_denied'
-        db.session.commit()
-        logger.info("CareRequest #{} admin-denied by user_id={}", request_id, current_user.id)
-
-    return redirect(url_for('admin_care'))
-
-
-# ── Trust history ──────────────────────────────────────────────────────────────
-
-@app.route('/trust_history')
-@login_required
-def trust_history():
-    events = (TrustEvent.query
-              .filter_by(user_id=current_user.id)
-              .order_by(TrustEvent.timestamp.desc())
-              .limit(100).all())
-    return render_template('trust_history.html', user=current_user, events=events)
-
-
-# ── Ceiling preview API ────────────────────────────────────────────────────────
-
-@app.route('/api/ceiling_preview')
-@login_required
-def ceiling_preview():
-    try:
-        data = simulate_ceiling_preview(current_user.id)
-    except Exception as exc:
-        logger.error("ceiling_preview failed for user_id={}: {}", current_user.id, exc)
-        return jsonify({'error': 'Could not compute preview.'}), 500
-    return jsonify(data)
-
-
-# ── M-Pesa routes ──────────────────────────────────────────────────────────────
-
-@app.route('/mpesa/stk_push', methods=['POST'])
-@login_required
-def mpesa_stk_push():
-    from mpesa import stk_push, MpesaError
-    try:
-        amount = float(request.form.get('amount', 0))
-        purpose = request.form.get('purpose', 'roundup')
-        if amount <= 0:
-            return jsonify({'error': 'Amount must be positive'}), 400
-    except ValueError:
-        return jsonify({'error': 'Invalid amount'}), 400
-
-    try:
-        result = stk_push(phone=current_user.phone, amount=amount,
-                          account_reference='SolidarityPool',
-                          description=f'Solidarity {purpose}')
-    except MpesaError as exc:
-        logger.error("STK Push failed for user_id={}: {}", current_user.id, exc)
-        return jsonify({'error': str(exc)}), 502
-
-    mpesa_tx = MpesaTransaction(
-        user_id=current_user.id,
-        checkout_request_id=result.get('CheckoutRequestID'),
-        merchant_request_id=result.get('MerchantRequestID'),
-        phone=current_user.phone, amount=amount, purpose=purpose, status='pending',
-    )
-    db.session.add(mpesa_tx)
-    db.session.commit()
-    return jsonify({'message': 'STK Push sent. Check your phone.',
-                    'checkout_request_id': result.get('CheckoutRequestID')})
-
-
-@app.route('/mpesa/callback', methods=['POST'])
-def mpesa_callback():
-    from mpesa import parse_stk_callback, MpesaError
-    try:
-        data = parse_stk_callback(request.get_json(force=True) or {})
-    except MpesaError as exc:
-        logger.error("M-Pesa callback parse error: {}", exc)
-        return jsonify({'ResultCode': 1, 'ResultDesc': 'Parse error'}), 400
-
-    tx = MpesaTransaction.query.filter_by(
-        checkout_request_id=data['checkout_request_id']
-    ).first()
-
-    if tx:
-        if data['result_code'] == 0:
-            tx.status = 'success'
-            tx.mpesa_receipt = data.get('mpesa_receipt')
-            if tx.purpose == 'roundup':
-                user = User.query.get(tx.user_id)
-                if user:
-                    user.sub_wallet_balance += tx.amount
-                    db.session.add(Transaction(
-                        user_id=user.id, amount=tx.amount, type='mpesa_roundup',
-                        description=f'M-Pesa payment {tx.mpesa_receipt}',
-                    ))
-            logger.info("M-Pesa confirmed: receipt={} amount={}", tx.mpesa_receipt, tx.amount)
-            try:
-                recompute_trust_score(tx.user_id, reason='mpesa_payment')
-            except TrustEngineError:
-                pass
-        else:
-            tx.status = 'failed'
-            logger.warning("M-Pesa failed: {}", data['result_desc'])
-        db.session.commit()
-    return jsonify({'ResultCode': 0, 'ResultDesc': 'Accepted'})
-
-
-# ── Simple USSD route (Phase 1 updated: provider code validation) ──────────────
-
-ussd_sessions: dict = {}
-
+# ---------------- USSD (Africa's Talking) ----------------
+ussd_sessions = {}
 
 @app.route('/ussd', methods=['GET', 'POST'])
 def ussd():
     phone = request.values.get("phoneNumber", "")
     text = request.values.get("text", "")
     user = User.query.filter_by(phone=phone).first()
-
     inputs = text.split('*') if text else []
     step = len(inputs)
 
     def r(msg, end=False):
         return f"{'END' if end else 'CON'} {msg}"
 
+    # Registration
     if not user:
         if step == 0:
-            return r("Welcome to SolidarityPool\n1. Register\n2. Exit")
+            return r("Welcome to Solidarity Health Pool.\nNot registered.\n1. Register\n2. Exit")
         elif step == 1 and inputs[0] == "1":
             return r("Enter your full name:")
         elif step == 2:
-            name = inputs[1].strip()
-            if not name:
-                return r("Name cannot be blank.", end=True)
-            new_user = User(phone=phone, name=name, sub_wallet_balance=0.0,
-                            trust_score=0.5, region_prefix=phone[:3])
+            name = inputs[1]
+            new_user = User(phone=phone, name=name, sub_wallet_balance=0.0, trust_score=0.5)
             db.session.add(new_user)
             db.session.commit()
-            logger.info("USSD registration: phone={}", phone)
-            return r(f"Registered as {name}. Dial again to log in.", end=True)
-        else:
-            return r("Goodbye.", end=True)
+            # Join default community (first one)
+            default_comm = Community.query.first()
+            if default_comm:
+                membership = CommunityMembership(user_id=new_user.id, community_id=default_comm.id, role='member')
+                db.session.add(membership)
+                new_user.primary_community_id = default_comm.id
+                db.session.commit()
+            return r(f"Registered {name}. Use same number to access services.", end=True)
+        return r("Invalid.", end=True)
+
+    # Registered user
+    primary_comm = Community.query.get(user.primary_community_id) if user.primary_community_id else None
+    membership = CommunityMembership.query.filter_by(user_id=user.id, community_id=user.primary_community_id).first() if user.primary_community_id else None
+    role = membership.role if membership else 'member'
 
     if step == 0:
-        return r(f"Hi {user.name}\n1. Balance\n2. Request care\n3. Trust score\n4. Exit")
+        menu = f"Hi {user.name}\n1. Balance\n2. Request care\n3. Trust score\n4. Community\n5. Witness tasks\n"
+        if role in ['admin', 'coadmin']:
+            menu += "6. Admin panel\n"
+        menu += "7. Exit"
+        return r(menu)
 
     choice = inputs[0]
 
+    # Balance
     if choice == "1":
-        state = SystemState.query.first()
-        pool = state.communal_pool_balance if state else 0
-        return r(f"Wallet: ${user.sub_wallet_balance:.2f}\nPool: ${pool:.2f}")
+        if primary_comm:
+            bal = f"Wallet: ${user.sub_wallet_balance:.2f}\nPool: ${primary_comm.pool_balance:.2f}"
+        else:
+            bal = "Join a community first (option 4)."
+        return r(bal)
 
+    # Trust score
     if choice == "3":
         score = get_combined_score(user.id)
-        ceiling = compute_draw_ceiling(user.id)
-        return r(f"Trust: {score:.2f}\nDraw ceiling: ${ceiling:.2f}")
+        return r(f"Trust score: {score:.2f}")
 
-    if choice == "2":
+    # Community actions
+    if choice == "4":
         if step == 1:
-            return r("Enter amount needed ($):")
+            return r("1. Create community\n2. Join community\n0. Back")
+        elif step == 2:
+            sub = inputs[1]
+            if sub == "1":
+                ussd_sessions[phone] = {"state": "create_name"}
+                return r("Enter community name:")
+            elif sub == "2":
+                ussd_sessions[phone] = {"state": "join_invite"}
+                return r("Enter invite code:")
+            else:
+                return r("Invalid.", end=True)
+        elif step == 3:
+            state = ussd_sessions.get(phone, {}).get("state")
+            if state == "create_name":
+                comm_name = inputs[2]
+                invite = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+                new_comm = Community(name=comm_name, invite_code=invite, pool_balance=0.0, admin_user_id=user.id)
+                db.session.add(new_comm)
+                db.session.commit()
+                membership = CommunityMembership(user_id=user.id, community_id=new_comm.id, role='admin')
+                db.session.add(membership)
+                user.primary_community_id = new_comm.id
+                db.session.commit()
+                ussd_sessions.pop(phone, None)
+                return r(f"Community '{comm_name}' created. Invite code: {invite}", end=True)
+            elif state == "join_invite":
+                invite_code = inputs[2].strip().upper()
+                comm = Community.query.filter_by(invite_code=invite_code).first()
+                if not comm:
+                    return r("Invalid invite code.", end=True)
+                existing = CommunityMembership.query.filter_by(user_id=user.id, community_id=comm.id).first()
+                if existing:
+                    return r("Already a member.", end=True)
+                membership = CommunityMembership(user_id=user.id, community_id=comm.id, role='member')
+                db.session.add(membership)
+                user.primary_community_id = comm.id
+                db.session.commit()
+                return r(f"Joined {comm.name}.", end=True)
+        return r("Session expired.", end=True)
+
+    # Request care
+    if choice == "2":
+        if not primary_comm:
+            return r("Join a community first (option 4).", end=True)
+        if step == 1:
+            return r("Enter amount (USD):")
         elif step == 2:
             try:
                 amount = float(inputs[1])
-                if amount <= 0:
-                    return r("Amount must be positive.", end=True)
-                ussd_sessions[phone] = {"amount": amount}
-                # Show verified providers
-                pvds = Provider.query.filter_by(verified=True).limit(3).all()
-                menu = "Enter provider code:\n" + "\n".join(
-                    f"{p.provider_code}" for p in pvds
-                )
-                return r(menu)
-            except (ValueError, IndexError):
+                ussd_sessions[phone] = {"amount": amount, "state": "awaiting_provider"}
+                return r("Enter provider code (e.g., MULAGO001):")
+            except:
                 return r("Invalid amount.", end=True)
         elif step == 3:
             provider_code = inputs[2].strip().upper()
+            provider = Provider.query.filter_by(provider_code=provider_code, verified=True).first()
+            if not provider:
+                return r("Provider not found or unverified.", end=True)
             amount = ussd_sessions.get(phone, {}).get("amount", 0)
             if amount <= 0:
-                return r("Session expired. Please try again.", end=True)
-
-            provider = Provider.query.filter_by(
-                provider_code=provider_code, verified=True
-            ).first()
-            if not provider:
-                ussd_sessions.pop(phone, None)
-                return r(f"Provider code '{provider_code}' not found or not verified.", end=True)
-
-            # Process the care request
-            try:
-                ceiling = compute_draw_ceiling(user.id)
-            except TrustGraphError:
-                ussd_sessions.pop(phone, None)
-                return r("Could not compute draw ceiling.", end=True)
-
+                return r("Session expired.", end=True)
+            ussd_sessions[phone]["provider_id"] = provider.id
+            return r("Emergency? (1=Yes, 2=No)")
+        elif step == 4:
+            emerg = (inputs[3] == "1")
+            amount = ussd_sessions[phone]["amount"]
+            provider_id = ussd_sessions[phone]["provider_id"]
+            provider = Provider.query.get(provider_id)
+            ceiling = compute_draw_ceiling(user.id)
             from_sub = min(user.sub_wallet_balance, amount)
             remaining = amount - from_sub
             user.sub_wallet_balance -= from_sub
-
             from_pool = 0.0
             social_credit = 0.0
-            state = SystemState.query.first()
-            if remaining > 0 and state:
-                allowed = min(remaining, ceiling - from_sub, state.communal_pool_balance)
-                from_pool = max(allowed, 0.0)
-                state.communal_pool_balance -= from_pool
+            if remaining > 0:
+                allowed = min(remaining, ceiling - from_sub, primary_comm.pool_balance)
+                from_pool = allowed
+                primary_comm.pool_balance -= from_pool
                 social_credit = remaining - from_pool
                 if social_credit > 0:
                     user.total_social_credit += social_credit
-                    try:
-                        update_recovery_parameters(user.id, social_credit)
-                    except RecoveryError:
-                        pass
+                    update_recovery_parameters(user.id, social_credit)
                 db.session.commit()
-
-            try:
-                witnesses = select_witnesses(user.id, provider_code,
-                                            community_id=user.primary_community_id)
-            except WitnessSelectionError:
-                witnesses = []
-
-            # Large requests via USSD are treated as non-emergency
+            # Create care request
             care_req = CareRequest(
-                user_id=user.id, provider_id=provider.id,
-                community_id=user.primary_community_id,
-                amount_needed=amount, amount_from_sub=from_sub,
-                amount_from_pool=from_pool, social_credit=social_credit,
-                status='pending', is_emergency=False,
-                witness_ids=','.join(str(w.id) for w in witnesses),
+                user_id=user.id,
+                community_id=primary_comm.id,
+                provider_id=provider_id,
+                amount_needed=amount,
+                amount_from_sub=from_sub,
+                amount_from_pool=from_pool,
+                social_credit=social_credit,
+                is_emergency=emerg,
+                status='pending_witness'
             )
             db.session.add(care_req)
             db.session.commit()
-
-            try:
-                recompute_trust_score(user.id, reason='ussd_care_request')
-            except TrustEngineError:
-                pass
-
+            # Select witnesses from same community
+            witnesses = select_witnesses(user.id, provider_id, community_id=primary_comm.id)
+            witness_ids = ','.join(str(w.id) for w in witnesses)
+            care_req.witness_ids = witness_ids
+            db.session.commit()
             ussd_sessions.pop(phone, None)
-            return r(
-                f"Request #{care_req.id} sent to {provider.name}.\n"
-                f"Wallet: ${from_sub:.2f} | Pool: ${from_pool:.2f}\n"
-                f"Credit: ${social_credit:.2f}",
-                end=True,
-            )
+            need_admin = (amount > 50) or emerg
+            msg = f"Request submitted. {len(witnesses)} witnesses will verify."
+            if need_admin:
+                msg += " Admin approval also required."
+            return r(msg, end=True)
 
-    if choice == "4":
+    # Witness tasks (simplified)
+    if choice == "5":
+        # Find pending witness requests for this user
+        pending = []
+        requests = CareRequest.query.filter_by(status='pending_witness').all()
+        for req in requests:
+            if req.witness_ids and str(user.id) in req.witness_ids.split(','):
+                pending.append(req)
+        if not pending:
+            return r("No pending witness requests.")
+        # Show first
+        req = pending[0]
+        ussd_sessions[phone] = {"witness_req_id": req.id}
+        return r(f"Request #{req.id}: ${req.amount_needed}\n1. Accept\n2. Reject")
+    # After witness choice (step 2)
+    if step == 2 and choice == "5":
+        req_id = ussd_sessions.get(phone, {}).get("witness_req_id")
+        if not req_id:
+            return r("Session error.", end=True)
+        care_req = CareRequest.query.get(req_id)
+        if not care_req or care_req.status != 'pending_witness':
+            return r("Request already processed.", end=True)
+        vote = inputs[1]
+        response = "accept" if vote == "1" else "reject"
+        votes = care_req.witness_votes.split(',') if care_req.witness_votes else []
+        if f"{user.id}:{response}" not in votes:
+            votes.append(f"{user.id}:{response}")
+            care_req.witness_votes = ','.join(votes)
+            db.session.commit()
+        yes_count = sum(1 for v in votes if v.endswith('accept'))
+        total = len(care_req.witness_ids.split(','))
+        if yes_count >= 2:
+            need_admin = (care_req.amount_needed > 50) or care_req.is_emergency
+            if need_admin:
+                care_req.status = 'pending_admin'
+            else:
+                care_req.status = 'admin_approved'
+                care_req.admin_approved = True
+                pay_provider(care_req.provider_id, care_req.amount_from_pool)
+            db.session.commit()
+        elif len(votes) >= total:
+            care_req.status = 'rejected'
+            db.session.commit()
+        ussd_sessions.pop(phone, None)
+        return r("Vote recorded. Thank you.", end=True)
+
+    # Admin panel
+    if choice == "6" and role in ['admin', 'coadmin']:
+        if step == 1:
+            return r("Admin:\n1. Approve requests\n2. Invite code\n3. Members\n0. Back")
+        elif step == 2:
+            sub = inputs[1]
+            if sub == "1":
+                pending_reqs = CareRequest.query.filter_by(community_id=primary_comm.id, status='pending_admin', admin_approved=False).all()
+                if not pending_reqs:
+                    return r("No pending approvals.")
+                ussd_sessions[phone] = {'admin_pending': [r.id for r in pending_reqs], 'admin_idx': 0}
+                req = pending_reqs[0]
+                prov = Provider.query.get(req.provider_id)
+                return r(f"Req #{req.id}: ${req.amount_needed} at {prov.name}\n1. Approve\n2. Reject\n0. Next")
+            elif sub == "2":
+                return r(f"Invite code: {primary_comm.invite_code}")
+            elif sub == "3":
+                members = CommunityMembership.query.filter_by(community_id=primary_comm.id).all()
+                names = [User.query.get(m.user_id).name for m in members[:5]]
+                msg = "Members:\n" + "\n".join(names)
+                if len(members) > 5:
+                    msg += f"\n+{len(members)-5} more"
+                return r(msg)
+            else:
+                return r("Invalid.", end=True)
+        elif step == 3 and inputs[1] == "1":
+            # Approve/reject logic
+            data = ussd_sessions.get(phone, {})
+            pending_ids = data.get('admin_pending', [])
+            idx = data.get('admin_idx', 0)
+            if idx >= len(pending_ids):
+                return r("No more requests.", end=True)
+            req_id = pending_ids[idx]
+            care_req = CareRequest.query.get(req_id)
+            action = inputs[2]
+            if action == "1":
+                care_req.admin_approved = True
+                care_req.admin_id = user.id
+                care_req.status = 'admin_approved'
+                pay_provider(care_req.provider_id, care_req.amount_from_pool)
+                db.session.commit()
+                msg = f"Request #{req_id} approved."
+            elif action == "2":
+                care_req.status = 'rejected'
+                db.session.commit()
+                msg = f"Request #{req_id} rejected."
+            else:
+                # Next
+                data['admin_idx'] = idx + 1
+                ussd_sessions[phone] = data
+                next_idx = idx + 1
+                if next_idx < len(pending_ids):
+                    next_req = CareRequest.query.get(pending_ids[next_idx])
+                    prov = Provider.query.get(next_req.provider_id)
+                    return r(f"Req #{next_req.id}: ${next_req.amount_needed} at {prov.name}\n1. Approve\n2. Reject\n0. Next")
+                else:
+                    return r("All requests processed.", end=True)
+            return r(msg + "\nContinue? 1. Yes 2. No")
+        return r("Invalid.", end=True)
+
+    if choice == "7":
         return r("Goodbye.", end=True)
 
-    return r("Invalid option.", end=True)
-
-
-# ── Error handlers ─────────────────────────────────────────────────────────────
-
-@app.errorhandler(400)
-def bad_request(exc):
-    return render_template('error.html', code=400, message=exc.description), 400
-
-
-@app.errorhandler(403)
-def forbidden(exc):
-    return render_template('error.html', code=403, message=exc.description), 403
-
-
-@app.errorhandler(404)
-def not_found(exc):
-    return render_template('error.html', code=404, message='Page not found.'), 404
-
-
-@app.errorhandler(500)
-def server_error(exc):
-    logger.error("Internal server error: {}", exc)
-    return render_template('error.html', code=500,
-                           message='An internal error occurred. Please try again.'), 500
-
+    return r("Invalid choice.", end=True)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True, port=5000)
