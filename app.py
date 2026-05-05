@@ -26,6 +26,11 @@ with app.app_context():
         db.session.add(mulago)
         db.session.commit()
 
+# ------------------ Helper ------------------
+def get_user_communities(user_id):
+    memberships = CommunityMembership.query.filter_by(user_id=user_id).all()
+    return [Community.query.get(m.community_id) for m in memberships]
+
 # ------------------ Web Routes ------------------
 @app.route('/')
 def home():
@@ -37,9 +42,14 @@ def home():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
+        # User registration (also auto-login for existing)
         phone = request.form['phone']
         name = request.form['name']
         referred_by = request.form.get('referred_by')
+        existing = User.query.filter_by(phone=phone).first()
+        if existing:
+            session['user_id'] = existing.id
+            return redirect(url_for('home'))
         user = User(phone=phone, name=name, sub_wallet_balance=0.0, trust_score=0.5)
         if referred_by:
             referrer = User.query.filter_by(phone=referred_by).first()
@@ -55,7 +65,107 @@ def register():
             db.session.commit()
         session['user_id'] = user.id
         return redirect(url_for('home'))
-    return render_template('register.html')
+    return render_template('register.html')  # This template now includes provider registration form as well
+
+@app.route('/register_provider', methods=['POST'])
+def register_provider():
+    name = request.form['name']
+    provider_code = request.form['provider_code'].upper().strip()
+    payment_type = request.form['payment_type']
+    payment_details = request.form['payment_details']
+    contact_name = request.form.get('contact_name', '')
+    contact_phone = request.form.get('contact_phone', '')
+
+    existing = Provider.query.filter_by(provider_code=provider_code).first()
+    if existing:
+        return f"Provider code '{provider_code}' already taken."
+
+    new_provider = Provider(
+        name=name,
+        provider_code=provider_code,
+        payment_type=payment_type,
+        payment_details=payment_details,
+        verified=True,
+        contact_name=contact_name,
+        contact_phone=contact_phone
+    )
+    db.session.add(new_provider)
+    db.session.commit()
+    return f"""
+    <h2>Provider Registration Successful</h2>
+    <p><strong>{name}</strong> (code: {provider_code}) has been registered.</p>
+    <p>You can now log in at <a href="/provider/login">Provider Login</a> with your code.</p>
+    <p><a href="/">← Back to home</a></p>
+    """
+
+@app.route('/create_community', methods=['GET', 'POST'])
+def create_community():
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    user = User.query.get(session['user_id'])
+    if request.method == 'POST':
+        name = request.form['name']
+        desc = request.form.get('description', '')
+        invite = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+        new_comm = Community(name=name, description=desc, invite_code=invite, pool_balance=0.0, admin_user_id=user.id)
+        db.session.add(new_comm)
+        db.session.commit()
+        membership = CommunityMembership(user_id=user.id, community_id=new_comm.id, role='admin')
+        db.session.add(membership)
+        user.primary_community_id = new_comm.id
+        db.session.commit()
+        return redirect(url_for('community_dashboard', comm_id=new_comm.id))
+    return '''
+        <form method="post">
+            Community name: <input name="name" required><br>
+            Description: <textarea name="description"></textarea><br>
+            <button type="submit">Create</button>
+        </form>
+    '''
+
+@app.route('/join_community', methods=['GET', 'POST'])
+def join_community():
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    user = User.query.get(session['user_id'])
+    if request.method == 'POST':
+        invite_code = request.form['invite_code'].strip().upper()
+        comm = Community.query.filter_by(invite_code=invite_code).first()
+        if not comm:
+            return "Invalid invite code"
+        existing = CommunityMembership.query.filter_by(user_id=user.id, community_id=comm.id).first()
+        if existing:
+            return "You are already a member of this community"
+        membership = CommunityMembership(user_id=user.id, community_id=comm.id, role='member')
+        db.session.add(membership)
+        if not user.primary_community_id:
+            user.primary_community_id = comm.id
+            db.session.commit()
+        return redirect(url_for('home'))
+    return '''
+        <form method="post">
+            Invite code: <input name="invite_code" required><br>
+            <button type="submit">Join</button>
+        </form>
+    '''
+
+@app.route('/community/<int:comm_id>')
+def community_dashboard(comm_id):
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    community = Community.query.get(comm_id)
+    if not community:
+        return "Community not found"
+    user = User.query.get(session['user_id'])
+    membership = CommunityMembership.query.filter_by(user_id=user.id, community_id=comm_id).first()
+    if not membership:
+        return "You are not a member of this community"
+    # Get all members with user objects
+    members = CommunityMembership.query.filter_by(community_id=comm_id).all()
+    # Attach user objects
+    for m in members:
+        m.user = User.query.get(m.user_id)
+    return render_template('community_dashboard.html', community=community, members=members, user_role=membership.role)
 
 @app.route('/simulate_roundup', methods=['GET', 'POST'])
 def simulate_roundup():
@@ -83,9 +193,10 @@ def request_care():
         needed_amount = float(request.form['needed_amount'])
         provider_id = int(request.form['provider_id'])
         is_emergency = 'is_emergency' in request.form
-        community = Community.query.get(user.primary_community_id)
+        community_id = int(request.form['community_id'])
+        community = Community.query.get(community_id)
         if not community:
-            return "You need to join a community first."
+            return "Invalid community"
         ceiling = compute_draw_ceiling(user.id)
         from_sub = min(user.sub_wallet_balance, needed_amount)
         remaining = needed_amount - from_sub
@@ -120,7 +231,8 @@ def request_care():
         db.session.commit()
         return render_template('request_result.html', needed=needed_amount, from_sub=from_sub, from_pool=from_pool, social_credit=social_credit, request_id=care_req.id)
     providers = Provider.query.filter_by(verified=True).all()
-    return render_template('request_care.html', user=user, providers=providers)
+    communities = get_user_communities(session['user_id'])
+    return render_template('request_care.html', user=user, providers=providers, communities=communities)
 
 @app.route('/witness_dashboard')
 def witness_dashboard():
@@ -172,6 +284,43 @@ def verify_witness(request_id, response):
         care_req.status = 'rejected'
         db.session.commit()
     return redirect(url_for('witness_dashboard'))
+
+@app.route('/admin/approve/<int:request_id>/<action>')
+def admin_approve(request_id, action):
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    user = User.query.get(session['user_id'])
+    care_req = CareRequest.query.get(request_id)
+    if not care_req:
+        return "Request not found"
+    community = Community.query.get(care_req.community_id)
+    membership = CommunityMembership.query.filter_by(user_id=user.id, community_id=community.id).first()
+    if not membership or membership.role not in ['admin', 'coadmin']:
+        return "Not authorized"
+    if care_req.status != 'pending_admin':
+        return "Request not pending admin approval"
+    if action == 'approve':
+        care_req.admin_approved = True
+        care_req.admin_id = user.id
+        care_req.status = 'admin_approved'
+        success, ref = pay_provider(
+            care_request_id=care_req.id,
+            amount=care_req.amount_from_pool,
+            provider_id=care_req.provider_id,
+            user_id=care_req.user_id,
+            community_id=care_req.community_id
+        )
+        if success:
+            care_req.payment_transaction_id = ref
+        db.session.commit()
+        msg = f"Request #{request_id} approved."
+    elif action == 'reject':
+        care_req.status = 'rejected'
+        db.session.commit()
+        msg = f"Request #{request_id} rejected."
+    else:
+        return "Invalid action"
+    return f"<p>{msg}</p><p><a href='/'>Home</a> | <a href='/community/{community.id}'>Back to Community</a></p>"
 
 @app.route('/logout')
 def logout():
@@ -234,9 +383,14 @@ def provider_invoice():
         return "Patient not registered in the system"
     amount = float(request.form['amount'])
     description = request.form['description']
+    # Use patient's primary community or first membership
     community = Community.query.get(user.primary_community_id)
     if not community:
-        return "Patient not in any community"
+        memberships = CommunityMembership.query.filter_by(user_id=user.id).first()
+        if memberships:
+            community = Community.query.get(memberships.community_id)
+        else:
+            return "Patient not in any community"
     care_req = CareRequest(
         user_id=user.id,
         community_id=community.id,
@@ -289,12 +443,19 @@ def ussd():
 
     # Registered user
     primary_comm = Community.query.get(user.primary_community_id) if user.primary_community_id else None
-    membership = CommunityMembership.query.filter_by(user_id=user.id, community_id=user.primary_community_id).first() if user.primary_community_id else None
-    role = membership.role if membership else 'member'
+    membership = None
+    role = 'member'
+    if primary_comm:
+        membership = CommunityMembership.query.filter_by(user_id=user.id, community_id=user.primary_community_id).first()
+        role = membership.role if membership else 'member'
 
+    # If no community, force community menu
+    if not primary_comm and step == 0:
+        return r("You are not in any community.\n4. Community (create/join)\n7. Exit")
+    
     if step == 0:
         menu = f"Hi {user.name}\n1. Balance\n2. Request care\n3. Trust score\n4. Community\n5. Witness tasks\n"
-        if role in ['admin', 'coadmin']:
+        if role in ['admin', 'coadmin'] and primary_comm:
             menu += "6. Admin panel\n"
         menu += "7. Exit"
         return r(menu)
@@ -357,72 +518,160 @@ def ussd():
                 return r(f"Joined {comm.name}.", end=True)
         return r("Session expired.", end=True)
 
-    # Request care
+    # Request care with community selection
     if choice == "2":
-        if not primary_comm:
+        user_communities = get_user_communities(user.id)
+        if not user_communities:
             return r("Join a community first (option 4).", end=True)
-        if step == 1:
-            return r("Enter amount (USD):")
-        elif step == 2:
-            try:
-                amount = float(inputs[1])
-                ussd_sessions[phone] = {"amount": amount, "state": "awaiting_provider"}
+        # If only one community, use it directly
+        if len(user_communities) == 1:
+            selected_comm = user_communities[0]
+            # proceed to amount input
+            if step == 1:
+                ussd_sessions[phone] = {"selected_comm_id": selected_comm.id, "state": "awaiting_amount"}
+                return r("Enter amount (USD):")
+            elif step == 2:
+                try:
+                    amount = float(inputs[1])
+                except:
+                    return r("Invalid amount.", end=True)
+                ussd_sessions[phone]["amount"] = amount
+                ussd_sessions[phone]["state"] = "awaiting_provider"
                 return r("Enter provider code (e.g., MULAGO001):")
-            except:
-                return r("Invalid amount.", end=True)
-        elif step == 3:
-            provider_code = inputs[2].strip().upper()
-            provider = Provider.query.filter_by(provider_code=provider_code, verified=True).first()
-            if not provider:
-                return r("Provider not found or unverified.", end=True)
-            amount = ussd_sessions.get(phone, {}).get("amount", 0)
-            if amount <= 0:
-                return r("Session expired.", end=True)
-            ussd_sessions[phone]["provider_id"] = provider.id
-            return r("Emergency? (1=Yes, 2=No)")
-        elif step == 4:
-            emerg = (inputs[3] == "1")
-            amount = ussd_sessions[phone]["amount"]
-            provider_id = ussd_sessions[phone]["provider_id"]
-            provider = Provider.query.get(provider_id)
-            ceiling = compute_draw_ceiling(user.id)
-            from_sub = min(user.sub_wallet_balance, amount)
-            remaining = amount - from_sub
-            user.sub_wallet_balance -= from_sub
-            from_pool = 0.0
-            social_credit = 0.0
-            if remaining > 0:
-                allowed = min(remaining, ceiling - from_sub, primary_comm.pool_balance)
-                from_pool = allowed
-                primary_comm.pool_balance -= from_pool
-                social_credit = remaining - from_pool
-                if social_credit > 0:
-                    user.total_social_credit += social_credit
-                    update_recovery_parameters(user.id, social_credit)
+            elif step == 3:
+                provider_code = inputs[2].strip().upper()
+                provider = Provider.query.filter_by(provider_code=provider_code, verified=True).first()
+                if not provider:
+                    return r("Provider not found or unverified.", end=True)
+                amount = ussd_sessions[phone]["amount"]
+                ussd_sessions[phone]["provider_id"] = provider.id
+                return r("Emergency? (1=Yes, 2=No)")
+            elif step == 4:
+                emerg = (inputs[3] == "1")
+                amount = ussd_sessions[phone]["amount"]
+                provider_id = ussd_sessions[phone]["provider_id"]
+                selected_comm_id = ussd_sessions[phone]["selected_comm_id"]
+                selected_comm = Community.query.get(selected_comm_id)
+                # Process request (same as before)
+                ceiling = compute_draw_ceiling(user.id)
+                from_sub = min(user.sub_wallet_balance, amount)
+                remaining = amount - from_sub
+                user.sub_wallet_balance -= from_sub
+                from_pool = 0.0
+                social_credit = 0.0
+                if remaining > 0:
+                    allowed = min(remaining, ceiling - from_sub, selected_comm.pool_balance)
+                    from_pool = allowed
+                    selected_comm.pool_balance -= from_pool
+                    social_credit = remaining - from_pool
+                    if social_credit > 0:
+                        user.total_social_credit += social_credit
+                        update_recovery_parameters(user.id, social_credit)
+                    db.session.commit()
+                care_req = CareRequest(
+                    user_id=user.id,
+                    community_id=selected_comm.id,
+                    provider_id=provider_id,
+                    amount_needed=amount,
+                    amount_from_sub=from_sub,
+                    amount_from_pool=from_pool,
+                    social_credit=social_credit,
+                    is_emergency=emerg,
+                    status='pending_witness'
+                )
+                db.session.add(care_req)
                 db.session.commit()
-            care_req = CareRequest(
-                user_id=user.id,
-                community_id=primary_comm.id,
-                provider_id=provider_id,
-                amount_needed=amount,
-                amount_from_sub=from_sub,
-                amount_from_pool=from_pool,
-                social_credit=social_credit,
-                is_emergency=emerg,
-                status='pending_witness'
-            )
-            db.session.add(care_req)
-            db.session.commit()
-            witnesses = select_witnesses(user.id, provider_id, community_id=primary_comm.id)
-            witness_ids = ','.join(str(w.id) for w in witnesses)
-            care_req.witness_ids = witness_ids
-            db.session.commit()
-            ussd_sessions.pop(phone, None)
-            need_admin = (amount > 50) or emerg
-            msg = f"Request submitted. {len(witnesses)} witnesses will verify."
-            if need_admin:
-                msg += " Admin approval also required."
-            return r(msg, end=True)
+                witnesses = select_witnesses(user.id, provider_id, community_id=selected_comm.id)
+                witness_ids = ','.join(str(w.id) for w in witnesses)
+                care_req.witness_ids = witness_ids
+                db.session.commit()
+                ussd_sessions.pop(phone, None)
+                need_admin = (amount > 50) or emerg
+                msg = f"Request submitted. {len(witnesses)} witnesses will verify."
+                if need_admin:
+                    msg += " Admin approval also required."
+                return r(msg, end=True)
+            else:
+                return r("Invalid step.", end=True)
+        else:
+            # Multiple communities: ask to choose
+            if step == 1:
+                comm_list = "\n".join([f"{i+1}. {c.name}" for i, c in enumerate(user_communities)])
+                ussd_sessions[phone] = {"state": "choose_comm", "communities": [(c.id, c.name) for c in user_communities]}
+                return r(f"Select community:\n{comm_list}\n0. Back")
+            elif step == 2 and ussd_sessions.get(phone, {}).get("state") == "choose_comm":
+                idx = int(inputs[1]) - 1
+                comms = ussd_sessions[phone]["communities"]
+                if 0 <= idx < len(comms):
+                    selected_comm_id = comms[idx][0]
+                    ussd_sessions[phone]["selected_comm_id"] = selected_comm_id
+                    ussd_sessions[phone]["state"] = "awaiting_amount"
+                    return r("Enter amount (USD):")
+                else:
+                    return r("Invalid choice.", end=True)
+            elif step == 3 and ussd_sessions.get(phone, {}).get("state") == "awaiting_amount":
+                try:
+                    amount = float(inputs[2])
+                except:
+                    return r("Invalid amount.", end=True)
+                ussd_sessions[phone]["amount"] = amount
+                ussd_sessions[phone]["state"] = "awaiting_provider"
+                return r("Enter provider code (e.g., MULAGO001):")
+            elif step == 4:
+                provider_code = inputs[3].strip().upper()
+                provider = Provider.query.filter_by(provider_code=provider_code, verified=True).first()
+                if not provider:
+                    return r("Provider not found or unverified.", end=True)
+                amount = ussd_sessions[phone]["amount"]
+                ussd_sessions[phone]["provider_id"] = provider.id
+                return r("Emergency? (1=Yes, 2=No)")
+            elif step == 5:
+                emerg = (inputs[4] == "1")
+                amount = ussd_sessions[phone]["amount"]
+                provider_id = ussd_sessions[phone]["provider_id"]
+                selected_comm_id = ussd_sessions[phone]["selected_comm_id"]
+                selected_comm = Community.query.get(selected_comm_id)
+                # Process request same as above
+                ceiling = compute_draw_ceiling(user.id)
+                from_sub = min(user.sub_wallet_balance, amount)
+                remaining = amount - from_sub
+                user.sub_wallet_balance -= from_sub
+                from_pool = 0.0
+                social_credit = 0.0
+                if remaining > 0:
+                    allowed = min(remaining, ceiling - from_sub, selected_comm.pool_balance)
+                    from_pool = allowed
+                    selected_comm.pool_balance -= from_pool
+                    social_credit = remaining - from_pool
+                    if social_credit > 0:
+                        user.total_social_credit += social_credit
+                        update_recovery_parameters(user.id, social_credit)
+                    db.session.commit()
+                care_req = CareRequest(
+                    user_id=user.id,
+                    community_id=selected_comm.id,
+                    provider_id=provider_id,
+                    amount_needed=amount,
+                    amount_from_sub=from_sub,
+                    amount_from_pool=from_pool,
+                    social_credit=social_credit,
+                    is_emergency=emerg,
+                    status='pending_witness'
+                )
+                db.session.add(care_req)
+                db.session.commit()
+                witnesses = select_witnesses(user.id, provider_id, community_id=selected_comm.id)
+                witness_ids = ','.join(str(w.id) for w in witnesses)
+                care_req.witness_ids = witness_ids
+                db.session.commit()
+                ussd_sessions.pop(phone, None)
+                need_admin = (amount > 50) or emerg
+                msg = f"Request submitted. {len(witnesses)} witnesses will verify."
+                if need_admin:
+                    msg += " Admin approval also required."
+                return r(msg, end=True)
+            else:
+                return r("Invalid step.", end=True)
 
     # Witness tasks (USSD)
     if choice == "5":
@@ -475,8 +724,8 @@ def ussd():
         ussd_sessions.pop(phone, None)
         return r("Vote recorded. Thank you.", end=True)
 
-    # Admin panel
-    if choice == "6" and role in ['admin', 'coadmin']:
+    # Admin panel (shows requester name)
+    if choice == "6" and role in ['admin', 'coadmin'] and primary_comm:
         if step == 1:
             return r("Admin:\n1. Approve requests\n2. Invite code\n3. Members\n0. Back")
         elif step == 2:
@@ -487,8 +736,9 @@ def ussd():
                     return r("No pending approvals.")
                 ussd_sessions[phone] = {'admin_pending': [r.id for r in pending_reqs], 'admin_idx': 0}
                 req = pending_reqs[0]
+                requester = User.query.get(req.user_id)
                 prov = Provider.query.get(req.provider_id)
-                return r(f"Req #{req.id}: ${req.amount_needed} at {prov.name}\n1. Approve\n2. Reject\n0. Next")
+                return r(f"Request by {requester.name}: ${req.amount_needed} at {prov.name}\n1. Approve\n2. Reject\n0. Next")
             elif sub == "2":
                 return r(f"Invite code: {primary_comm.invite_code}")
             elif sub == "3":
@@ -534,8 +784,9 @@ def ussd():
                 next_idx = idx + 1
                 if next_idx < len(pending_ids):
                     next_req = CareRequest.query.get(pending_ids[next_idx])
+                    requester = User.query.get(next_req.user_id)
                     prov = Provider.query.get(next_req.provider_id)
-                    return r(f"Req #{next_req.id}: ${next_req.amount_needed} at {prov.name}\n1. Approve\n2. Reject\n0. Next")
+                    return r(f"Request by {requester.name}: ${next_req.amount_needed} at {prov.name}\n1. Approve\n2. Reject\n0. Next")
                 else:
                     return r("All requests processed.", end=True)
             return r(msg + "\nContinue? 1. Yes 2. No")
