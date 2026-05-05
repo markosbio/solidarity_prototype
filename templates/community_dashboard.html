@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ community.name }} – SolidarityPool</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; }
+        .card { border: 1px solid #ccc; border-radius: 12px; padding: 1.5em; margin-bottom: 1.5em; }
+        .badge { background: #2c7da0; color: white; padding: 4px 8px; border-radius: 20px; font-size: 0.8em; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    </style>
+</head>
+<body>
+    <h1>{{ community.name }}</h1>
+    <p><strong>Invite code:</strong> <code>{{ community.invite_code }}</code></p>
+    <p><strong>Pool balance:</strong> ${{ "%.2f"|format(community.pool_balance) }}</p>
+    <p><strong>Your role:</strong> {{ user_role }}</p>
+
+    <div class="card">
+        <h2>Members ({{ members|length }})</h2>
+        <table>
+            <tr><th>Name</th><th>Role</th><th>Joined</th></tr>
+            {% for m in members %}
+            <tr>
+                <td>{{ m.user.name }}</td>
+                <td>{{ m.role }}</td>
+                <td>{{ m.joined_at.strftime('%Y-%m-%d') }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    {% if user_role in ['admin', 'coadmin'] %}
+    <div class="card">
+        <h2>Pending Major Requests (need admin approval)</h2>
+        {% set pending = namespace(list=[]) %}
+        {% for req in community.care_requests %}
+            {% if req.status == 'pending_admin' and not req.admin_approved %}
+                {% set pending.list = pending.list + [req] %}
+            {% endif %}
+        {% endfor %}
+        {% if pending.list %}
+            <ul>
+            {% for req in pending.list %}
+                <li>
+                    Request #{{ req.id }} – ${{ req.amount_needed }} from {{ req.user.name }} ({{ req.user.phone }})
+                    <a href="{{ url_for('admin_approve', request_id=req.id, action='approve') }}">Approve</a> |
+                    <a href="{{ url_for('admin_approve', request_id=req.id, action='reject') }}">Reject</a>
+                </li>
+            {% endfor %}
+            </ul>
+        {% else %}
+            <p>No pending major requests.</p>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <p><a href="/">← Back to dashboard</a></p>
+</body>
+</html>
