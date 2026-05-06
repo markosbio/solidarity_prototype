@@ -1,13 +1,90 @@
 <!DOCTYPE html>
 <html>
-<head><title>Register</title></head>
+<head>
+<title>Join Solidarity Pool</title>
+<style>
+  body { font-family: sans-serif; max-width: 560px; margin: 40px auto; padding: 0 16px; }
+  h1 { font-size: 1.6rem; margin-bottom: 4px; }
+  .subtitle { color: #666; margin-bottom: 28px; }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: 22px; margin-bottom: 24px; background: #fafafa; }
+  .card h2 { margin: 0 0 16px 0; font-size: 1.1rem; }
+  label { display: block; font-weight: bold; margin-top: 12px; font-size: 0.9rem; }
+  input, select { width: 100%; padding: 8px; margin-top: 4px; border: 1px solid #ccc;
+                  border-radius: 4px; box-sizing: border-box; font-size: 0.95rem; }
+  .hint { font-size: 0.78em; color: #888; margin-top: 3px; }
+  button { margin-top: 18px; padding: 10px 24px; background: #2d7dd2; color: white;
+           border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; width: 100%; }
+  button:hover { background: #2566b0; }
+  .btn-provider { background: #28a745; }
+  .btn-provider:hover { background: #218838; }
+  .divider { text-align: center; color: #aaa; margin: 8px 0; font-size: 0.85rem; }
+  .login-link { text-align: center; margin-top: 12px; font-size: 0.9rem; }
+  .login-link a { color: #2d7dd2; }
+  .alert { background: #fff3cd; border: 1px solid #ffc107; padding: 10px 14px;
+           border-radius: 4px; margin-bottom: 16px; font-size: 0.9rem; }
+</style>
+</head>
 <body>
-<h2>Join Solidarity Pool</h2>
-<form method="POST">
-    Phone: <input type="text" name="phone" required><br>
-    Name: <input type="text" name="name" required><br>
-    Referred by (optional phone): <input type="text" name="referred_by"><br>
-    <button type="submit">Register</button>
-</form>
+
+<h1>Solidarity Health Pool</h1>
+<p class="subtitle">Community mutual aid — micro round-ups, peer-verified care funds.</p>
+
+<!-- ── Member registration ─────────────────────────────── -->
+<div class="card">
+  <h2>Join as a Member</h2>
+  <form method="POST" action="{{ url_for('register') }}">
+    <label>Phone number
+      <input type="tel" name="phone" placeholder="e.g. 254712345678" required>
+      <span class="hint">Used as your unique login — no password needed.</span>
+    </label>
+    <label>Full name
+      <input type="text" name="name" placeholder="e.g. Amara Osei" required>
+    </label>
+    <label>Referred by (optional)
+      <input type="tel" name="referred_by" placeholder="Referrer's phone number">
+      <span class="hint">Enter a member's phone number to grow their trust network.</span>
+    </label>
+    <button type="submit">Register &amp; Join Pool</button>
+  </form>
+  <div class="login-link">Already registered? <a href="{{ url_for('login') }}">Log in here</a></div>
+</div>
+
+<!-- ── Provider / clinic registration ────────────────────── -->
+<div class="card">
+  <h2>Register as a Healthcare Provider</h2>
+  <p style="font-size:0.87em; color:#555; margin-bottom:12px;">
+    Hospitals and clinics register here to receive care funds directly via M-Pesa.
+  </p>
+  <form method="POST" action="{{ url_for('register_provider') }}">
+    <label>Facility name
+      <input type="text" name="name" placeholder="e.g. Mulago National Hospital" required>
+    </label>
+    <label>Provider code (uppercase, no spaces)
+      <input type="text" name="provider_code" placeholder="e.g. MULAGO001"
+             pattern="[A-Z0-9]+" title="Uppercase letters and numbers only" required>
+      <span class="hint">Members use this code in USSD menus.</span>
+    </label>
+    <label>Payment method
+      <select name="payment_type" required>
+        <option value="">— Select —</option>
+        <option value="mpesa">M-Pesa</option>
+        <option value="bank">Bank transfer</option>
+        <option value="till">Till number</option>
+        <option value="paybill">Paybill</option>
+      </select>
+    </label>
+    <label>Payment details (M-Pesa number / account)
+      <input type="text" name="payment_details" placeholder="e.g. 254700000000" required>
+    </label>
+    <label>Contact person name
+      <input type="text" name="contact_name" placeholder="e.g. Dr. Fatima Nakato">
+    </label>
+    <label>Contact phone
+      <input type="tel" name="contact_phone" placeholder="e.g. 254711000000">
+    </label>
+    <button type="submit" class="btn-provider">Register Provider</button>
+  </form>
+</div>
+
 </body>
 </html>

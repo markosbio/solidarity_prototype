@@ -1,18 +1,130 @@
 <!DOCTYPE html>
 <html>
-<head><title>Dashboard</title></head>
+<head>
+<title>Dashboard – Solidarity Pool</title>
+<style>
+  body { font-family: sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; }
+  h1 { font-size: 1.5rem; margin-bottom: 4px; }
+  .subtitle { color: #666; margin-bottom: 24px; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
+  .stat-box { border: 1px solid #ddd; border-radius: 8px; padding: 14px 16px; background: #fafafa; }
+  .stat-box .label { font-size: 0.78rem; color: #777; margin-bottom: 4px; }
+  .stat-box .value { font-size: 1.4rem; font-weight: bold; color: #2d7dd2; }
+  .stat-box .value.trust-high { color: #28a745; }
+  .stat-box .value.trust-mid  { color: #ffc107; }
+  .stat-box .value.trust-low  { color: #dc3545; }
+  .section-title { font-size: 0.85rem; font-weight: bold; color: #555;
+                   text-transform: uppercase; letter-spacing: .05em; margin: 22px 0 8px; }
+  .nav-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .nav-btn { display: block; padding: 12px 16px; border: 1px solid #ddd; border-radius: 8px;
+             text-decoration: none; color: #222; background: #fff; font-size: 0.92rem; }
+  .nav-btn:hover { background: #f0f6ff; border-color: #2d7dd2; }
+  .nav-btn .icon { font-size: 1.2rem; margin-right: 6px; }
+  .nav-btn .desc { font-size: 0.76rem; color: #888; display: block; margin-top: 2px; }
+  .community-box { border: 1px solid #ddd; border-radius: 8px; padding: 14px 16px;
+                   background: #f0f8f0; margin-bottom: 20px; }
+  .community-box .comm-name { font-weight: bold; font-size: 1rem; }
+  .community-box .comm-pool { color: #28a745; font-size: 0.9rem; margin-top: 2px; }
+  .logout { font-size: 0.85rem; color: #dc3545; text-decoration: none; }
+  .logout:hover { text-decoration: underline; }
+  .credit-warn { background: #fff3cd; border: 1px solid #ffc107; padding: 10px 14px;
+                 border-radius: 6px; font-size: 0.87rem; margin-bottom: 16px; }
+</style>
+</head>
 <body>
+
 <h1>Welcome, {{ user.name }}</h1>
-<p>Sub-wallet balance: ${{ "%.2f"|format(user.sub_wallet_balance) }}</p>
-<p>Your trust score: {{ "%.4f"|format(user.trust_score) }} &mdash; <a href="{{ url_for('trust_history') }}">View history &rarr;</a></p>
-<p>Witness accuracy: {{ "%.2f"|format(user.witness_accuracy_score) }}</p>
-<p>Round-up intensifier: {{ user.roundup_intensifier }}x</p>
-<p>Social credit owed: ${{ "%.2f"|format(user.total_social_credit) }}</p>
-<hr>
-<a href="{{ url_for('simulate_roundup') }}">Simulate round-up</a><br>
-<a href="{{ url_for('request_care') }}">Request care</a><br>
-<a href="{{ url_for('witness_dashboard') }}">Witness dashboard</a><br>
-<a href="{{ url_for('trust_history') }}">Trust score history</a><br>
-<a href="{{ url_for('logout') }}">Logout</a>
+<p class="subtitle">{{ user.phone }}</p>
+
+{% if user.total_social_credit > 0 %}
+<div class="credit-warn">
+  You have <strong>${{ "%.2f"|format(user.total_social_credit) }}</strong> in social credit outstanding.
+  Keep contributing round-ups to improve your trust score.
+</div>
+{% endif %}
+
+<!-- ── Stats grid ─────────────────────────────────────── -->
+<div class="stats">
+  <div class="stat-box">
+    <div class="label">Sub-wallet balance</div>
+    <div class="value">${{ "%.2f"|format(user.sub_wallet_balance) }}</div>
+  </div>
+  <div class="stat-box">
+    <div class="label">Trust score</div>
+    {% set ts = user.trust_score %}
+    <div class="value {% if ts >= 0.7 %}trust-high{% elif ts >= 0.4 %}trust-mid{% else %}trust-low{% endif %}">
+      {{ "%.4f"|format(ts) }}
+    </div>
+  </div>
+  <div class="stat-box">
+    <div class="label">Witness accuracy</div>
+    <div class="value">{{ "%.0f"|format(user.witness_accuracy_score * 100) }}%</div>
+  </div>
+  <div class="stat-box">
+    <div class="label">Round-up multiplier</div>
+    <div class="value">{{ user.roundup_intensifier }}×</div>
+  </div>
+</div>
+
+<!-- ── Primary community ──────────────────────────────── -->
+{% if primary_comm %}
+<div class="community-box">
+  <div class="comm-name">{{ primary_comm.name }}</div>
+  <div class="comm-pool">Pool: ${{ "%.2f"|format(primary_comm.pool_balance) }}</div>
+  <div style="font-size:0.78rem; color:#555; margin-top:4px;">
+    Invite code: <code>{{ primary_comm.invite_code }}</code>
+  </div>
+</div>
+{% else %}
+<div class="credit-warn">
+  You are not in a community yet.
+  <a href="{{ url_for('communities.list_communities') }}">Join or create one →</a>
+</div>
+{% endif %}
+
+<!-- ── Main actions ───────────────────────────────────── -->
+<div class="section-title">Actions</div>
+<div class="nav-grid">
+  <a class="nav-btn" href="{{ url_for('simulate_roundup') }}">
+    <span class="icon">💰</span>Simulate Round-up
+    <span class="desc">Add micro-savings to your wallet</span>
+  </a>
+  <a class="nav-btn" href="{{ url_for('request_care') }}">
+    <span class="icon">🏥</span>Request Care
+    <span class="desc">Draw from the community pool</span>
+  </a>
+  <a class="nav-btn" href="{{ url_for('witness_dashboard') }}">
+    <span class="icon">👁</span>Witness Dashboard
+    <span class="desc">Verify pending care requests</span>
+  </a>
+  <a class="nav-btn" href="{{ url_for('trust_history') }}">
+    <span class="icon">📊</span>Trust History
+    <span class="desc">View your reputation timeline</span>
+  </a>
+</div>
+
+<!-- ── Community & pool ───────────────────────────────── -->
+<div class="section-title">Community</div>
+<div class="nav-grid">
+  <a class="nav-btn" href="{{ url_for('communities.list_communities') }}">
+    <span class="icon">🤝</span>My Communities
+    <span class="desc">Manage pools &amp; memberships</span>
+  </a>
+  <a class="nav-btn" href="{{ url_for('providers.list_providers') }}">
+    <span class="icon">🏨</span>Provider Registry
+    <span class="desc">View verified clinics &amp; hospitals</span>
+  </a>
+  {% if is_admin %}
+  <a class="nav-btn" href="{{ url_for('admin_care') }}">
+    <span class="icon">✅</span>Admin Approvals
+    <span class="desc">Approve large/emergency requests</span>
+  </a>
+  {% endif %}
+</div>
+
+<p style="margin-top:28px;">
+  <a class="logout" href="{{ url_for('logout') }}">← Log out</a>
+</p>
+
 </body>
 </html>

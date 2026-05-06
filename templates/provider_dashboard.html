@@ -1,58 +1,134 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Provider Dashboard – SolidarityPool</title>
-    <style>
-        body { font-family: sans-serif; margin: 2em; }
-        table { border-collapse: collapse; width: 100%; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-    </style>
+<title>Provider Dashboard – Solidarity Pool</title>
+<style>
+  body { font-family: sans-serif; max-width: 780px; margin: 40px auto; padding: 0 16px; }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  .provider-meta { color: #666; font-size: 0.9rem; margin-bottom: 24px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+  th { background: #f0f0f0; text-align: left; padding: 8px 10px; border-bottom: 2px solid #ccc;
+       font-size: 0.85rem; }
+  td { padding: 9px 10px; border-bottom: 1px solid #eee; font-size: 0.88rem; vertical-align: middle; }
+  tr:hover td { background: #f9f9f9; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 0.78rem; }
+  .badge-sent     { background: #cce5ff; color: #004085; }
+  .badge-received { background: #d4edda; color: #155724; }
+  .badge-started  { background: #fff3cd; color: #856404; }
+  .badge-done     { background: #e2e3e5; color: #383d41; }
+  .action-link { display: inline-block; padding: 4px 12px; border-radius: 4px; font-size: 0.82rem;
+                 text-decoration: none; }
+  .link-confirm  { background: #28a745; color: white; }
+  .link-confirm:hover  { background: #218838; }
+  .link-start    { background: #17a2b8; color: white; }
+  .link-start:hover    { background: #138496; }
+  .empty { color: #888; font-style: italic; padding: 20px 0; text-align: center; }
+  .section { margin-top: 32px; }
+  .section h2 { font-size: 1.1rem; margin-bottom: 14px; padding-bottom: 6px;
+                border-bottom: 2px solid #eee; }
+  .invoice-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  label { display: block; font-size: 0.85rem; font-weight: bold; margin-top: 10px; }
+  input, select { width: 100%; padding: 8px; margin-top: 3px; border: 1px solid #ccc;
+                  border-radius: 4px; box-sizing: border-box; font-size: 0.9rem; }
+  input[readonly] { background: #f5f5f5; color: #666; }
+  .btn-submit { margin-top: 18px; padding: 10px 24px; background: #2d7dd2; color: white;
+               border: none; border-radius: 4px; cursor: pointer; font-size: 0.95rem; }
+  .btn-submit:hover { background: #2566b0; }
+  .logout { font-size: 0.85rem; color: #dc3545; text-decoration: none; margin-left: 16px; }
+</style>
 </head>
 <body>
-    <h1>Provider Dashboard</h1>
-    <p><strong>{{ provider.name }}</strong> (Code: {{ provider.provider_code }})</p>
 
-    <h2>Payments</h2>
-    {% if payments %}
-    <table>
-        <tr><th>Reference</th><th>Patient</th><th>Community</th><th>Amount</th><th>Status</th><th>Actions</th></tr>
-        {% for p in payments %}
-        <tr>
-            <td>{{ p.reference_code }}</a></td>
-            <td>{{ p.user.name }}</td>
-            <td>{{ p.community.name }}</td>
-            <td>${{ "%.2f"|format(p.amount) }}</td>
-            <td>{{ p.status }}</td>
-            <td>
-                {% if p.status == 'sent' %}
-                    <a href="{{ url_for('confirm_payment', ref=p.reference_code) }}">Mark Received</a>
-                {% elif p.status == 'received' %}
-                    <a href="{{ url_for('start_treatment', ref=p.reference_code) }}">Start Treatment</a>
-                {% else %}
-                    {{ p.status }}
-                {% endif %}
-            </td>
-        </tr>
-        {% endfor %}
-    </table>
-    {% else %}
-        <p>No payments yet.</p>
-    {% endif %}
+<h1>Provider Dashboard</h1>
+<div class="provider-meta">
+  <strong>{{ provider.name }}</strong> · Code: <code>{{ provider.provider_code }}</code>
+  · {{ provider.payment_type | upper if provider.payment_type else '—' }}: {{ provider.payment_details or '—' }}
+  <a class="logout" href="{{ url_for('provider_logout') }}">Log out</a>
+</div>
 
-    <hr>
-    <h2>Create Invoice (Care Request for a Patient)</h2>
-    <form method="POST" action="{{ url_for('provider_invoice') }}">
-        <label>Provider Code:</label>
-        <input name="provider_code" value="{{ provider.provider_code }}" readonly><br>
-        <label>Patient Phone Number:</label>
-        <input name="patient_phone" required><br>
-        <label>Amount (USD):</label>
-        <input name="amount" type="number" step="0.01" required><br>
-        <label>Description:</label>
-        <input name="description" value="Medical Treatment"><br>
-        <button type="submit">Submit Invoice</button>
-    </form>
+<!-- ── Payments table ─────────────────────────────────────── -->
+<div class="section">
+  <h2>Incoming Payments</h2>
+  {% if payments %}
+  <table>
+    <thead>
+      <tr>
+        <th>Reference</th>
+        <th>Patient</th>
+        <th>Community</th>
+        <th>Amount</th>
+        <th>Status</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for p in payments %}
+    <tr>
+      <td><code>{{ p.reference_code }}</code></td>
+      <td>{{ p.user.name }}</td>
+      <td>{{ p.community.name }}</td>
+      <td><strong>${{ "%.2f"|format(p.amount) }}</strong></td>
+      <td>
+        {% if p.status == 'sent' %}
+          <span class="badge badge-sent">Sent</span>
+        {% elif p.status == 'received' %}
+          <span class="badge badge-received">Received</span>
+        {% elif p.status == 'treatment_started' %}
+          <span class="badge badge-started">Treatment started</span>
+        {% else %}
+          <span class="badge badge-done">{{ p.status }}</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if p.status == 'sent' %}
+          <a class="action-link link-confirm"
+             href="{{ url_for('confirm_payment', ref=p.reference_code) }}">Mark Received</a>
+        {% elif p.status == 'received' %}
+          <a class="action-link link-start"
+             href="{{ url_for('start_treatment', ref=p.reference_code) }}">Start Treatment</a>
+        {% else %}
+          —
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No payments received yet.</p>
+  {% endif %}
+</div>
 
-    <p><a href="/">← Back to main site</a></p>
+<!-- ── Invoice form ───────────────────────────────────────── -->
+<div class="section">
+  <h2>Submit Invoice (create care request for a patient)</h2>
+  <p style="font-size:0.87em; color:#666;">
+    Use this to bill a patient already registered in the pool. The system creates a care request
+    on their behalf and routes funds to your account after witness approval.
+  </p>
+  <form method="POST" action="{{ url_for('provider_invoice') }}">
+    <div class="invoice-grid">
+      <div>
+        <label>Provider code
+          <input name="provider_code" value="{{ provider.provider_code }}" readonly>
+        </label>
+        <label>Patient phone number
+          <input name="patient_phone" placeholder="e.g. 254712345678" required>
+        </label>
+      </div>
+      <div>
+        <label>Amount (USD)
+          <input name="amount" type="number" step="0.01" min="0.01" placeholder="0.00" required>
+        </label>
+        <label>Description
+          <input name="description" value="Medical Treatment" required>
+        </label>
+      </div>
+    </div>
+    <button class="btn-submit" type="submit">Submit Invoice</button>
+  </form>
+</div>
+
+<p style="margin-top:28px;"><a href="/" style="color:#2d7dd2;">← Back to main site</a></p>
 </body>
 </html>

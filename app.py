@@ -43,8 +43,24 @@ def get_user_communities(user_id):
 def home():
     if 'user_id' in session:
         user = User.query.get(session['user_id'])
-        return render_template('dashboard.html', user=user)
+        primary_comm = Community.query.get(user.primary_community_id) if user.primary_community_id else None
+        membership = None
+        if primary_comm:
+            membership = CommunityMembership.query.filter_by(user_id=user.id, community_id=primary_comm.id).first()
+        is_admin = membership and membership.role in ['admin', 'coadmin']
+        return render_template('dashboard.html', user=user, primary_comm=primary_comm, is_admin=is_admin)
     return redirect(url_for('register'))
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        phone = request.form.get('phone', '').strip()
+        user = User.query.filter_by(phone=phone).first()
+        if user:
+            session['user_id'] = user.id
+            return redirect(url_for('home'))
+        return render_template('login.html', error='Phone number not found. Please register first.')
+    return render_template('login.html')
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
@@ -92,12 +108,8 @@ def register_provider():
     )
     db.session.add(new_provider)
     db.session.commit()
-    return f"""
-    <h2>Provider Registration Successful</h2>
-    <p><strong>{name}</strong> (code: {provider_code}) has been registered.</p>
-    <p>You can now log in at <a href="/provider/login">Provider Login</a> with your code.</p>
-    <p><a href="/">← Back to home</a></p>
-    """
+    session['provider_registered_code'] = provider_code
+    return redirect(url_for('provider_login'))
 
 @app.route('/create_community', methods=['GET', 'POST'])
 def create_community():
@@ -406,11 +418,17 @@ def admin_approve(request_id, action):
 @app.route('/logout')
 def logout():
     session.pop('user_id', None)
-    return redirect(url_for('register'))
+    return redirect(url_for('login'))
+
+@app.route('/provider/logout')
+def provider_logout():
+    session.pop('provider_id', None)
+    return redirect(url_for('provider_login'))
 
 # ------------------ Provider Dashboard & Invoice ------------------
 @app.route('/provider/login', methods=['GET', 'POST'])
 def provider_login():
+    registered_code = session.pop('provider_registered_code', None)
     if request.method == 'POST':
         code = request.form['provider_code']
         provider = Provider.query.filter_by(provider_code=code.upper(), verified=True).first()
@@ -418,13 +436,8 @@ def provider_login():
             session['provider_id'] = provider.id
             return redirect(url_for('provider_dashboard'))
         else:
-            return "Invalid provider code"
-    return '''
-        <form method="post">
-            Provider Code: <input name="provider_code">
-            <button type="submit">Login</button>
-        </form>
-    '''
+            return render_template('provider_login.html', error='Invalid provider code.', registered_code=None)
+    return render_template('provider_login.html', error=None, registered_code=registered_code)
 
 @app.route('/provider/dashboard')
 def provider_dashboard():

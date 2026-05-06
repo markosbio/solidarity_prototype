@@ -1,13 +1,67 @@
 <!DOCTYPE html>
 <html>
-<head><title>Request Result</title></head>
+<head>
+<title>Care Request Submitted – Solidarity Pool</title>
+<style>
+  body { font-family: sans-serif; max-width: 500px; margin: 40px auto; padding: 0 16px; }
+  h1 { font-size: 1.3rem; margin-bottom: 4px; }
+  .check { font-size: 2.5rem; margin-bottom: 8px; }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: 22px; background: #fafafa;
+          margin-bottom: 20px; }
+  .row { display: flex; justify-content: space-between; padding: 7px 0;
+         border-bottom: 1px solid #eee; font-size: 0.92rem; }
+  .row:last-child { border-bottom: none; }
+  .row .label { color: #555; }
+  .row .val { font-weight: bold; }
+  .val.green { color: #28a745; }
+  .val.amber { color: #e67e00; }
+  .val.red   { color: #dc3545; }
+  .info-box { background: #e8f4f8; border-left: 4px solid #2d7dd2; padding: 12px 16px;
+              border-radius: 0 6px 6px 0; font-size: 0.87rem; color: #2c4a6e; margin-bottom: 20px; }
+  .btn { display: inline-block; padding: 10px 24px; background: #2d7dd2; color: white;
+         border-radius: 4px; text-decoration: none; font-size: 0.95rem; }
+  .btn:hover { background: #2566b0; }
+  .ref { font-size: 0.8rem; color: #888; margin-top: 8px; }
+</style>
+</head>
 <body>
-<h2>Care Request Processed</h2>
-<p>Needed: ${{ needed }}</p>
-<p>Covered from your sub-wallet: ${{ "%.2f"|format(from_sub) }}</p>
-<p>Covered from communal pool: ${{ "%.2f"|format(from_pool) }}</p>
-<p>Social credit incurred: ${{ "%.2f"|format(social_credit) }}</p>
-<p>Witnesses have been notified. They will verify via their dashboard.</p>
-<a href="{{ url_for('home') }}">Return to dashboard</a>
+
+<div class="check">✅</div>
+<h1>Care Request Submitted</h1>
+<p style="color:#666; margin-bottom:20px;">Request #{{ request_id }} is pending witness verification.</p>
+
+<div class="card">
+  <div class="row">
+    <span class="label">Total needed</span>
+    <span class="val">${{ "%.2f"|format(needed) }}</span>
+  </div>
+  <div class="row">
+    <span class="label">From your sub-wallet</span>
+    <span class="val green">${{ "%.2f"|format(from_sub) }}</span>
+  </div>
+  <div class="row">
+    <span class="label">From community pool</span>
+    <span class="val {% if from_pool > 0 %}green{% else %}amber{% endif %}">${{ "%.2f"|format(from_pool) }}</span>
+  </div>
+  {% if social_credit > 0 %}
+  <div class="row">
+    <span class="label">Social credit incurred</span>
+    <span class="val red">${{ "%.2f"|format(social_credit) }}</span>
+  </div>
+  {% endif %}
+</div>
+
+<div class="info-box">
+  <strong>What happens next?</strong><br>
+  Three peer witnesses have been notified. Once 2 of 3 verify your request, funds are sent
+  directly to your provider.
+  {% if needed > 50 %}
+  Because this request exceeds $50, it also requires admin approval.
+  {% endif %}
+</div>
+
+<a class="btn" href="{{ url_for('home') }}">← Return to dashboard</a>
+<p class="ref">Request ID: {{ request_id }}</p>
+
 </body>
 </html>
