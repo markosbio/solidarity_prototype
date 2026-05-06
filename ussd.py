@@ -18,8 +18,9 @@ Test using the AT simulator at:
 import os
 from flask import Blueprint, request
 from loguru import logger
-from models import db, User, SystemState
+from models import db, User, SystemState, MpesaTopup, Transaction
 from trust_graph import compute_draw_ceiling, TrustGraphError
+from mpesa import stk_push, MpesaError
 
 ussd_bp = Blueprint('ussd', __name__, url_prefix='/ussd')
 
@@ -60,12 +61,14 @@ def _route(phone: str, steps: list, level: int) -> str:
     # ── Level 0: main menu ───────────────────────────────────────────────────
     if steps[0] == '':
         if user:
+            mpesa_line = "5. Top up via M-Pesa\n" if (os.getenv('MPESA_CONSUMER_KEY') and os.getenv('MPESA_CONSUMER_SECRET')) else ""
             return (
                 f"CON Welcome back, {user.name}\n"
                 "1. Check balance\n"
                 "2. Simulate round-up\n"
                 "3. Request care funds\n"
                 "4. My trust score\n"
+                + mpesa_line +
                 "0. Exit"
             )
         else:
@@ -94,6 +97,8 @@ def _route(phone: str, steps: list, level: int) -> str:
         return _request_care_flow(user, steps, level)
     if top == '4':
         return _trust_score(user)
+    if top == '5':
+        return _topup_flow(user, steps, level)
 
     return "END Invalid option. Please try again."
 
@@ -262,4 +267,56 @@ def _trust_score(user: User) -> str:
         f"Witness accuracy: {user.witness_accuracy_score:.2f}\n"
         f"Draw ceiling: KES {ceiling:.2f}\n"
         f"Round-up multiplier: {user.roundup_intensifier:.2f}x"
+    )
+
+
+def _topup_flow(user: User, steps: list, level: int) -> str:
+    """Trigger an M-Pesa STK Push top-up from the USSD menu."""
+    if not (os.getenv('MPESA_CONSUMER_KEY') and os.getenv('MPESA_CONSUMER_SECRET')):
+        return "END M-Pesa top-up is not available. Contact support."
+
+    if level == 1:
+        return "CON Enter top-up amount (KES):"
+
+    try:
+        topup_amount = float(steps[1])
+        if topup_amount < 1:
+            raise ValueError("Too small")
+    except (ValueError, IndexError):
+        return "END Invalid amount. Please enter a whole number."
+
+    phone = user.phone
+    try:
+        result = stk_push(
+            phone=phone,
+            amount=topup_amount,
+            account_reference='SolidarityPool',
+            description=f'USSD top-up for {user.name}',
+        )
+    except MpesaError as exc:
+        logger.error("USSD STK push failed for user_id={}: {}", user.id, exc)
+        return "END M-Pesa prompt failed. Please try again later."
+
+    checkout_id = result.get('CheckoutRequestID', '')
+    merchant_id = result.get('MerchantRequestID', '')
+
+    topup = MpesaTopup(
+        user_id=user.id,
+        amount=topup_amount,
+        checkout_request_id=checkout_id,
+        merchant_request_id=merchant_id,
+        status='pending',
+    )
+    db.session.add(topup)
+    db.session.commit()
+
+    logger.info(
+        "USSD STK push initiated: user_id={} phone={} amount={} checkout_id={}",
+        user.id, phone, topup_amount, checkout_id,
+    )
+    return (
+        f"END M-Pesa prompt sent to {phone}.\n"
+        f"Amount: KES {int(topup_amount)}\n"
+        f"Approve on your phone — your wallet\n"
+        f"will be credited automatically."
     )

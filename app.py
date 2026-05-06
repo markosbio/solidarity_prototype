@@ -8,6 +8,7 @@ from mpesa import stk_push, parse_stk_callback, MpesaError
 from trust_engine import get_combined_score
 from communities import communities_bp
 from providers_bp import providers_bp
+from ussd import ussd_bp
 import random
 import string
 import os
@@ -21,6 +22,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:/
 db.init_app(app)
 app.register_blueprint(communities_bp)
 app.register_blueprint(providers_bp)
+app.register_blueprint(ussd_bp)
 
 # Create tables and seed default data
 with app.app_context():
@@ -635,7 +637,10 @@ def ussd():
         return r("You are not in any community.\n4. Community (create/join)\n7. Exit")
     
     if step == 0:
+        mpesa_configured = bool(os.getenv('MPESA_CONSUMER_KEY') and os.getenv('MPESA_CONSUMER_SECRET'))
         menu = f"Hi {user.name}\n1. Balance\n2. Request care\n3. Trust score\n4. Community\n5. Witness tasks\n"
+        if mpesa_configured:
+            menu += "8. Top up via M-Pesa\n"
         if role in ['admin', 'coadmin'] and primary_comm:
             menu += "6. Admin panel\n"
         menu += "7. Exit"
@@ -945,6 +950,45 @@ def ussd():
                     return r("All requests processed.", end=True)
             return r(msg + "\nContinue? 1. Yes 2. No")
         return r("Invalid.", end=True)
+
+    if choice == "8":
+        if step == 1:
+            return r("Enter top-up amount (KES):")
+        try:
+            topup_amount = float(inputs[1])
+            if topup_amount < 1:
+                raise ValueError("Minimum 1 KES")
+        except (ValueError, IndexError):
+            return r("Invalid amount. Please enter a whole number.", end=True)
+        if not (os.getenv('MPESA_CONSUMER_KEY') and os.getenv('MPESA_CONSUMER_SECRET')):
+            return r("M-Pesa is not configured. Contact support.", end=True)
+        try:
+            result = stk_push(
+                phone=phone,
+                amount=topup_amount,
+                account_reference='SolidarityPool',
+                description=f'USSD top-up for {user.name}',
+            )
+            checkout_id = result.get('CheckoutRequestID', '')
+            merchant_id = result.get('MerchantRequestID', '')
+            topup = MpesaTopup(
+                user_id=user.id,
+                amount=topup_amount,
+                checkout_request_id=checkout_id,
+                merchant_request_id=merchant_id,
+                status='pending',
+            )
+            db.session.add(topup)
+            db.session.commit()
+            return r(
+                f"M-Pesa prompt sent to {phone}.\n"
+                f"Amount: KES {int(topup_amount)}\n"
+                "Approve on your phone to top up your wallet.",
+                end=True,
+            )
+        except MpesaError as exc:
+            logger.error("USSD STK push failed: {}", exc)
+            return r("M-Pesa prompt failed. Try again later.", end=True)
 
     if choice == "7":
         return r("Goodbye.", end=True)
