@@ -14,6 +14,11 @@ class User(db.Model):
     referred_by = db.Column(db.Integer, db.ForeignKey('user.id'))
     recruitment_freshness = db.Column(db.DateTime, default=datetime.utcnow)
     primary_community_id = db.Column(db.Integer, db.ForeignKey('community.id'), nullable=True)
+    witness_accuracy_score = db.Column(db.Float, default=0.5)
+    region_prefix = db.Column(db.String(10), default='')
+    total_witness_calls = db.Column(db.Integer, default=0)
+    correct_witness_calls = db.Column(db.Integer, default=0)
+    is_global_admin = db.Column(db.Boolean, default=False)
     
     recruits = db.relationship('User', backref=db.backref('referrer', remote_side=[id]))
 
@@ -21,7 +26,7 @@ class Transaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     amount = db.Column(db.Float)
-    type = db.Column(db.String(20))  # roundup, draw, repayment
+    type = db.Column(db.String(20))
     description = db.Column(db.String(200))
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -36,12 +41,13 @@ class Community(db.Model):
     
     admin = db.relationship('User', foreign_keys=[admin_user_id], backref='admin_communities')
     members = db.relationship('CommunityMembership', back_populates='community', cascade='all, delete-orphan')
+    care_requests = db.relationship('CareRequest', backref='community', lazy=True)
 
 class CommunityMembership(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     community_id = db.Column(db.Integer, db.ForeignKey('community.id'))
-    role = db.Column(db.String(20), default='member')  # member, admin, coadmin
+    role = db.Column(db.String(20), default='member')
     joined_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     user = db.relationship('User', backref='community_memberships')
@@ -54,6 +60,8 @@ class Provider(db.Model):
     payment_type = db.Column(db.String(50))
     payment_details = db.Column(db.String(200))
     verified = db.Column(db.Boolean, default=False)
+    contact_name = db.Column(db.String(100), nullable=True)
+    contact_phone = db.Column(db.String(20), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class CareRequest(db.Model):
@@ -65,10 +73,10 @@ class CareRequest(db.Model):
     amount_from_sub = db.Column(db.Float, default=0)
     amount_from_pool = db.Column(db.Float, default=0)
     social_credit = db.Column(db.Float, default=0)
-    status = db.Column(db.String(20), default='pending')  # pending_witness, pending_admin, admin_approved, paid, rejected
+    status = db.Column(db.String(20), default='pending_witness')
     is_emergency = db.Column(db.Boolean, default=False)
     witness_votes = db.Column(db.String(500), default='')
-    witness_ids = db.Column(db.String(200), default='')   # comma-separated user IDs
+    witness_ids = db.Column(db.String(200), default='')
     admin_approved = db.Column(db.Boolean, default=False)
     admin_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     payment_transaction_id = db.Column(db.String(100))
@@ -76,11 +84,37 @@ class CareRequest(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     user = db.relationship('User', foreign_keys=[user_id])
-    community = db.relationship('Community')
     provider = db.relationship('Provider')
     admin = db.relationship('User', foreign_keys=[admin_id])
 
-# For global system state (fallback, deprecated but kept for compatibility)
+class PaymentRecord(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    reference_code = db.Column(db.String(50), unique=True, nullable=False)
+    care_request_id = db.Column(db.Integer, db.ForeignKey('care_request.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    provider_id = db.Column(db.Integer, db.ForeignKey('provider.id'))
+    community_id = db.Column(db.Integer, db.ForeignKey('community.id'))
+    amount = db.Column(db.Float, nullable=False)
+    status = db.Column(db.String(20), default='sent')
+    provider_confirmed_at = db.Column(db.DateTime, nullable=True)
+    treatment_started_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    care_request = db.relationship('CareRequest', backref='payments', foreign_keys=[care_request_id])
+    user = db.relationship('User', backref='payments', foreign_keys=[user_id])
+    provider = db.relationship('Provider', backref='payments', foreign_keys=[provider_id])
+    community = db.relationship('Community', backref='payments', foreign_keys=[community_id])
+
+class TrustEvent(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    old_score = db.Column(db.Float)
+    new_score = db.Column(db.Float)
+    delta = db.Column(db.Float)
+    reason = db.Column(db.String(100))
+    factors = db.Column(db.String(500))
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
 class SystemState(db.Model):
     id = db.Column(db.Integer, primary_key=True, default=1)
     communal_pool_balance = db.Column(db.Float, default=0.0)
