@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>M-Pesa Payment – Solidarity Pool</title>
+<style>
+  body { font-family: sans-serif; max-width: 460px; margin: 60px auto; padding: 0 16px; text-align: center; }
+  h1 { font-size: 1.3rem; margin-bottom: 6px; }
+  .subtitle { color: #666; margin-bottom: 28px; font-size: 0.9rem; }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: 28px 22px; background: #fafafa; }
+  .amount { font-size: 2rem; font-weight: bold; color: #00a550; margin: 8px 0 4px; }
+  .phone { color: #555; font-size: 0.9rem; margin-bottom: 20px; }
+  .spinner { width: 44px; height: 44px; border: 4px solid #e0e0e0; border-top-color: #00a550;
+             border-radius: 50%; animation: spin 0.9s linear infinite; margin: 16px auto; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .status-msg { font-size: 0.95rem; color: #444; margin: 12px 0 0; min-height: 1.4em; }
+  .success-icon { font-size: 2.6rem; margin: 8px 0; }
+  .error-box { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24;
+               padding: 14px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 0.9rem; }
+  .btn { display: inline-block; margin-top: 20px; padding: 10px 28px; border-radius: 4px;
+         text-decoration: none; font-size: 0.95rem; color: white; }
+  .btn-green { background: #28a745; }
+  .btn-mpesa { background: #00a550; }
+  .nav { margin-top: 20px; font-size: 0.88rem; }
+  .nav a { color: #2d7dd2; }
+</style>
+</head>
+<body>
+
+<h1>M-Pesa Top-up</h1>
+
+{% if error %}
+  <p class="subtitle">There was a problem sending the payment prompt.</p>
+  <div class="card">
+    <div class="error-box">{{ error }}</div>
+    <a class="btn btn-green" href="{{ url_for('simulate_roundup') }}">← Try again</a>
+  </div>
+
+{% else %}
+  <p class="subtitle">Check your phone — a payment prompt has been sent.</p>
+
+  <div class="card" id="status-card">
+    <div class="amount" id="amount-display">KES {{ amount|int }}</div>
+    <div class="phone">Sent to {{ user.phone }}</div>
+
+    <div id="waiting-section">
+      <div class="spinner" id="spinner"></div>
+      <p class="status-msg" id="status-msg">Waiting for you to approve on your phone…</p>
+    </div>
+
+    <div id="success-section" style="display:none;">
+      <div class="success-icon">✅</div>
+      <p class="status-msg" style="color:#155724; font-weight:bold;">Payment confirmed!</p>
+      <p class="status-msg" id="receipt-msg" style="color:#555;"></p>
+      <a class="btn btn-green" href="{{ url_for('home') }}">View updated balance →</a>
+    </div>
+
+    <div id="failed-section" style="display:none;">
+      <div class="success-icon">❌</div>
+      <p class="status-msg" style="color:#721c24; font-weight:bold;">Payment was not completed.</p>
+      <p class="status-msg" id="fail-msg" style="color:#555;"></p>
+      <a class="btn btn-mpesa" href="{{ url_for('simulate_roundup') }}">Try again →</a>
+    </div>
+  </div>
+
+  <div class="nav" id="nav-tip">
+    Takes a few seconds · <a href="{{ url_for('home') }}">Go to dashboard</a>
+  </div>
+{% endif %}
+
+{% if checkout_id %}
+<script>
+  const CHECKOUT_ID = {{ checkout_id|tojson }};
+  const STATUS_URL = '/mpesa/topup/status/' + encodeURIComponent(CHECKOUT_ID);
+  let attempts = 0;
+  const MAX_ATTEMPTS = 40;
+
+  function poll() {
+    fetch(STATUS_URL)
+      .then(r => r.json())
+      .then(data => {
+        attempts++;
+        if (data.status === 'confirmed') {
+          document.getElementById('waiting-section').style.display = 'none';
+          document.getElementById('success-section').style.display = '';
+          if (data.receipt) {
+            document.getElementById('receipt-msg').textContent =
+              'Receipt: ' + data.receipt + ' · KES ' + data.amount;
+          }
+          document.getElementById('nav-tip').style.display = 'none';
+          return;
+        }
+        if (data.status === 'failed') {
+          document.getElementById('waiting-section').style.display = 'none';
+          document.getElementById('failed-section').style.display = '';
+          document.getElementById('fail-msg').textContent = data.result_desc || 'Payment cancelled or timed out.';
+          return;
+        }
+        if (attempts >= MAX_ATTEMPTS) {
+          document.getElementById('status-msg').textContent =
+            'Still waiting… refresh the page or check your M-Pesa messages.';
+          return;
+        }
+        setTimeout(poll, 3000);
+      })
+      .catch(() => { setTimeout(poll, 5000); });
+  }
+
+  setTimeout(poll, 4000);
+</script>
+{% endif %}
+
+</body>
+</html>

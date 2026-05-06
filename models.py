@@ -137,3 +137,19 @@ class WitnessRequest(db.Model):
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
     user = db.relationship('User', backref='witness_requests')
+
+
+class MpesaTopup(db.Model):
+    """Tracks a pending STK Push top-up until Safaricom confirms it."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    checkout_request_id = db.Column(db.String(100), unique=True, nullable=False)
+    merchant_request_id = db.Column(db.String(100))
+    status = db.Column(db.String(20), default='pending')
+    mpesa_receipt = db.Column(db.String(50))
+    result_desc = db.Column(db.String(200))
+    initiated_at = db.Column(db.DateTime, default=datetime.utcnow)
+    confirmed_at = db.Column(db.DateTime)
+
+    user = db.relationship('User', backref='mpesa_topups')

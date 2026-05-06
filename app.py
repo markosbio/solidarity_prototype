@@ -1,9 +1,10 @@
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
-from models import db, User, Transaction, Community, CommunityMembership, Provider, CareRequest, SystemState, PaymentRecord
+from models import db, User, Transaction, Community, CommunityMembership, Provider, CareRequest, SystemState, PaymentRecord, MpesaTopup
 from trust_graph import compute_draw_ceiling
 from witness import select_witnesses
 from recovery import update_recovery_parameters
 from payments import pay_provider
+from mpesa import stk_push, parse_stk_callback, MpesaError
 from trust_engine import get_combined_score
 from communities import communities_bp
 from providers_bp import providers_bp
@@ -183,6 +184,7 @@ def simulate_roundup():
     if 'user_id' not in session:
         return redirect(url_for('register'))
     user = User.query.get(session['user_id'])
+    mpesa_enabled = bool(os.getenv('MPESA_CONSUMER_KEY') and os.getenv('MPESA_CONSUMER_SECRET'))
     if request.method == 'POST':
         purchase_amount = float(request.form['purchase_amount'])
         round_up = round(purchase_amount) - purchase_amount
@@ -193,7 +195,103 @@ def simulate_roundup():
         db.session.add(tx)
         db.session.commit()
         return redirect(url_for('home'))
-    return render_template('simulate_roundup.html', user=user)
+    return render_template('simulate_roundup.html', user=user, mpesa_enabled=mpesa_enabled)
+
+
+@app.route('/mpesa/topup', methods=['POST'])
+def mpesa_topup():
+    """Initiate an M-Pesa STK Push to top up the user's sub-wallet."""
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    user = User.query.get(session['user_id'])
+    try:
+        topup_amount = float(request.form['topup_amount'])
+        if topup_amount < 1:
+            raise ValueError("Minimum top-up is 1 KES")
+    except (ValueError, KeyError) as exc:
+        return render_template('mpesa_waiting.html', error=str(exc), user=user)
+
+    try:
+        result = stk_push(
+            phone=user.phone,
+            amount=topup_amount,
+            account_reference='SolidarityPool',
+            description=f'Sub-wallet top-up for {user.name}',
+        )
+    except MpesaError as exc:
+        return render_template('mpesa_waiting.html', error=str(exc), user=user)
+
+    checkout_id = result.get('CheckoutRequestID', '')
+    merchant_id = result.get('MerchantRequestID', '')
+    topup = MpesaTopup(
+        user_id=user.id,
+        amount=topup_amount,
+        checkout_request_id=checkout_id,
+        merchant_request_id=merchant_id,
+        status='pending',
+    )
+    db.session.add(topup)
+    db.session.commit()
+
+    return render_template(
+        'mpesa_waiting.html',
+        user=user,
+        checkout_id=checkout_id,
+        amount=topup_amount,
+        error=None,
+    )
+
+
+@app.route('/mpesa/topup/status/<checkout_id>')
+def mpesa_topup_status(checkout_id):
+    """JSON polling endpoint — the waiting page calls this every few seconds."""
+    topup = MpesaTopup.query.filter_by(checkout_request_id=checkout_id).first()
+    if not topup:
+        return jsonify({'status': 'unknown'})
+    return jsonify({
+        'status': topup.status,
+        'amount': topup.amount,
+        'receipt': topup.mpesa_receipt,
+        'result_desc': topup.result_desc,
+    })
+
+
+@app.route('/mpesa/callback', methods=['POST'])
+def mpesa_callback():
+    """Safaricom posts the STK Push result here."""
+    try:
+        data = parse_stk_callback(request.get_json(force=True))
+    except MpesaError as exc:
+        from loguru import logger
+        logger.error("Bad M-Pesa callback: {}", exc)
+        return jsonify({'ResultCode': 1, 'ResultDesc': 'Parse error'}), 400
+
+    topup = MpesaTopup.query.filter_by(
+        checkout_request_id=data['checkout_request_id']
+    ).first()
+    if not topup:
+        return jsonify({'ResultCode': 0, 'ResultDesc': 'Ignored'}), 200
+
+    if data['result_code'] == 0:
+        topup.status = 'confirmed'
+        topup.mpesa_receipt = data['mpesa_receipt']
+        topup.result_desc = data['result_desc']
+        topup.confirmed_at = datetime.utcnow()
+        user = User.query.get(topup.user_id)
+        user.sub_wallet_balance += topup.amount
+        tx = Transaction(
+            user_id=user.id,
+            amount=topup.amount,
+            type='mpesa_topup',
+            description=f'M-Pesa top-up {data["mpesa_receipt"]}',
+        )
+        db.session.add(tx)
+    else:
+        topup.status = 'failed'
+        topup.result_desc = data['result_desc']
+
+    db.session.commit()
+    return jsonify({'ResultCode': 0, 'ResultDesc': 'Accepted'}), 200
 
 @app.route('/request_care', methods=['GET', 'POST'])
 def request_care():
