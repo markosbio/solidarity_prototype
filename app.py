@@ -5,20 +5,27 @@ from witness import select_witnesses
 from recovery import update_recovery_parameters
 from payments import pay_provider
 from trust_engine import get_combined_score
+from communities import communities_bp
+from providers_bp import providers_bp
 import random
 import string
+import os
 from datetime import datetime
+from dotenv import load_dotenv
+load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = 'solidarity-final-key-change-in-production'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///solidarity.db'
+app.secret_key = os.environ.get('SECRET_KEY', 'solidarity-dev-key-change-in-production')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///solidarity.db')
 db.init_app(app)
+app.register_blueprint(communities_bp)
+app.register_blueprint(providers_bp)
 
 # Create tables and seed default data
 with app.app_context():
     db.create_all()
     if Community.query.count() == 0:
-        default_comm = Community(name="Global Health Pool", invite_code="GLOBAL001", pool_balance=5000.0, admin_user_id=1)
+        default_comm = Community(name="Global Health Pool", invite_code="GLOBAL001", pool_balance=5000.0, admin_user_id=None)
         db.session.add(default_comm)
         db.session.commit()
     if Provider.query.count() == 0:
@@ -225,12 +232,104 @@ def witness_dashboard():
     if 'user_id' not in session:
         return redirect(url_for('register'))
     user = User.query.get(session['user_id'])
-    pending = []
+    pending_care = []
     requests = CareRequest.query.filter_by(status='pending_witness').all()
     for req in requests:
         if req.witness_ids and str(user.id) in req.witness_ids.split(','):
-            pending.append(req)
-    return render_template('witness_dashboard.html', user=user, pending=pending)
+            req.requester = User.query.get(req.user_id)
+            pending_care.append(req)
+    from models import WitnessRequest
+    pending_legacy = []
+    legacy_reqs = WitnessRequest.query.filter_by(status='pending').all()
+    for req in legacy_reqs:
+        if req.witness_ids and str(user.id) in req.witness_ids.split(','):
+            pending_legacy.append(req)
+    comm = Community.query.get(user.primary_community_id) if user.primary_community_id else None
+    membership = CommunityMembership.query.filter_by(user_id=user.id, community_id=comm.id).first() if comm else None
+    is_admin = membership and membership.role in ['admin', 'coadmin']
+    return render_template('witness_dashboard.html', user=user, pending_care=pending_care, pending_legacy=pending_legacy, is_admin=is_admin)
+
+@app.route('/verify_care/<int:request_id>/<response>')
+def verify_care(request_id, response):
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    user = User.query.get(session['user_id'])
+    care_req = CareRequest.query.get(request_id)
+    if not care_req or care_req.status != 'pending_witness':
+        return "Invalid request", 400
+    if str(user.id) not in care_req.witness_ids.split(','):
+        return "Not authorized", 403
+    votes = care_req.witness_votes.split(',') if care_req.witness_votes else []
+    if f"{user.id}:{response}" not in votes:
+        votes.append(f"{user.id}:{response}")
+        care_req.witness_votes = ','.join(votes)
+        db.session.commit()
+    yes_count = sum(1 for v in votes if v.endswith('accept'))
+    total_witnesses = len(care_req.witness_ids.split(','))
+    if yes_count >= 2:
+        need_admin = (care_req.amount_needed > 50) or care_req.is_emergency
+        if need_admin:
+            care_req.status = 'pending_admin'
+        else:
+            care_req.status = 'admin_approved'
+            care_req.admin_approved = True
+            success, ref = pay_provider(
+                care_request_id=care_req.id, amount=care_req.amount_from_pool,
+                provider_id=care_req.provider_id, user_id=care_req.user_id,
+                community_id=care_req.community_id
+            )
+            if success:
+                care_req.payment_transaction_id = ref
+        db.session.commit()
+    elif len(votes) >= total_witnesses:
+        care_req.status = 'rejected'
+        db.session.commit()
+    return redirect(url_for('witness_dashboard'))
+
+@app.route('/trust_history')
+def trust_history():
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    from models import TrustEvent
+    user = User.query.get(session['user_id'])
+    events = TrustEvent.query.filter_by(user_id=user.id).order_by(TrustEvent.timestamp.desc()).limit(50).all()
+    return render_template('trust_history.html', user=user, events=events)
+
+@app.route('/admin/care')
+def admin_care():
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    user = User.query.get(session['user_id'])
+    pending = CareRequest.query.filter_by(status='pending_admin', admin_approved=False).all()
+    for cr in pending:
+        cr.requester = User.query.get(cr.user_id)
+    return render_template('admin_care.html', user=user, pending=pending)
+
+@app.route('/admin/care/<int:request_id>', methods=['POST'])
+def admin_care_action(request_id):
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    user = User.query.get(session['user_id'])
+    care_req = CareRequest.query.get(request_id)
+    if not care_req:
+        return "Request not found", 404
+    action = request.form.get('action')
+    if action == 'approve':
+        care_req.admin_approved = True
+        care_req.admin_id = user.id
+        care_req.status = 'admin_approved'
+        success, ref = pay_provider(
+            care_request_id=care_req.id, amount=care_req.amount_from_pool,
+            provider_id=care_req.provider_id, user_id=care_req.user_id,
+            community_id=care_req.community_id
+        )
+        if success:
+            care_req.payment_transaction_id = ref
+        db.session.commit()
+    elif action == 'deny':
+        care_req.status = 'rejected'
+        db.session.commit()
+    return redirect(url_for('admin_care'))
 
 @app.route('/verify_witness/<int:request_id>/<response>')
 def verify_witness(request_id, response):

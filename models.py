@@ -113,8 +113,27 @@ class TrustEvent(db.Model):
     delta = db.Column(db.Float)
     reason = db.Column(db.String(100))
     factors = db.Column(db.String(500))
+    f_repayment = db.Column(db.Float, nullable=True)
+    f_witness = db.Column(db.Float, nullable=True)
+    f_network = db.Column(db.Float, nullable=True)
+    f_activity = db.Column(db.Float, nullable=True)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
 class SystemState(db.Model):
     id = db.Column(db.Integer, primary_key=True, default=1)
     communal_pool_balance = db.Column(db.Float, default=0.0)
+
+class WitnessRequest(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    needed_amount = db.Column(db.Float)
+    provider_id = db.Column(db.String(100))
+    from_sub = db.Column(db.Float, default=0.0)
+    from_pool = db.Column(db.Float, default=0.0)
+    social_credit = db.Column(db.Float, default=0.0)
+    status = db.Column(db.String(20), default='pending')
+    witness_ids = db.Column(db.String(200), default='')
+    votes = db.Column(db.String(500), default='')
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User', backref='witness_requests')
