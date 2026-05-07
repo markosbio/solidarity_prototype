@@ -11,8 +11,13 @@
   }
   .request-card.emergency { border-left: 4px solid #dc3545; background: #fff8f8; }
   .request-card h3 { margin: 0 0 8px 0; font-size: 1rem; }
-  .meta { font-size: 0.85em; color: #666; margin-bottom: 10px; }
-  .masked { font-style: italic; color: #888; }
+  .meta { font-size: 0.85em; color: #444; margin-bottom: 10px; line-height: 1.6; }
+  .meta strong { color: #111; }
+  .detail-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .detail-chip { background: #f0f0f0; border-radius: 4px; padding: 4px 10px;
+                 font-size: 0.82rem; color: #444; }
+  .detail-chip.urgent { background: #f8d7da; color: #721c24; }
+  .privacy-note { font-size: 0.78rem; color: #888; font-style: italic; margin-top: 6px; }
   .actions a {
     display: inline-block; padding: 6px 16px; border-radius: 4px;
     text-decoration: none; font-size: 0.9rem; margin-right: 8px;
@@ -25,6 +30,8 @@
   .admin-badge { background: #ffc107; color: #333; font-size: 0.75em;
                  padding: 2px 8px; border-radius: 10px; vertical-align: middle; }
   a.back { color: #2d7dd2; }
+  .section-label { font-size: 0.82rem; font-weight: bold; color: #555;
+                   text-transform: uppercase; letter-spacing: .05em; margin: 20px 0 8px; }
 </style>
 </head>
 <body>
@@ -34,35 +41,36 @@
   {% if is_admin %}<span class="admin-badge">ADMIN VIEW</span>{% endif %}
 </p>
 
-<!-- Phase 1: New CareRequest items -->
+<!-- Care Requests -->
 {% if pending_care %}
-<h2 style="font-size:1.1rem;">Care Requests (new flow)</h2>
+<div class="section-label">Care Requests</div>
 {% for cr in pending_care %}
 <div class="request-card {% if cr.is_emergency %}emergency{% endif %}">
-  {% if cr.is_emergency %}
-  <span style="color:#dc3545; font-weight:bold;">🚨 EMERGENCY — </span>
-  {% endif %}
-  <h3>Request #{{ cr.id }}
-    {% if cr.is_emergency %} · Emergency{% endif %}
+  <h3>
+    Request #{{ cr.id }}
+    {% if cr.is_emergency %}<span style="color:#dc3545"> · 🚨 Emergency</span>{% endif %}
   </h3>
 
   {% if is_admin %}
-    <!-- Phase 4: Admin sees full details -->
-    <div class="meta">
-      Requester: <strong>{{ cr.requester.name }}</strong> ({{ cr.requester.phone }})<br>
-      Provider: <strong>{{ cr.provider.name }}</strong> ({{ cr.provider.provider_code }})<br>
-      Amount: <strong>${{ "%.2f"|format(cr.amount_needed) }}</strong> —
-      from wallet ${{ "%.2f"|format(cr.amount_from_sub) }} /
-      from pool ${{ "%.2f"|format(cr.amount_from_pool) }}<br>
-      Submitted: {{ cr.created_at.strftime('%Y-%m-%d %H:%M') }}
-    </div>
+  <!-- Admin sees full details -->
+  <div class="meta">
+    <strong>Requester:</strong> {{ cr.requester.name }} ({{ cr.requester.phone }})<br>
+    <strong>Provider:</strong> {{ cr.provider.name }} — {{ cr.provider.provider_code }}<br>
+    <strong>Amount:</strong> ${{ "%.2f"|format(cr.amount_needed) }} —
+      wallet ${{ "%.2f"|format(cr.amount_from_sub) }} /
+      pool ${{ "%.2f"|format(cr.amount_from_pool) }}<br>
+    <strong>Submitted:</strong> {{ cr.created_at.strftime('%Y-%m-%d %H:%M') }}
+  </div>
   {% else %}
-    <!-- Phase 4: Witnesses see privacy-masked summary -->
-    <p class="masked">
-      Health care request — Amount: ${{ "%.2f"|format(cr.amount_needed) }}<br>
-      Provider type: {{ cr.provider.payment_type or 'clinic/hospital' }}<br>
-      <em>Full details visible to community admins only.</em>
-    </p>
+  <!-- Witnesses see minimal but useful context (feature 12) -->
+  <div class="detail-row">
+    <span class="detail-chip">{{ cr.provider.name }}</span>
+    <span class="detail-chip">{{ cr.provider.payment_type or 'clinic/hospital' }}</span>
+    <span class="detail-chip">Amount: ${{ "%.2f"|format(cr.amount_needed) }}</span>
+    {% if cr.is_emergency %}<span class="detail-chip urgent">🚨 Life-threatening emergency</span>{% endif %}
+    <span class="detail-chip">Submitted {{ cr.created_at.strftime('%b %d') }}</span>
+  </div>
+  <div class="privacy-note">Full requester details are visible to community admins only.</div>
   {% endif %}
 
   <div class="actions">
@@ -75,14 +83,18 @@
 
 <!-- Legacy WitnessRequest items -->
 {% if pending_legacy %}
-<h2 style="font-size:1.1rem; margin-top:24px;">Legacy Requests</h2>
+<div class="section-label" style="margin-top:24px;">Legacy Requests</div>
 {% for req in pending_legacy %}
 <div class="request-card">
   <h3>Request #{{ req.id }}</h3>
   {% if is_admin %}
     <div class="meta">Amount: ${{ "%.2f"|format(req.needed_amount) }} · Provider: {{ req.provider_id }}</div>
   {% else %}
-    <p class="masked">Health emergency request — Amount: ${{ "%.2f"|format(req.needed_amount) }}</p>
+    <div class="detail-row">
+      <span class="detail-chip">Amount: ${{ "%.2f"|format(req.needed_amount) }}</span>
+      <span class="detail-chip">Health care request</span>
+    </div>
+    <div class="privacy-note">Full details visible to community admins only.</div>
   {% endif %}
   <div class="actions">
     <a class="btn-accept" href="{{ url_for('verify_witness', request_id=req.id, response='accept') }}">✓ Verify</a>
@@ -93,9 +105,9 @@
 {% endif %}
 
 {% if not pending_care and not pending_legacy %}
-<p class="empty">No pending witness requests.</p>
+<p class="empty">No pending witness requests assigned to you.</p>
 {% endif %}
 
-<p><a class="back" href="{{ url_for('home') }}">← Back to dashboard</a></p>
+<p style="margin-top:20px;"><a class="back" href="{{ url_for('home') }}">← Back to dashboard</a></p>
 </body>
 </html>

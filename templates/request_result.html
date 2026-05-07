@@ -16,8 +16,11 @@
   .val.green { color: #28a745; }
   .val.amber { color: #e67e00; }
   .val.red   { color: #dc3545; }
+  .val.blue  { color: #2d7dd2; }
   .info-box { background: #e8f4f8; border-left: 4px solid #2d7dd2; padding: 12px 16px;
               border-radius: 0 6px 6px 0; font-size: 0.87rem; color: #2c4a6e; margin-bottom: 20px; }
+  .ceiling-box { background: #f0f8f0; border-left: 4px solid #28a745; padding: 10px 14px;
+                 border-radius: 0 6px 6px 0; font-size: 0.85rem; margin-bottom: 16px; }
   .btn { display: inline-block; padding: 10px 24px; background: #2d7dd2; color: white;
          border-radius: 4px; text-decoration: none; font-size: 0.95rem; }
   .btn:hover { background: #2566b0; }
@@ -49,7 +52,20 @@
     <span class="val red">${{ "%.2f"|format(social_credit) }}</span>
   </div>
   {% endif %}
+  {% if ceiling_remaining is defined %}
+  <div class="row">
+    <span class="label">Remaining draw ceiling</span>
+    <span class="val blue">${{ "%.2f"|format(ceiling_remaining) }}</span>
+  </div>
+  {% endif %}
 </div>
+
+{% if ceiling_remaining is defined %}
+<div class="ceiling-box">
+  You have <strong>${{ "%.2f"|format(ceiling_remaining) }}</strong> of your draw ceiling remaining.
+  Increase it by contributing more round-ups or witnessing requests for others.
+</div>
+{% endif %}
 
 <div class="info-box">
   <strong>What happens next?</strong><br>
@@ -57,6 +73,9 @@
   directly to your provider.
   {% if needed > 50 %}
   Because this request exceeds $50, it also requires admin approval.
+  {% endif %}
+  {% if is_emergency %}
+  This is marked as an emergency — if no admin responds within 2 hours, it will be auto-approved.
   {% endif %}
 </div>
 

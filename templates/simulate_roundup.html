@@ -20,7 +20,12 @@
   .btn-mpesa:hover { background: #008040; }
   .balance-row { display: flex; justify-content: space-between; margin-top: 12px;
                  font-size: 0.88rem; color: #555; }
-  .hint { font-size: 0.8rem; color: #888; margin-top: 6px; }
+  .hint { font-size: 0.78rem; color: #888; margin-top: 5px; }
+  .split-pills { display: flex; gap: 6px; margin: 12px 0 4px; flex-wrap: wrap; }
+  .pill { padding: 4px 10px; border-radius: 12px; font-size: 0.78rem; font-weight: bold; }
+  .pill-wallet { background: #d4edda; color: #155724; }
+  .pill-pool   { background: #cce5ff; color: #004085; }
+  .pill-fee    { background: #f8d7da; color: #721c24; }
   .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem;
            background: #00a550; color: white; vertical-align: middle; margin-left: 6px; }
   .divider { display: flex; align-items: center; margin: 4px 0 16px; color: #aaa; font-size: 0.8rem; }
@@ -43,33 +48,38 @@
     <label>Top-up amount (KES)
       <input type="number" step="1" min="1" name="topup_amount"
              placeholder="e.g. 50" required autofocus>
-      <span class="hint">Minimum 1 KES. Amount added directly to your sub-wallet on confirmation.</span>
+      <span class="hint">Credited directly to your sub-wallet on confirmation.</span>
     </label>
     <button class="btn btn-mpesa" type="submit">Send M-Pesa prompt →</button>
   </form>
-
   <div class="balance-row">
     <span>Current sub-wallet</span>
     <strong>${{ "%.2f"|format(user.sub_wallet_balance) }}</strong>
   </div>
-  <div class="balance-row">
-    <span>Round-up multiplier</span>
-    <strong>{{ user.roundup_intensifier }}×</strong>
-  </div>
 </div>
-
 <div class="divider">or simulate a purchase round-up</div>
 {% endif %}
 
-<!-- Simulation form (always shown; labelled appropriately) -->
+<!-- Simulation form -->
 <div class="card">
   {% if mpesa_enabled %}
   <h2>Simulate a Round-up</h2>
   <p class="card-desc">Enter a purchase amount — the cents above the nearest dollar round up.</p>
   {% else %}
   <h2>Simulate a Purchase Round-up</h2>
-  <p class="card-desc">Enter any purchase amount — the cents above the nearest dollar are rounded up to your sub-wallet.</p>
+  <p class="card-desc">Enter any purchase amount — the cents round up to your sub-wallet and community pool.</p>
   {% endif %}
+
+  <!-- Split breakdown pills -->
+  <div class="split-pills">
+    <span class="pill pill-wallet">{{ wallet_pct }}% your wallet</span>
+    <span class="pill pill-pool">{{ pool_pct }}% community pool</span>
+    <span class="pill pill-fee">{{ fee_pct }}% platform fee</span>
+  </div>
+  <div class="hint" style="margin-bottom:8px;">
+    Each round-up is automatically split between your personal savings, the communal health pool, and platform operations.
+  </div>
+
   <form method="POST">
     <label>Purchase amount (e.g. 12.50)
       <input type="number" step="0.01" min="0.01" name="purchase_amount"
@@ -79,7 +89,6 @@
     <button class="btn btn-green" type="submit">Round up &amp; Contribute</button>
   </form>
 
-  {% if not mpesa_enabled %}
   <div class="balance-row">
     <span>Current sub-wallet</span>
     <strong>${{ "%.2f"|format(user.sub_wallet_balance) }}</strong>
@@ -88,7 +97,6 @@
     <span>Round-up multiplier</span>
     <strong>{{ user.roundup_intensifier }}×</strong>
   </div>
-  {% endif %}
 </div>
 
 <div class="nav"><a href="{{ url_for('home') }}">← Back to dashboard</a></div>

@@ -6,7 +6,7 @@
   body { font-family: sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; }
   h1 { font-size: 1.5rem; margin-bottom: 4px; }
   .subtitle { color: #666; margin-bottom: 24px; }
-  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
   .stat-box { border: 1px solid #ddd; border-radius: 8px; padding: 14px 16px; background: #fafafa; }
   .stat-box .label { font-size: 0.78rem; color: #777; margin-bottom: 4px; }
   .stat-box .value { font-size: 1.4rem; font-weight: bold; color: #2d7dd2; }
@@ -22,13 +22,23 @@
   .nav-btn .icon { font-size: 1.2rem; margin-right: 6px; }
   .nav-btn .desc { font-size: 0.76rem; color: #888; display: block; margin-top: 2px; }
   .community-box { border: 1px solid #ddd; border-radius: 8px; padding: 14px 16px;
-                   background: #f0f8f0; margin-bottom: 20px; }
+                   background: #f0f8f0; margin-bottom: 12px; }
   .community-box .comm-name { font-weight: bold; font-size: 1rem; }
   .community-box .comm-pool { color: #28a745; font-size: 0.9rem; margin-top: 2px; }
   .logout { font-size: 0.85rem; color: #dc3545; text-decoration: none; }
   .logout:hover { text-decoration: underline; }
   .credit-warn { background: #fff3cd; border: 1px solid #ffc107; padding: 10px 14px;
                  border-radius: 6px; font-size: 0.87rem; margin-bottom: 16px; }
+  /* Pool health gauge */
+  .pool-health { margin-top: 10px; }
+  .gauge-bar { height: 10px; border-radius: 5px; background: #e9ecef; overflow: hidden; margin: 4px 0; }
+  .gauge-fill { height: 100%; border-radius: 5px; transition: width .4s; }
+  .gauge-fill.green { background: #28a745; }
+  .gauge-fill.amber { background: #ffc107; }
+  .gauge-fill.red   { background: #dc3545; }
+  .gauge-label { font-size: 0.78rem; color: #555; }
+  .pool-warn { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24;
+               padding: 8px 12px; border-radius: 6px; font-size: 0.82rem; margin-top: 6px; }
 </style>
 </head>
 <body>
@@ -57,12 +67,12 @@
     </div>
   </div>
   <div class="stat-box">
-    <div class="label">Witness accuracy</div>
-    <div class="value">{{ "%.0f"|format(user.witness_accuracy_score * 100) }}%</div>
+    <div class="label">Draw ceiling</div>
+    <div class="value trust-high">${{ "%.0f"|format(ceiling) }}</div>
   </div>
   <div class="stat-box">
-    <div class="label">Round-up multiplier</div>
-    <div class="value">{{ user.roundup_intensifier }}×</div>
+    <div class="label">Witness accuracy</div>
+    <div class="value">{{ "%.0f"|format(user.witness_accuracy_score * 100) }}%</div>
   </div>
 </div>
 
@@ -73,6 +83,26 @@
   <div class="comm-pool">Pool: ${{ "%.2f"|format(primary_comm.pool_balance) }}</div>
   <div style="font-size:0.78rem; color:#555; margin-top:4px;">
     Invite code: <code>{{ primary_comm.invite_code }}</code>
+  </div>
+
+  <!-- Pool health gauge -->
+  <div class="pool-health">
+    <div class="gauge-bar">
+      <div class="gauge-fill {{ pool_health.color }}" style="width:{{ pool_health.pct }}%"></div>
+    </div>
+    <div class="gauge-label">
+      Pool health: <strong>{{ pool_health.pct }}% — {{ pool_health.label }}</strong>
+    </div>
+    {% if pool_health.pct < 30 %}
+    <div class="pool-warn">
+      ⚠ Pool is critically low. Draw ceilings are reduced until the pool recovers.
+      Contribute round-ups to help restore it.
+    </div>
+    {% elif pool_health.pct < 60 %}
+    <div style="font-size:0.78rem; color:#856404; margin-top:4px;">
+      Pool is running fair — consider extra round-up contributions.
+    </div>
+    {% endif %}
   </div>
 </div>
 {% else %}
@@ -86,12 +116,12 @@
 <div class="section-title">Actions</div>
 <div class="nav-grid">
   <a class="nav-btn" href="{{ url_for('simulate_roundup') }}">
-    <span class="icon">💰</span>Simulate Round-up
+    <span class="icon">💰</span>Round-up / Top-up
     <span class="desc">Add micro-savings to your wallet</span>
   </a>
   <a class="nav-btn" href="{{ url_for('request_care') }}">
     <span class="icon">🏥</span>Request Care
-    <span class="desc">Draw from the community pool</span>
+    <span class="desc">Up to ${{ "%.0f"|format(ceiling) }} from pool</span>
   </a>
   <a class="nav-btn" href="{{ url_for('witness_dashboard') }}">
     <span class="icon">👁</span>Witness Dashboard
@@ -118,6 +148,10 @@
   <a class="nav-btn" href="{{ url_for('admin_care') }}">
     <span class="icon">✅</span>Admin Approvals
     <span class="desc">Approve large/emergency requests</span>
+  </a>
+  <a class="nav-btn" href="{{ url_for('admin_trust_page') }}">
+    <span class="icon">🔧</span>Trust Override
+    <span class="desc">Manually adjust member trust scores</span>
   </a>
   {% endif %}
 </div>

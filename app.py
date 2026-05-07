@@ -12,7 +12,10 @@ from ussd import ussd_bp
 import random
 import string
 import os
-from datetime import datetime
+import io
+import csv
+from datetime import datetime, timedelta
+from notifications import notify_ceiling_increase, notify_pool_low
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -41,6 +44,56 @@ def get_user_communities(user_id):
     memberships = CommunityMembership.query.filter_by(user_id=user_id).all()
     return [Community.query.get(m.community_id) for m in memberships]
 
+
+_POOL_TARGET = 2000.0  # "full health" baseline in dollars
+
+def _roundup_split(amount: float) -> tuple:
+    """Split a round-up into (wallet, pool, fee) using env-configurable percentages."""
+    w = float(os.getenv('ROUNDUP_WALLET_PCT', 70)) / 100
+    p = float(os.getenv('ROUNDUP_POOL_PCT', 20)) / 100
+    to_wallet = round(amount * w, 4)
+    to_pool   = round(amount * p, 4)
+    to_fee    = round(amount - to_wallet - to_pool, 4)
+    return to_wallet, to_pool, to_fee
+
+
+def _pool_health(pool_balance: float) -> dict:
+    pct = min(100.0, max(0.0, pool_balance / _POOL_TARGET * 100))
+    if pct >= 60:
+        label, color = 'Healthy', 'green'
+    elif pct >= 30:
+        label, color = 'Fair', 'amber'
+    else:
+        label, color = 'Low', 'red'
+    return {'pct': round(pct, 1), 'label': label, 'color': color}
+
+
+def _check_emergency_auto_approvals():
+    """Auto-approve emergency requests older than 2 hours when no admin has acted."""
+    from loguru import logger
+    threshold = datetime.utcnow() - timedelta(hours=2)
+    pending = CareRequest.query.filter(
+        CareRequest.status == 'pending_admin',
+        CareRequest.is_emergency == True,
+        CareRequest.admin_approved == False,
+        CareRequest.created_at <= threshold,
+    ).all()
+    for care_req in pending:
+        logger.info("Emergency auto-approve: care_req_id={} (>2h elapsed)", care_req.id)
+        care_req.admin_approved = True
+        care_req.status = 'admin_approved'
+        success, ref = pay_provider(
+            care_request_id=care_req.id, amount=care_req.amount_from_pool,
+            provider_id=care_req.provider_id, user_id=care_req.user_id,
+            community_id=care_req.community_id,
+        )
+        if success:
+            care_req.payment_transaction_id = ref
+    if pending:
+        db.session.commit()
+    return len(pending)
+
+
 # ------------------ Web Routes ------------------
 @app.route('/')
 def home():
@@ -51,7 +104,14 @@ def home():
         if primary_comm:
             membership = CommunityMembership.query.filter_by(user_id=user.id, community_id=primary_comm.id).first()
         is_admin = membership and membership.role in ['admin', 'coadmin']
-        return render_template('dashboard.html', user=user, primary_comm=primary_comm, is_admin=is_admin)
+        try:
+            ceiling = round(compute_draw_ceiling(user.id), 2)
+        except Exception:
+            ceiling = 0.0
+        pool_balance = primary_comm.pool_balance if primary_comm else 0.0
+        ph = _pool_health(pool_balance)
+        return render_template('dashboard.html', user=user, primary_comm=primary_comm,
+                               is_admin=is_admin, ceiling=ceiling, pool_health=ph)
     return redirect(url_for('register'))
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -187,17 +247,42 @@ def simulate_roundup():
         return redirect(url_for('register'))
     user = User.query.get(session['user_id'])
     mpesa_enabled = bool(os.getenv('MPESA_CONSUMER_KEY') and os.getenv('MPESA_CONSUMER_SECRET'))
+    wallet_pct = int(os.getenv('ROUNDUP_WALLET_PCT', 70))
+    pool_pct   = int(os.getenv('ROUNDUP_POOL_PCT',   20))
+    fee_pct    = 100 - wallet_pct - pool_pct
     if request.method == 'POST':
         purchase_amount = float(request.form['purchase_amount'])
-        round_up = round(purchase_amount) - purchase_amount
+        round_up = round(round(purchase_amount) - purchase_amount, 4)
         if round_up <= 0:
             round_up = 0.01
-        user.sub_wallet_balance += round_up
-        tx = Transaction(user_id=user.id, amount=round_up, type='roundup', description=f'Round-up from {purchase_amount}')
-        db.session.add(tx)
+        try:
+            old_ceiling = compute_draw_ceiling(user.id)
+        except Exception:
+            old_ceiling = 0.0
+        to_wallet, to_pool, to_fee = _roundup_split(round_up)
+        user.sub_wallet_balance += to_wallet
+        primary_comm = Community.query.get(user.primary_community_id) if user.primary_community_id else None
+        if primary_comm and to_pool > 0:
+            primary_comm.pool_balance += to_pool
+            ph = _pool_health(primary_comm.pool_balance)
+            notify_pool_low(primary_comm, ph['pct'])
+        db.session.add(Transaction(user_id=user.id, amount=to_wallet, type='roundup',
+                                   description=f'Round-up wallet share from ${purchase_amount:.2f}'))
+        if to_pool > 0 and primary_comm:
+            db.session.add(Transaction(user_id=user.id, amount=to_pool, type='pool_contribution',
+                                       description=f'Round-up pool share from ${purchase_amount:.2f}'))
+        if to_fee > 0:
+            db.session.add(Transaction(user_id=user.id, amount=to_fee, type='platform_fee',
+                                       description=f'Round-up platform fee from ${purchase_amount:.2f}'))
         db.session.commit()
+        try:
+            new_ceiling = compute_draw_ceiling(user.id)
+            notify_ceiling_increase(user, new_ceiling, old_ceiling)
+        except Exception:
+            pass
         return redirect(url_for('home'))
-    return render_template('simulate_roundup.html', user=user, mpesa_enabled=mpesa_enabled)
+    return render_template('simulate_roundup.html', user=user, mpesa_enabled=mpesa_enabled,
+                           wallet_pct=wallet_pct, pool_pct=pool_pct, fee_pct=fee_pct)
 
 
 @app.route('/mpesa/topup', methods=['POST'])
@@ -334,10 +419,22 @@ def request_care():
         witness_ids = ','.join(str(w.id) for w in witnesses)
         care_req.witness_ids = witness_ids
         db.session.commit()
-        return render_template('request_result.html', needed=needed_amount, from_sub=from_sub, from_pool=from_pool, social_credit=social_credit, request_id=care_req.id)
+        try:
+            ceiling_remaining = max(0.0, round(ceiling - from_pool, 2))
+        except Exception:
+            ceiling_remaining = 0.0
+        return render_template('request_result.html', needed=needed_amount, from_sub=from_sub,
+                               from_pool=from_pool, social_credit=social_credit,
+                               request_id=care_req.id, ceiling_remaining=ceiling_remaining,
+                               is_emergency=is_emergency)
     providers = Provider.query.filter_by(verified=True).all()
     communities = get_user_communities(session['user_id'])
-    return render_template('request_care.html', user=user, providers=providers, communities=communities)
+    try:
+        ceiling = round(compute_draw_ceiling(user.id), 2)
+    except Exception:
+        ceiling = 0.0
+    return render_template('request_care.html', user=user, providers=providers,
+                           communities=communities, ceiling=ceiling)
 
 @app.route('/witness_dashboard')
 def witness_dashboard():
@@ -412,6 +509,7 @@ def admin_care():
     if 'user_id' not in session:
         return redirect(url_for('register'))
     user = User.query.get(session['user_id'])
+    _check_emergency_auto_approvals()
     pending = CareRequest.query.filter_by(status='pending_admin', admin_approved=False).all()
     for cr in pending:
         cr.requester = User.query.get(cr.user_id)
@@ -649,11 +747,18 @@ def ussd():
     choice = inputs[0]
 
     if choice == "1":
+        try:
+            ceil_val = compute_draw_ceiling(user.id)
+        except Exception:
+            ceil_val = 0.0
         if primary_comm:
-            bal = f"Wallet: ${user.sub_wallet_balance:.2f}\nPool: ${primary_comm.pool_balance:.2f}"
+            ph = _pool_health(primary_comm.pool_balance)
+            bal = (f"Wallet: ${user.sub_wallet_balance:.2f}\n"
+                   f"Draw ceiling: ${ceil_val:.0f}\n"
+                   f"Pool: ${primary_comm.pool_balance:.2f} ({ph['label']})")
         else:
-            bal = "Join a community first (option 4)."
-        return r(bal)
+            bal = f"Wallet: ${user.sub_wallet_balance:.2f}\nDraw ceiling: ${ceil_val:.0f}"
+        return r(bal, end=True)
 
     if choice == "3":
         score = get_combined_score(user.id)
@@ -708,8 +813,12 @@ def ussd():
         if len(user_communities) == 1:
             selected_comm = user_communities[0]
             if step == 1:
-                ussd_sessions[phone] = {"selected_comm_id": selected_comm.id, "state": "awaiting_amount"}
-                return r("Enter amount (USD):")
+                try:
+                    _ceil = compute_draw_ceiling(user.id)
+                except Exception:
+                    _ceil = 0.0
+                ussd_sessions[phone] = {"selected_comm_id": selected_comm.id, "state": "awaiting_amount", "ceiling": _ceil}
+                return r(f"Your ceiling: ${_ceil:.0f}\nEnter amount (USD):")
             elif step == 2:
                 try:
                     amount = float(inputs[1])
@@ -722,7 +831,9 @@ def ussd():
                 provider_code = inputs[2].strip().upper()
                 provider = Provider.query.filter_by(provider_code=provider_code, verified=True).first()
                 if not provider:
-                    return r("Provider not found or unverified.", end=True)
+                    sample = Provider.query.filter_by(verified=True).first()
+                    hint = sample.provider_code if sample else 'MULAGO001'
+                    return r(f"Invalid code '{provider_code}'.\nTry {hint} or ask your clinic.", end=True)
                 amount = ussd_sessions[phone]["amount"]
                 ussd_sessions[phone]["provider_id"] = provider.id
                 return r("Emergency? (1=Yes, 2=No)")
@@ -732,7 +843,7 @@ def ussd():
                 provider_id = ussd_sessions[phone]["provider_id"]
                 selected_comm_id = ussd_sessions[phone]["selected_comm_id"]
                 selected_comm = Community.query.get(selected_comm_id)
-                ceiling = compute_draw_ceiling(user.id)
+                ceiling = ussd_sessions[phone].get("ceiling") or compute_draw_ceiling(user.id)
                 from_sub = min(user.sub_wallet_balance, amount)
                 remaining = amount - from_sub
                 user.sub_wallet_balance -= from_sub
@@ -759,18 +870,25 @@ def ussd():
                 care_req.witness_ids = witness_ids
                 db.session.commit()
                 ussd_sessions.pop(phone, None)
+                ceiling_remaining = max(0.0, ceiling - from_pool)
                 need_admin = (amount > 50) or emerg
-                msg = f"Request submitted. {len(witnesses)} witnesses will verify."
-                if need_admin:
-                    msg += " Admin approval also required."
+                msg = f"Request submitted.\nCeiling remaining: ${ceiling_remaining:.0f}\n{len(witnesses)} witnesses notified."
+                if emerg:
+                    msg += " Auto-approved in 2h if no admin."
+                elif need_admin:
+                    msg += " Admin approval required."
                 return r(msg, end=True)
             else:
                 return r("Invalid step.", end=True)
         else:
             if step == 1:
+                try:
+                    _ceil = compute_draw_ceiling(user.id)
+                except Exception:
+                    _ceil = 0.0
                 comm_list = "\n".join([f"{i+1}. {c.name}" for i, c in enumerate(user_communities)])
-                ussd_sessions[phone] = {"state": "choose_comm", "communities": [(c.id, c.name) for c in user_communities]}
-                return r(f"Select community:\n{comm_list}\n0. Back")
+                ussd_sessions[phone] = {"state": "choose_comm", "communities": [(c.id, c.name) for c in user_communities], "ceiling": _ceil}
+                return r(f"Your ceiling: ${_ceil:.0f}\nSelect community:\n{comm_list}\n0. Back")
             elif step == 2 and ussd_sessions.get(phone, {}).get("state") == "choose_comm":
                 idx = int(inputs[1]) - 1
                 comms = ussd_sessions[phone]["communities"]
@@ -793,7 +911,9 @@ def ussd():
                 provider_code = inputs[3].strip().upper()
                 provider = Provider.query.filter_by(provider_code=provider_code, verified=True).first()
                 if not provider:
-                    return r("Provider not found or unverified.", end=True)
+                    sample = Provider.query.filter_by(verified=True).first()
+                    hint = sample.provider_code if sample else 'MULAGO001'
+                    return r(f"Invalid code '{provider_code}'.\nTry {hint} or ask your clinic.", end=True)
                 amount = ussd_sessions[phone]["amount"]
                 ussd_sessions[phone]["provider_id"] = provider.id
                 return r("Emergency? (1=Yes, 2=No)")
@@ -803,7 +923,7 @@ def ussd():
                 provider_id = ussd_sessions[phone]["provider_id"]
                 selected_comm_id = ussd_sessions[phone]["selected_comm_id"]
                 selected_comm = Community.query.get(selected_comm_id)
-                ceiling = compute_draw_ceiling(user.id)
+                ceiling = ussd_sessions[phone].get("ceiling") or compute_draw_ceiling(user.id)
                 from_sub = min(user.sub_wallet_balance, amount)
                 remaining = amount - from_sub
                 user.sub_wallet_balance -= from_sub
@@ -830,10 +950,13 @@ def ussd():
                 care_req.witness_ids = witness_ids
                 db.session.commit()
                 ussd_sessions.pop(phone, None)
+                ceiling_remaining = max(0.0, ceiling - from_pool)
                 need_admin = (amount > 50) or emerg
-                msg = f"Request submitted. {len(witnesses)} witnesses will verify."
-                if need_admin:
-                    msg += " Admin approval also required."
+                msg = f"Request submitted.\nCeiling remaining: ${ceiling_remaining:.0f}\n{len(witnesses)} witnesses notified."
+                if emerg:
+                    msg += " Auto-approved in 2h if no admin."
+                elif need_admin:
+                    msg += " Admin approval required."
                 return r(msg, end=True)
             else:
                 return r("Invalid step.", end=True)
@@ -994,6 +1117,145 @@ def ussd():
         return r("Goodbye.", end=True)
 
     return r("Invalid choice.", end=True)
+
+
+# ------------------ Admin: Trust Override ------------------
+
+@app.route('/admin/trust')
+def admin_trust_page():
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    user = User.query.get(session['user_id'])
+    return render_template('admin_trust.html', user=user)
+
+
+@app.route('/admin/trust/override', methods=['POST'])
+def admin_trust_override_by_phone():
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    admin = User.query.get(session['user_id'])
+    memberships = CommunityMembership.query.filter_by(user_id=admin.id).all()
+    is_comm_admin = admin.is_global_admin or any(m.role in ['admin', 'coadmin'] for m in memberships)
+    if not is_comm_admin:
+        return "Not authorized — only community admins can override trust scores.", 403
+    phone = request.form.get('phone', '').strip()
+    target = User.query.filter_by(phone=phone).first()
+    if not target:
+        return f"No user found with phone {phone}. Please check and try again.", 404
+    try:
+        new_score = float(request.form.get('trust_score', ''))
+        new_score = max(0.0, min(1.0, new_score))
+    except ValueError:
+        return "Invalid trust score. Enter a number between 0 and 1.", 400
+    reason = request.form.get('reason', 'admin_override').strip() or 'admin_override'
+    event = TrustEvent(
+        user_id=target.id,
+        old_score=target.trust_score,
+        new_score=new_score,
+        delta=round(new_score - target.trust_score, 6),
+        reason=reason,
+        factors='admin_override',
+    )
+    db.session.add(event)
+    target.trust_score = new_score
+    db.session.commit()
+    from loguru import logger
+    logger.info("Admin trust override: admin_id={} target_id={} phone={} new_score={}",
+                admin.id, target.id, phone, new_score)
+    return redirect(url_for('admin_care'))
+
+
+# ------------------ Admin: CSV Exports ------------------
+
+@app.route('/admin/export/payments.csv')
+def export_payments_csv():
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    admin = User.query.get(session['user_id'])
+    admin_comm_ids = [
+        m.community_id for m in CommunityMembership.query.filter_by(user_id=admin.id).all()
+        if m.role in ['admin', 'coadmin']
+    ]
+    if not admin_comm_ids and not admin.is_global_admin:
+        return "Not authorized — community admin access required.", 403
+    if admin.is_global_admin:
+        payments = PaymentRecord.query.order_by(PaymentRecord.created_at.desc()).all()
+    else:
+        payments = PaymentRecord.query.filter(
+            PaymentRecord.community_id.in_(admin_comm_ids)
+        ).order_by(PaymentRecord.created_at.desc()).all()
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(['Date', 'Reference', 'Member', 'Phone', 'Provider', 'Amount (USD)', 'Status', 'Confirmed At'])
+    for p in payments:
+        member = User.query.get(p.user_id)
+        provider = Provider.query.get(p.provider_id)
+        w.writerow([
+            p.created_at.strftime('%Y-%m-%d %H:%M'),
+            p.reference_code,
+            member.name if member else 'N/A',
+            member.phone if member else 'N/A',
+            provider.name if provider else 'N/A',
+            f'{p.amount:.2f}',
+            p.status,
+            p.provider_confirmed_at.strftime('%Y-%m-%d') if p.provider_confirmed_at else '',
+        ])
+    from flask import Response
+    return Response(
+        buf.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename="solidarity_payments.csv"'},
+    )
+
+
+@app.route('/admin/export/trust.csv')
+def export_trust_csv():
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    admin = User.query.get(session['user_id'])
+    admin_comm_ids = [
+        m.community_id for m in CommunityMembership.query.filter_by(user_id=admin.id).all()
+        if m.role in ['admin', 'coadmin']
+    ]
+    if not admin_comm_ids and not admin.is_global_admin:
+        return "Not authorized — community admin access required.", 403
+    if admin.is_global_admin:
+        events = TrustEvent.query.order_by(TrustEvent.timestamp.desc()).all()
+    else:
+        member_ids = [
+            m.user_id for m in CommunityMembership.query.filter(
+                CommunityMembership.community_id.in_(admin_comm_ids)
+            ).all()
+        ]
+        events = TrustEvent.query.filter(
+            TrustEvent.user_id.in_(member_ids)
+        ).order_by(TrustEvent.timestamp.desc()).all()
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(['Date', 'Member', 'Phone', 'Old Score', 'New Score', 'Delta', 'Reason',
+                'F-Repayment', 'F-Witness', 'F-Network', 'F-Activity'])
+    for e in events:
+        member = User.query.get(e.user_id)
+        w.writerow([
+            e.timestamp.strftime('%Y-%m-%d %H:%M'),
+            member.name if member else 'N/A',
+            member.phone if member else 'N/A',
+            f'{e.old_score:.4f}' if e.old_score is not None else '',
+            f'{e.new_score:.4f}' if e.new_score is not None else '',
+            f'{e.delta:.4f}' if e.delta is not None else '',
+            e.reason or '',
+            f'{e.f_repayment:.4f}' if e.f_repayment is not None else '',
+            f'{e.f_witness:.4f}' if e.f_witness is not None else '',
+            f'{e.f_network:.4f}' if e.f_network is not None else '',
+            f'{e.f_activity:.4f}' if e.f_activity is not None else '',
+        ])
+    from flask import Response
+    return Response(
+        buf.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename="solidarity_trust_history.csv"'},
+    )
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True, port=5000)

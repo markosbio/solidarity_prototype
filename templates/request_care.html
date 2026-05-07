@@ -1,46 +1,97 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Request Care – SolidarityPool</title>
-    <style>
-        body { font-family: sans-serif; margin: 2em; max-width: 500px; }
-        label, input, select, button { display: block; width: 100%; margin-top: 0.5em; }
-        button { background: #2c7da0; color: white; border: none; padding: 10px; border-radius: 8px; cursor: pointer; }
-        .note { font-size: 0.8em; color: #555; margin-top: 1em; }
-    </style>
+  <title>Request Care – SolidarityPool</title>
+  <style>
+    body { font-family: sans-serif; margin: 2em auto; max-width: 520px; padding: 0 16px; }
+    h2 { margin-bottom: 4px; }
+    .subtitle { color: #666; margin-bottom: 20px; font-size: 0.9rem; }
+    label { display: block; font-weight: bold; margin-top: 14px; font-size: 0.9rem; }
+    input, select { width: 100%; padding: 9px; margin-top: 4px; border: 1px solid #ccc;
+                    border-radius: 4px; box-sizing: border-box; font-size: 1rem; }
+    button { display: block; width: 100%; background: #2c7da0; color: white; border: none;
+             padding: 11px; border-radius: 8px; cursor: pointer; margin-top: 18px;
+             font-size: 1rem; }
+    button:hover { background: #245f7a; }
+    .note { font-size: 0.8em; color: #555; margin-top: 14px; }
+    /* Ceiling banner */
+    .ceiling-banner { background: #e8f4f8; border-left: 4px solid #2d7dd2; padding: 12px 16px;
+                      border-radius: 0 6px 6px 0; margin-bottom: 20px; }
+    .ceiling-banner .big { font-size: 1.4rem; font-weight: bold; color: #2d7dd2; }
+    .ceiling-banner .sub { font-size: 0.82rem; color: #2c4a6e; margin-top: 2px; }
+    .wallet-row { display: flex; gap: 12px; margin-bottom: 4px; }
+    .wallet-chip { flex: 1; background: #f0f8f0; border: 1px solid #c3e6cb; border-radius: 6px;
+                   padding: 8px 12px; font-size: 0.85rem; }
+    .wallet-chip .wlabel { color: #777; font-size: 0.75rem; }
+    .wallet-chip .wval { font-weight: bold; color: #28a745; }
+    .hint { font-size: 0.78rem; color: #888; margin-top: 3px; }
+    .emergency-row { margin-top: 14px; display: flex; align-items: flex-start; gap: 8px; }
+    .emergency-row input[type=checkbox] { width: auto; margin-top: 3px; }
+    .emergency-row label { font-weight: normal; margin: 0; }
+  </style>
 </head>
 <body>
-    <h2>Request Financial Support</h2>
-    <p><strong>Your sub-wallet:</strong> ${{ "%.2f"|format(user.sub_wallet_balance) }}<br>
-    <strong>Your trust score:</strong> {{ "%.4f"|format(user.trust_score) }}</p>
+  <h2>Request Financial Support</h2>
+  <p class="subtitle">Funds go directly to the provider — never to your wallet.</p>
 
-    <form method="POST">
-        <label>Community (which pool to draw from)</label>
-        <select name="community_id" required>
-            {% for comm in communities %}
-                <option value="{{ comm.id }}">{{ comm.name }} (balance ${{ "%.2f"|format(comm.pool_balance) }})</option>
-            {% endfor %}
-        </select>
+  <!-- Draw ceiling banner -->
+  <div class="ceiling-banner">
+    <div class="big">${{ "%.2f"|format(ceiling) }}</div>
+    <div class="sub">Maximum you can request from the communal pool right now.<br>
+      Your ceiling is based on your trust score, contributions, and pool health.</div>
+  </div>
 
-        <label>Amount needed ($)</label>
-        <input type="number" step="0.01" name="needed_amount" required>
+  <!-- Quick balance chips -->
+  <div class="wallet-row">
+    <div class="wallet-chip">
+      <div class="wlabel">Your sub-wallet</div>
+      <div class="wval">${{ "%.2f"|format(user.sub_wallet_balance) }}</div>
+    </div>
+    <div class="wallet-chip">
+      <div class="wlabel">Trust score</div>
+      <div class="wval">{{ "%.4f"|format(user.trust_score) }}</div>
+    </div>
+  </div>
 
-        <label>Provider (hospital/clinic)</label>
-        <select name="provider_id" required>
-            {% for p in providers %}
-                <option value="{{ p.id }}">{{ p.name }} ({{ p.provider_code }})</option>
-            {% endfor %}
-        </select>
+  <form method="POST">
+    <label>Community — which pool to draw from
+      <select name="community_id" required>
+        {% for comm in communities %}
+          <option value="{{ comm.id }}">{{ comm.name }} (pool ${{ "%.2f"|format(comm.pool_balance) }})</option>
+        {% endfor %}
+      </select>
+    </label>
 
-        <label>
-            <input type="checkbox" name="is_emergency"> This is a life‑threatening emergency (bypasses admin approval delay)
-        </label>
+    <label>Amount needed ($)
+      <input type="number" step="0.01" min="0.01"
+             max="{{ "%.2f"|format(ceiling) }}"
+             name="needed_amount"
+             placeholder="Enter amount up to ${{ "%.0f"|format(ceiling) }}"
+             required>
+      <span class="hint">Maximum from pool: ${{ "%.2f"|format(ceiling) }} · Your wallet also contributes first.</span>
+    </label>
 
-        <button type="submit">Submit Request</button>
-    </form>
+    <label>Provider (hospital / clinic)
+      <select name="provider_id" required>
+        {% for p in providers %}
+          <option value="{{ p.id }}">{{ p.name }} — {{ p.provider_code }}</option>
+        {% endfor %}
+      </select>
+    </label>
 
-    <p class="note">Requests over $50 or marked emergency require admin approval after witness verification. <br>
-    Money goes directly to the provider, not to your wallet.</p>
-    <p><a href="/">← Back to dashboard</a></p>
+    <div class="emergency-row">
+      <input type="checkbox" name="is_emergency" id="emerg">
+      <label for="emerg">This is a life-threatening emergency
+        <span class="hint">Emergency requests get priority witness review. Admins are alerted immediately.
+          Auto-approved after 2 hours if no admin responds.</span>
+      </label>
+    </div>
+
+    <button type="submit">Submit Request →</button>
+  </form>
+
+  <p class="note">Requests over $50 or marked emergency require admin approval after witness verification.<br>
+    Not in any community? <a href="{{ url_for('communities.list_communities') }}">Join one first →</a></p>
+  <p><a href="/">← Back to dashboard</a></p>
 </body>
 </html>
