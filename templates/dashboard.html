@@ -2,6 +2,12 @@
 <html>
 <head>
 <title>Dashboard – Solidarity Pool</title>
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#2d7dd2">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="SoliPool">
 <style>
   body { font-family: sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; }
   h1 { font-size: 1.5rem; margin-bottom: 4px; }
@@ -29,8 +35,6 @@
   .logout:hover { text-decoration: underline; }
   .credit-warn { background: #fff3cd; border: 1px solid #ffc107; padding: 10px 14px;
                  border-radius: 6px; font-size: 0.87rem; margin-bottom: 16px; }
-  /* Pool health gauge */
-  .pool-health { margin-top: 10px; }
   .gauge-bar { height: 10px; border-radius: 5px; background: #e9ecef; overflow: hidden; margin: 4px 0; }
   .gauge-fill { height: 100%; border-radius: 5px; transition: width .4s; }
   .gauge-fill.green { background: #28a745; }
@@ -39,6 +43,11 @@
   .gauge-label { font-size: 0.78rem; color: #555; }
   .pool-warn { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24;
                padding: 8px 12px; border-radius: 6px; font-size: 0.82rem; margin-top: 6px; }
+  .install-banner { background: #e8f4f8; border: 1px solid #bee5eb; border-radius: 8px;
+                    padding: 10px 14px; font-size: 0.83rem; color: #2c4a6e;
+                    margin-bottom: 14px; display: none; }
+  #install-btn { padding: 4px 14px; background: #2d7dd2; color: white; border: none;
+                 border-radius: 4px; cursor: pointer; margin-left: 8px; font-size: 0.83rem; }
 </style>
 </head>
 <body>
@@ -46,18 +55,22 @@
 <h1>Welcome, {{ user.name }}</h1>
 <p class="subtitle">{{ user.phone }}</p>
 
+<div class="install-banner" id="install-banner">
+  Install SolidarityPool as an app for quick access without a browser.
+  <button id="install-btn">Install</button>
+</div>
+
 {% if user.total_social_credit > 0 %}
 <div class="credit-warn">
-  You have <strong>${{ "%.2f"|format(user.total_social_credit) }}</strong> in social credit outstanding.
+  You have <strong>UGX {{ "{:,.0f}".format(user.total_social_credit) }}</strong> in social credit outstanding.
   Keep contributing round-ups to improve your trust score.
 </div>
 {% endif %}
 
-<!-- ── Stats grid ─────────────────────────────────────── -->
 <div class="stats">
   <div class="stat-box">
     <div class="label">Sub-wallet balance</div>
-    <div class="value">${{ "%.2f"|format(user.sub_wallet_balance) }}</div>
+    <div class="value">UGX {{ "{:,.0f}".format(user.sub_wallet_balance) }}</div>
   </div>
   <div class="stat-box">
     <div class="label">Trust score</div>
@@ -68,7 +81,7 @@
   </div>
   <div class="stat-box">
     <div class="label">Draw ceiling</div>
-    <div class="value trust-high">${{ "%.0f"|format(ceiling) }}</div>
+    <div class="value trust-high">UGX {{ "{:,.0f}".format(ceiling) }}</div>
   </div>
   <div class="stat-box">
     <div class="label">Witness accuracy</div>
@@ -76,17 +89,14 @@
   </div>
 </div>
 
-<!-- ── Primary community ──────────────────────────────── -->
 {% if primary_comm %}
 <div class="community-box">
   <div class="comm-name">{{ primary_comm.name }}</div>
-  <div class="comm-pool">Pool: ${{ "%.2f"|format(primary_comm.pool_balance) }}</div>
+  <div class="comm-pool">Pool: UGX {{ "{:,.0f}".format(primary_comm.pool_balance) }}</div>
   <div style="font-size:0.78rem; color:#555; margin-top:4px;">
     Invite code: <code>{{ primary_comm.invite_code }}</code>
   </div>
-
-  <!-- Pool health gauge -->
-  <div class="pool-health">
+  <div style="margin-top:10px;">
     <div class="gauge-bar">
       <div class="gauge-fill {{ pool_health.color }}" style="width:{{ pool_health.pct }}%"></div>
     </div>
@@ -95,7 +105,7 @@
     </div>
     {% if pool_health.pct < 30 %}
     <div class="pool-warn">
-      ⚠ Pool is critically low. Draw ceilings are reduced until the pool recovers.
+      Pool is critically low. Draw ceilings are reduced until the pool recovers.
       Contribute round-ups to help restore it.
     </div>
     {% elif pool_health.pct < 60 %}
@@ -112,7 +122,6 @@
 </div>
 {% endif %}
 
-<!-- ── Main actions ───────────────────────────────────── -->
 <div class="section-title">Actions</div>
 <div class="nav-grid">
   <a class="nav-btn" href="{{ url_for('simulate_roundup') }}">
@@ -121,7 +130,7 @@
   </a>
   <a class="nav-btn" href="{{ url_for('request_care') }}">
     <span class="icon">🏥</span>Request Care
-    <span class="desc">Up to ${{ "%.0f"|format(ceiling) }} from pool</span>
+    <span class="desc">Up to UGX {{ "{:,.0f}".format(ceiling) }} from pool</span>
   </a>
   <a class="nav-btn" href="{{ url_for('witness_dashboard') }}">
     <span class="icon">👁</span>Witness Dashboard
@@ -133,7 +142,6 @@
   </a>
 </div>
 
-<!-- ── Community & pool ───────────────────────────────── -->
 <div class="section-title">Community</div>
 <div class="nav-grid">
   <a class="nav-btn" href="{{ url_for('communities.list_communities') }}">
@@ -143,6 +151,10 @@
   <a class="nav-btn" href="{{ url_for('providers.list_providers') }}">
     <span class="icon">🏨</span>Provider Registry
     <span class="desc">View verified clinics &amp; hospitals</span>
+  </a>
+  <a class="nav-btn" href="{{ url_for('leaderboard') }}">
+    <span class="icon">🏆</span>Leaderboard
+    <span class="desc">Top pool contributors this month</span>
   </a>
   {% if is_admin %}
   <a class="nav-btn" href="{{ url_for('admin_care') }}">
@@ -160,5 +172,28 @@
   <a class="logout" href="{{ url_for('logout') }}">← Log out</a>
 </p>
 
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/static/sw.js');
+}
+let deferredPrompt;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredPrompt = e;
+  document.getElementById('install-banner').style.display = 'block';
+});
+document.getElementById('install-btn')?.addEventListener('click', () => {
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    deferredPrompt.userChoice.then(() => {
+      deferredPrompt = null;
+      document.getElementById('install-banner').style.display = 'none';
+    });
+  }
+});
+window.addEventListener('appinstalled', () => {
+  document.getElementById('install-banner').style.display = 'none';
+});
+</script>
 </body>
 </html>

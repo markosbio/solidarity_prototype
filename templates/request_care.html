@@ -2,6 +2,9 @@
 <html>
 <head>
   <title>Request Care – SolidarityPool</title>
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#2d7dd2">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     body { font-family: sans-serif; margin: 2em auto; max-width: 520px; padding: 0 16px; }
     h2 { margin-bottom: 4px; }
@@ -14,7 +17,6 @@
              font-size: 1rem; }
     button:hover { background: #245f7a; }
     .note { font-size: 0.8em; color: #555; margin-top: 14px; }
-    /* Ceiling banner */
     .ceiling-banner { background: #e8f4f8; border-left: 4px solid #2d7dd2; padding: 12px 16px;
                       border-radius: 0 6px 6px 0; margin-bottom: 20px; }
     .ceiling-banner .big { font-size: 1.4rem; font-weight: bold; color: #2d7dd2; }
@@ -34,18 +36,16 @@
   <h2>Request Financial Support</h2>
   <p class="subtitle">Funds go directly to the provider — never to your wallet.</p>
 
-  <!-- Draw ceiling banner -->
   <div class="ceiling-banner">
-    <div class="big">${{ "%.2f"|format(ceiling) }}</div>
+    <div class="big">UGX {{ "{:,.0f}".format(ceiling) }}</div>
     <div class="sub">Maximum you can request from the communal pool right now.<br>
       Your ceiling is based on your trust score, contributions, and pool health.</div>
   </div>
 
-  <!-- Quick balance chips -->
   <div class="wallet-row">
     <div class="wallet-chip">
       <div class="wlabel">Your sub-wallet</div>
-      <div class="wval">${{ "%.2f"|format(user.sub_wallet_balance) }}</div>
+      <div class="wval">UGX {{ "{:,.0f}".format(user.sub_wallet_balance) }}</div>
     </div>
     <div class="wallet-chip">
       <div class="wlabel">Trust score</div>
@@ -57,18 +57,18 @@
     <label>Community — which pool to draw from
       <select name="community_id" required>
         {% for comm in communities %}
-          <option value="{{ comm.id }}">{{ comm.name }} (pool ${{ "%.2f"|format(comm.pool_balance) }})</option>
+          <option value="{{ comm.id }}">{{ comm.name }} (pool UGX {{ "{:,.0f}".format(comm.pool_balance) }})</option>
         {% endfor %}
       </select>
     </label>
 
-    <label>Amount needed ($)
-      <input type="number" step="0.01" min="0.01"
-             max="{{ "%.2f"|format(ceiling) }}"
+    <label>Amount needed (UGX)
+      <input type="number" step="1" min="1"
+             max="{{ "%.0f"|format(ceiling) }}"
              name="needed_amount"
-             placeholder="Enter amount up to ${{ "%.0f"|format(ceiling) }}"
+             placeholder="Enter amount up to UGX {{ "{:,.0f}".format(ceiling) }}"
              required>
-      <span class="hint">Maximum from pool: ${{ "%.2f"|format(ceiling) }} · Your wallet also contributes first.</span>
+      <span class="hint">Maximum from pool: UGX {{ "{:,.0f}".format(ceiling) }} · Your wallet also contributes first.</span>
     </label>
 
     <label>Provider (hospital / clinic)
@@ -90,8 +90,12 @@
     <button type="submit">Submit Request →</button>
   </form>
 
-  <p class="note">Requests over $50 or marked emergency require admin approval after witness verification.<br>
+  <p class="note">Requests over UGX 180,000 or marked emergency require admin approval after witness verification.<br>
     Not in any community? <a href="{{ url_for('communities.list_communities') }}">Join one first →</a></p>
   <p><a href="/">← Back to dashboard</a></p>
+
+<script>
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/static/sw.js');
+</script>
 </body>
 </html>

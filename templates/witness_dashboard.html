@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <html>
-<head><title>Witness Dashboard</title>
+<head><title>Witness Dashboard – SolidarityPool</title>
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#2d7dd2">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   body { font-family: sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; }
   h1 { margin-bottom: 4px; }
@@ -41,7 +44,6 @@
   {% if is_admin %}<span class="admin-badge">ADMIN VIEW</span>{% endif %}
 </p>
 
-<!-- Care Requests -->
 {% if pending_care %}
 <div class="section-label">Care Requests</div>
 {% for cr in pending_care %}
@@ -52,21 +54,19 @@
   </h3>
 
   {% if is_admin %}
-  <!-- Admin sees full details -->
   <div class="meta">
     <strong>Requester:</strong> {{ cr.requester.name }} ({{ cr.requester.phone }})<br>
     <strong>Provider:</strong> {{ cr.provider.name }} — {{ cr.provider.provider_code }}<br>
-    <strong>Amount:</strong> ${{ "%.2f"|format(cr.amount_needed) }} —
-      wallet ${{ "%.2f"|format(cr.amount_from_sub) }} /
-      pool ${{ "%.2f"|format(cr.amount_from_pool) }}<br>
+    <strong>Amount:</strong> UGX {{ "{:,.0f}".format(cr.amount_needed) }} —
+      wallet UGX {{ "{:,.0f}".format(cr.amount_from_sub) }} /
+      pool UGX {{ "{:,.0f}".format(cr.amount_from_pool) }}<br>
     <strong>Submitted:</strong> {{ cr.created_at.strftime('%Y-%m-%d %H:%M') }}
   </div>
   {% else %}
-  <!-- Witnesses see minimal but useful context (feature 12) -->
   <div class="detail-row">
     <span class="detail-chip">{{ cr.provider.name }}</span>
     <span class="detail-chip">{{ cr.provider.payment_type or 'clinic/hospital' }}</span>
-    <span class="detail-chip">Amount: ${{ "%.2f"|format(cr.amount_needed) }}</span>
+    <span class="detail-chip">UGX {{ "{:,.0f}".format(cr.amount_needed) }}</span>
     {% if cr.is_emergency %}<span class="detail-chip urgent">🚨 Life-threatening emergency</span>{% endif %}
     <span class="detail-chip">Submitted {{ cr.created_at.strftime('%b %d') }}</span>
   </div>
@@ -81,17 +81,16 @@
 {% endfor %}
 {% endif %}
 
-<!-- Legacy WitnessRequest items -->
 {% if pending_legacy %}
 <div class="section-label" style="margin-top:24px;">Legacy Requests</div>
 {% for req in pending_legacy %}
 <div class="request-card">
   <h3>Request #{{ req.id }}</h3>
   {% if is_admin %}
-    <div class="meta">Amount: ${{ "%.2f"|format(req.needed_amount) }} · Provider: {{ req.provider_id }}</div>
+    <div class="meta">UGX {{ "{:,.0f}".format(req.needed_amount) }} · Provider: {{ req.provider_id }}</div>
   {% else %}
     <div class="detail-row">
-      <span class="detail-chip">Amount: ${{ "%.2f"|format(req.needed_amount) }}</span>
+      <span class="detail-chip">UGX {{ "{:,.0f}".format(req.needed_amount) }}</span>
       <span class="detail-chip">Health care request</span>
     </div>
     <div class="privacy-note">Full details visible to community admins only.</div>
@@ -109,5 +108,8 @@
 {% endif %}
 
 <p style="margin-top:20px;"><a class="back" href="{{ url_for('home') }}">← Back to dashboard</a></p>
+<script>
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/static/sw.js');
+</script>
 </body>
 </html>

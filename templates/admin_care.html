@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <html>
 <head><title>Admin — Care Approvals</title>
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#2d7dd2">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   body { font-family: sans-serif; max-width: 780px; margin: 40px auto; padding: 0 16px; }
   h1 { margin-bottom: 4px; }
@@ -26,7 +29,6 @@
   .tag-large { background: #fff3cd; color: #856404; }
   .tag-auto { background: #d4edda; color: #155724; font-size: 0.7em; }
   .witness-count { font-size: 0.82em; color: #555; }
-  /* Trust override form */
   .trust-card { border: 1px solid #dee2e6; border-radius: 8px; padding: 18px; background: #f8f9fa; }
   .trust-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; margin-top: 10px; }
   .trust-row input { padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.95rem; }
@@ -42,16 +44,15 @@
 
 <h1>Admin Panel</h1>
 
-<!-- ── Export links ────────────────────────────────────── -->
 <div style="margin-bottom: 20px;">
   <a class="btn btn-export" href="{{ url_for('export_payments_csv') }}">⬇ Export Payments CSV</a>
   <a class="btn btn-export" href="{{ url_for('export_trust_csv') }}">⬇ Export Trust History CSV</a>
+  <a class="btn btn-export" href="{{ url_for('leaderboard') }}">🏆 Leaderboard</a>
 </div>
 
-<!-- ── Pending approvals ──────────────────────────────── -->
 <p style="color:#666; margin-bottom:16px; font-size:0.9rem;">
   These requests passed witness consensus and are waiting for sign-off
-  (amount &gt; $50 or marked emergency).
+  (amount &gt; UGX 180,000 or marked emergency).
 </p>
 
 {% if pending %}
@@ -60,7 +61,7 @@
   <h3>
     Care Request #{{ cr.id }}
     {% if cr.is_emergency %}<span class="tag tag-emergency">EMERGENCY</span>{% endif %}
-    {% if cr.amount_needed > 50 %}<span class="tag tag-large">Large Request</span>{% endif %}
+    {% if cr.amount_needed > 180000 %}<span class="tag tag-large">Large Request</span>{% endif %}
     {% if cr.is_emergency %}<span class="tag tag-auto">Auto-approves in 2h if no action</span>{% endif %}
   </h3>
 
@@ -78,11 +79,11 @@
   </div>
 
   <div style="margin: 14px 0;">
-    <span class="amount">${{ "%.2f"|format(cr.amount_needed) }}</span>
+    <span class="amount">UGX {{ "{:,.0f}".format(cr.amount_needed) }}</span>
     <span style="font-size:0.85em; color:#555; margin-left:12px;">
-      From wallet: ${{ "%.2f"|format(cr.amount_from_sub) }} ·
-      From pool: ${{ "%.2f"|format(cr.amount_from_pool) }} ·
-      Social credit: ${{ "%.2f"|format(cr.social_credit) }}
+      From wallet: UGX {{ "{:,.0f}".format(cr.amount_from_sub) }} ·
+      From pool: UGX {{ "{:,.0f}".format(cr.amount_from_pool) }} ·
+      Social credit: UGX {{ "{:,.0f}".format(cr.social_credit) }}
     </span>
   </div>
 
@@ -102,7 +103,6 @@
 <p class="empty">No requests awaiting admin approval.</p>
 {% endif %}
 
-<!-- ── Trust score override ───────────────────────────── -->
 <div class="section-title">Trust Score Override</div>
 <div class="trust-card">
   <p style="margin:0 0 6px; font-size:0.9rem; color:#444;">
@@ -113,7 +113,7 @@
     <div class="trust-row">
       <div>
         <label style="font-size:0.82rem; color:#555;">Member phone number</label>
-        <input type="text" name="phone" placeholder="254712345678" required>
+        <input type="text" name="phone" placeholder="256712345678" required>
       </div>
       <div>
         <label style="font-size:0.82rem; color:#555;">New trust score (0–1)</label>
@@ -131,5 +131,8 @@
 </div>
 
 <p style="margin-top:28px;"><a href="{{ url_for('home') }}">← Dashboard</a></p>
+<script>
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/static/sw.js');
+</script>
 </body>
 </html>

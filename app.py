@@ -31,7 +31,7 @@ app.register_blueprint(ussd_bp)
 with app.app_context():
     db.create_all()
     if Community.query.count() == 0:
-        default_comm = Community(name="Global Health Pool", invite_code="GLOBAL001", pool_balance=5000.0, admin_user_id=None)
+        default_comm = Community(name="Global Health Pool", invite_code="GLOBAL001", pool_balance=1_000_000.0, admin_user_id=None)
         db.session.add(default_comm)
         db.session.commit()
     if Provider.query.count() == 0:
@@ -45,7 +45,7 @@ def get_user_communities(user_id):
     return [Community.query.get(m.community_id) for m in memberships]
 
 
-_POOL_TARGET = 2000.0  # "full health" baseline in dollars
+_POOL_TARGET = 2_000_000.0  # "full health" baseline in UGX
 
 def _roundup_split(amount: float) -> tuple:
     """Split a round-up into (wallet, pool, fee) using env-configurable percentages."""
@@ -267,13 +267,13 @@ def simulate_roundup():
             ph = _pool_health(primary_comm.pool_balance)
             notify_pool_low(primary_comm, ph['pct'])
         db.session.add(Transaction(user_id=user.id, amount=to_wallet, type='roundup',
-                                   description=f'Round-up wallet share from ${purchase_amount:.2f}'))
+                                   description=f'Round-up wallet share from UGX {purchase_amount:.0f}'))
         if to_pool > 0 and primary_comm:
             db.session.add(Transaction(user_id=user.id, amount=to_pool, type='pool_contribution',
-                                       description=f'Round-up pool share from ${purchase_amount:.2f}'))
+                                       description=f'Round-up pool share from UGX {purchase_amount:.0f}'))
         if to_fee > 0:
             db.session.add(Transaction(user_id=user.id, amount=to_fee, type='platform_fee',
-                                       description=f'Round-up platform fee from ${purchase_amount:.2f}'))
+                                       description=f'Round-up platform fee from UGX {purchase_amount:.0f}'))
         db.session.commit()
         try:
             new_ceiling = compute_draw_ceiling(user.id)
@@ -476,7 +476,7 @@ def verify_care(request_id, response):
     yes_count = sum(1 for v in votes if v.endswith('accept'))
     total_witnesses = len(care_req.witness_ids.split(','))
     if yes_count >= 2:
-        need_admin = (care_req.amount_needed > 50) or care_req.is_emergency
+        need_admin = (care_req.amount_needed > 180000) or care_req.is_emergency
         if need_admin:
             care_req.status = 'pending_admin'
         else:
@@ -559,7 +559,7 @@ def verify_witness(request_id, response):
     yes_count = sum(1 for v in votes if v.endswith('accept'))
     total_witnesses = len(care_req.witness_ids.split(','))
     if yes_count >= 2:
-        need_admin = (care_req.amount_needed > 50) or care_req.is_emergency
+        need_admin = (care_req.amount_needed > 180000) or care_req.is_emergency
         if need_admin:
             care_req.status = 'pending_admin'
         else:
@@ -732,16 +732,16 @@ def ussd():
         role = membership.role if membership else 'member'
 
     if not primary_comm and step == 0:
-        return r("You are not in any community.\n4. Community (create/join)\n7. Exit")
-    
+        return r("You are not in any community.\n4. Community (create/join)\n7. Help/FAQ\n0. Exit")
+
     if step == 0:
         mpesa_configured = bool(os.getenv('MPESA_CONSUMER_KEY') and os.getenv('MPESA_CONSUMER_SECRET'))
-        menu = f"Hi {user.name}\n1. Balance\n2. Request care\n3. Trust score\n4. Community\n5. Witness tasks\n"
+        menu = f"Hi {user.name}\n1. Balance\n2. Request care\n3. Trust score\n4. Community\n5. Witness tasks\n7. Help/FAQ\n"
         if mpesa_configured:
             menu += "8. Top up via M-Pesa\n"
         if role in ['admin', 'coadmin'] and primary_comm:
             menu += "6. Admin panel\n"
-        menu += "7. Exit"
+        menu += "0. Exit"
         return r(menu)
 
     choice = inputs[0]
@@ -753,11 +753,11 @@ def ussd():
             ceil_val = 0.0
         if primary_comm:
             ph = _pool_health(primary_comm.pool_balance)
-            bal = (f"Wallet: ${user.sub_wallet_balance:.2f}\n"
-                   f"Draw ceiling: ${ceil_val:.0f}\n"
-                   f"Pool: ${primary_comm.pool_balance:.2f} ({ph['label']})")
+            bal = (f"Wallet: UGX {user.sub_wallet_balance:,.0f}\n"
+                   f"Draw ceiling: UGX {ceil_val:,.0f}\n"
+                   f"Pool: UGX {primary_comm.pool_balance:,.0f} ({ph['label']})")
         else:
-            bal = f"Wallet: ${user.sub_wallet_balance:.2f}\nDraw ceiling: ${ceil_val:.0f}"
+            bal = f"Wallet: UGX {user.sub_wallet_balance:,.0f}\nDraw ceiling: UGX {ceil_val:,.0f}"
         return r(bal, end=True)
 
     if choice == "3":
@@ -818,7 +818,7 @@ def ussd():
                 except Exception:
                     _ceil = 0.0
                 ussd_sessions[phone] = {"selected_comm_id": selected_comm.id, "state": "awaiting_amount", "ceiling": _ceil}
-                return r(f"Your ceiling: ${_ceil:.0f}\nEnter amount (USD):")
+                return r(f"Your ceiling: UGX {_ceil:,.0f}\nEnter amount (UGX):")
             elif step == 2:
                 try:
                     amount = float(inputs[1])
@@ -888,7 +888,7 @@ def ussd():
                     _ceil = 0.0
                 comm_list = "\n".join([f"{i+1}. {c.name}" for i, c in enumerate(user_communities)])
                 ussd_sessions[phone] = {"state": "choose_comm", "communities": [(c.id, c.name) for c in user_communities], "ceiling": _ceil}
-                return r(f"Your ceiling: ${_ceil:.0f}\nSelect community:\n{comm_list}\n0. Back")
+                return r(f"Your ceiling: UGX {_ceil:,.0f}\nSelect community:\n{comm_list}\n0. Back")
             elif step == 2 and ussd_sessions.get(phone, {}).get("state") == "choose_comm":
                 idx = int(inputs[1]) - 1
                 comms = ussd_sessions[phone]["communities"]
@@ -989,7 +989,7 @@ def ussd():
         yes_count = sum(1 for v in votes if v.endswith('accept'))
         total = len(care_req.witness_ids.split(','))
         if yes_count >= 2:
-            need_admin = (care_req.amount_needed > 50) or care_req.is_emergency
+            need_admin = (care_req.amount_needed > 180000) or care_req.is_emergency
             if need_admin:
                 care_req.status = 'pending_admin'
             else:
@@ -1068,7 +1068,7 @@ def ussd():
                     next_req = CareRequest.query.get(pending_ids[next_idx])
                     requester = User.query.get(next_req.user_id)
                     prov = Provider.query.get(next_req.provider_id)
-                    return r(f"Request by {requester.name}: ${next_req.amount_needed} at {prov.name}\n1. Approve\n2. Reject\n0. Next")
+                    return r(f"Request by {requester.name}: UGX {next_req.amount_needed:,.0f} at {prov.name}\n1. Approve\n2. Reject\n0. Next")
                 else:
                     return r("All requests processed.", end=True)
             return r(msg + "\nContinue? 1. Yes 2. No")
@@ -1076,11 +1076,11 @@ def ussd():
 
     if choice == "8":
         if step == 1:
-            return r("Enter top-up amount (KES):")
+            return r("Enter top-up amount (UGX):")
         try:
             topup_amount = float(inputs[1])
             if topup_amount < 1:
-                raise ValueError("Minimum 1 KES")
+                raise ValueError("Minimum UGX 1")
         except (ValueError, IndexError):
             return r("Invalid amount. Please enter a whole number.", end=True)
         if not (os.getenv('MPESA_CONSUMER_KEY') and os.getenv('MPESA_CONSUMER_SECRET')):
@@ -1105,7 +1105,7 @@ def ussd():
             db.session.commit()
             return r(
                 f"M-Pesa prompt sent to {phone}.\n"
-                f"Amount: KES {int(topup_amount)}\n"
+                f"Amount: UGX {int(topup_amount)}\n"
                 "Approve on your phone to top up your wallet.",
                 end=True,
             )
@@ -1113,8 +1113,58 @@ def ussd():
             logger.error("USSD STK push failed: {}", exc)
             return r("M-Pesa prompt failed. Try again later.", end=True)
 
+    if choice == "0":
+        return r("Goodbye. Stay well!", end=True)
+
     if choice == "7":
-        return r("Goodbye.", end=True)
+        if step == 1:
+            return r(
+                "SolidarityPool Help\n"
+                "1. What is SolidarityPool?\n"
+                "2. How do round-ups work?\n"
+                "3. How do I request care funds?\n"
+                "4. What is a trust score?\n"
+                "5. What is a draw ceiling?\n"
+                "0. Back"
+            )
+        topic = inputs[1] if step > 1 else ''
+        if topic == '1':
+            return r(
+                "SolidarityPool is a community mutual-aid fund. "
+                "Members save via micro round-ups and can access care funds for medical emergencies.",
+                end=True
+            )
+        elif topic == '2':
+            return r(
+                "When you buy something (e.g. UGX 12,500), we round up to UGX 13,000 "
+                "and save the UGX 500. "
+                "70% goes to your wallet, 20% to the community pool, 10% is a platform fee.",
+                end=True
+            )
+        elif topic == '3':
+            return r(
+                "Choose option 2 from the main menu. Enter the amount, then your clinic's "
+                "provider code (e.g. MULAGO001 — ask your clinic). "
+                "Three community members will verify your request.",
+                end=True
+            )
+        elif topic == '4':
+            return r(
+                "Your trust score (0-1) measures your reliability: "
+                "repaying social credit, accurate witness votes, "
+                "network connections, and regular round-up contributions.",
+                end=True
+            )
+        elif topic == '5':
+            return r(
+                "Your draw ceiling is the maximum you can request from the pool. "
+                "It grows as your trust score improves and the pool stays healthy. "
+                "Check it with option 1 (Balance).",
+                end=True
+            )
+        elif topic == '0':
+            return r("Returning to main menu. Dial again to continue.")
+        return r("Invalid help topic. Dial again.", end=True)
 
     return r("Invalid choice.", end=True)
 
@@ -1186,7 +1236,7 @@ def export_payments_csv():
         ).order_by(PaymentRecord.created_at.desc()).all()
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(['Date', 'Reference', 'Member', 'Phone', 'Provider', 'Amount (USD)', 'Status', 'Confirmed At'])
+    w.writerow(['Date', 'Reference', 'Member', 'Phone', 'Provider', 'Amount (UGX)', 'Status', 'Confirmed At'])
     for p in payments:
         member = User.query.get(p.user_id)
         provider = Provider.query.get(p.provider_id)
@@ -1255,6 +1305,39 @@ def export_trust_csv():
         mimetype='text/csv',
         headers={'Content-Disposition': 'attachment; filename="solidarity_trust_history.csv"'},
     )
+
+
+# ------------------ Leaderboard ------------------
+
+@app.route('/leaderboard')
+def leaderboard():
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    user = User.query.get(session['user_id'])
+    from sqlalchemy import func
+    month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    rows = (
+        db.session.query(Transaction.user_id, func.sum(Transaction.amount).label('total'))
+        .filter(Transaction.type == 'pool_contribution', Transaction.created_at >= month_start)
+        .group_by(Transaction.user_id)
+        .order_by(func.sum(Transaction.amount).desc())
+        .limit(20)
+        .all()
+    )
+    leaders = []
+    user_rank = None
+    user_total = 0.0
+    for rank, row in enumerate(rows, start=1):
+        member = User.query.get(row.user_id)
+        if member:
+            leaders.append({'user': member, 'total': row.total})
+            if row.user_id == user.id:
+                user_rank = rank
+                user_total = row.total
+    leaders = leaders[:10]
+    month_label = datetime.utcnow().strftime('%B %Y')
+    return render_template('leaderboard.html', user=user, leaders=leaders,
+                           user_rank=user_rank, user_total=user_total, month=month_label)
 
 
 if __name__ == '__main__':

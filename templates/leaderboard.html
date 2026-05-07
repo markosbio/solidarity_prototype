@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Leaderboard – SolidarityPool</title>
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#2d7dd2">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: sans-serif; max-width: 560px; margin: 40px auto; padding: 0 16px; }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  .subtitle { color: #666; margin-bottom: 24px; font-size: 0.9rem; }
+  .month-badge { display: inline-block; background: #2d7dd2; color: white;
+                 padding: 3px 12px; border-radius: 12px; font-size: 0.8rem;
+                 margin-bottom: 20px; }
+  .board { list-style: none; padding: 0; margin: 0; }
+  .board li { display: flex; align-items: center; gap: 14px;
+              padding: 12px 14px; border-bottom: 1px solid #eee; }
+  .board li:last-child { border-bottom: none; }
+  .rank { font-size: 1.4rem; width: 36px; text-align: center; }
+  .rank.gold   { color: #f0a500; }
+  .rank.silver { color: #9e9e9e; }
+  .rank.bronze { color: #cd7f32; }
+  .info { flex: 1; }
+  .name { font-weight: bold; font-size: 0.95rem; }
+  .phone { font-size: 0.78rem; color: #888; }
+  .amount { font-weight: bold; color: #28a745; font-size: 0.95rem; }
+  .card { border: 1px solid #ddd; border-radius: 8px; overflow: hidden; background: #fafafa; }
+  .empty { color: #888; font-style: italic; padding: 24px 14px; text-align: center; }
+  .you-badge { background: #e8f4f8; color: #2d7dd2; font-size: 0.72rem;
+               padding: 2px 7px; border-radius: 8px; margin-left: 6px; vertical-align: middle; }
+  .info-box { background: #f0f8f0; border-left: 4px solid #28a745; padding: 10px 14px;
+              border-radius: 0 6px 6px 0; font-size: 0.84rem; margin-bottom: 20px; }
+</style>
+</head>
+<body>
+
+<h1>Contribution Leaderboard</h1>
+<p class="subtitle">Top community pool contributors this month.</p>
+<span class="month-badge">{{ month }}</span>
+
+<div class="info-box">
+  Rank is based on total UGX contributed to the community pool via round-ups and
+  direct contributions this calendar month. Only pool contributions count — personal
+  wallet credits do not.
+</div>
+
+<div class="card">
+{% if leaders %}
+<ul class="board">
+{% for entry in leaders %}
+  <li>
+    <span class="rank {% if loop.index == 1 %}gold{% elif loop.index == 2 %}silver{% elif loop.index == 3 %}bronze{% endif %}">
+      {% if loop.index == 1 %}🥇{% elif loop.index == 2 %}🥈{% elif loop.index == 3 %}🥉{% else %}{{ loop.index }}{% endif %}
+    </span>
+    <div class="info">
+      <div class="name">
+        {{ entry.user.name }}
+        {% if entry.user.id == user.id %}<span class="you-badge">you</span>{% endif %}
+      </div>
+      <div class="phone">{{ entry.user.phone[:6] }}****</div>
+    </div>
+    <div class="amount">UGX {{ "{:,.0f}".format(entry.total) }}</div>
+  </li>
+{% endfor %}
+</ul>
+{% else %}
+<div class="empty">No contributions recorded this month yet.<br>Be the first — do a round-up!</div>
+{% endif %}
+</div>
+
+{% if user_rank %}
+<p style="margin-top:16px; font-size:0.85rem; color:#555;">
+  Your rank this month: <strong>#{{ user_rank }}</strong>
+  with UGX {{ "{:,.0f}".format(user_total) }} contributed.
+</p>
+{% elif not (leaders and leaders|selectattr('user')|selectattr('user.id', 'equalto', user.id)|list) %}
+<p style="margin-top:16px; font-size:0.85rem; color:#888;">
+  You have no pool contributions recorded this month yet.
+  <a href="{{ url_for('simulate_roundup') }}">Add a round-up →</a>
+</p>
+{% endif %}
+
+<p style="margin-top:24px;"><a href="{{ url_for('home') }}">← Dashboard</a></p>
+
+<script>
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/static/sw.js');
+</script>
+</body>
+</html>

@@ -70,6 +70,7 @@ def _route(phone: str, steps: list, level: int) -> str:
                 "4. My trust score\n"
                 + mpesa_line +
                 "6. Provider payment check\n"
+                "7. Help / FAQ\n"
                 "0. Exit"
             )
         else:
@@ -77,6 +78,7 @@ def _route(phone: str, steps: list, level: int) -> str:
                 "CON Welcome to SolidarityPool\n"
                 "1. Register\n"
                 "2. Provider payment check\n"
+                "7. Help / FAQ\n"
                 "0. Exit"
             )
 
@@ -90,6 +92,8 @@ def _route(phone: str, steps: list, level: int) -> str:
     if not user:
         if top == '2':
             return _provider_check_flow(steps, level)
+        if top == '7':
+            return _help_faq(steps, level)
         return _register_flow(phone, steps, level)
 
     # ── Registered user flows ─────────────────────────────────────────────────
@@ -105,8 +109,10 @@ def _route(phone: str, steps: list, level: int) -> str:
         return _topup_flow(user, steps, level)
     if top == '6':
         return _provider_check_flow(steps, level)
+    if top == '7':
+        return _help_faq(steps, level)
 
-    return "END Invalid option. Please dial again and choose 1–6 or 0 to exit."
+    return "END Invalid option. Please dial again and choose 1–7 or 0 to exit."
 
 
 # ── sub-flows ─────────────────────────────────────────────────────────────────
@@ -359,6 +365,57 @@ def _trust_score(user: User) -> str:
         f"Draw ceiling: KES {ceiling:.2f}\n"
         f"Round-up multiplier: {user.roundup_intensifier:.2f}x"
     )
+
+
+def _help_faq(steps: list, level: int) -> str:
+    """Multi-level help / FAQ sub-menu."""
+    if level == 1:
+        return (
+            "CON SolidarityPool Help\n"
+            "1. What is SolidarityPool?\n"
+            "2. How do round-ups work?\n"
+            "3. How to request care funds?\n"
+            "4. What is a trust score?\n"
+            "5. What is a draw ceiling?\n"
+            "0. Back to main menu"
+        )
+    topic = steps[1] if len(steps) > 1 else ''
+    if topic == '1':
+        return (
+            "END SolidarityPool is a community mutual-aid fund.\n"
+            "Members save via micro round-ups and can access\n"
+            "care funds for medical emergencies."
+        )
+    if topic == '2':
+        return (
+            "END When you buy e.g. UGX 12,500, we round up\n"
+            "to UGX 13,000 and save UGX 500.\n"
+            "70% → your wallet  20% → community pool\n"
+            "10% → platform fee."
+        )
+    if topic == '3':
+        return (
+            "END Dial *384# → option 3 (Request care funds).\n"
+            "Enter amount, then your clinic's provider code\n"
+            "(e.g. MULAGO001 — ask your clinic).\n"
+            "3 community members will verify your request."
+        )
+    if topic == '4':
+        return (
+            "END Your trust score (0–1) measures reliability:\n"
+            "repaying social credit, accurate witness votes,\n"
+            "network connections, and regular contributions."
+        )
+    if topic == '5':
+        return (
+            "END Your draw ceiling is the max you can request\n"
+            "from the pool. It grows as your trust score rises\n"
+            "and the pool stays healthy.\n"
+            "Check it: main menu → option 1 (Balance)."
+        )
+    if topic == '0':
+        return "END Dial *384# again to return to the main menu."
+    return "END Invalid choice. Dial *384# again for help."
 
 
 def _topup_flow(user: User, steps: list, level: int) -> str:
