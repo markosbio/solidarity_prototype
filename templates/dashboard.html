@@ -151,6 +151,12 @@
     <span class="icon">🏥</span>Request Care
     <span class="desc">Up to UGX {{ "{:,.0f}".format(ceiling) }} from pool</span>
   </a>
+  {% if user.total_social_credit > 0 %}
+  <a class="nav-btn" href="{{ url_for('repay') }}" style="border-color:#ffc107;">
+    <span class="icon">💳</span>Repay Debt
+    <span class="desc">Clear UGX {{ "{:,.0f}".format(user.total_social_credit) }} social credit</span>
+  </a>
+  {% endif %}
   <a class="nav-btn" href="{{ url_for('witness_dashboard') }}">
     <span class="icon">👁</span>Witness Dashboard
     <span class="desc">Verify pending care requests</span>

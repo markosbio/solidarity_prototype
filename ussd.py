@@ -129,9 +129,16 @@ def _register_flow(phone: str, steps: list, level: int) -> str:
         return "END Name cannot be blank. Please try again."
 
     if level == 2:
+        return "CON Choose a 4-digit PIN:"
+
+    pin = steps[2].strip()
+    if not pin.isdigit() or len(pin) != 4:
+        return "END PIN must be exactly 4 digits. Dial again."
+
+    if level == 3:
         return "CON Enter referrer phone (or 0 to skip):"
 
-    referrer_input = steps[2].strip()
+    referrer_input = steps[3].strip()
     referrer = None
     if referrer_input and referrer_input != '0':
         referrer = User.query.filter_by(phone=_normalize_phone(referrer_input)).first()
@@ -143,6 +150,7 @@ def _register_flow(phone: str, steps: list, level: int) -> str:
     user = User(
         phone=normalized,
         name=name,
+        pin=pin,
         sub_wallet_balance=0.0,
         trust_score=0.5,
         region_prefix=normalized[:3],

@@ -1,7 +1,9 @@
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, Response
+from functools import wraps
 from models import (db, User, Transaction, Community, CommunityMembership, Provider,
                     CareRequest, SystemState, PaymentRecord, MpesaTopup,
-                    MobileMoneyTransaction, VerifiedProvider, FraudAlert, PlatformRevenue)
+                    MobileMoneyTransaction, VerifiedProvider, FraudAlert, PlatformRevenue,
+                    TrustEvent, AdminAuditLog)
 from trust_graph import compute_draw_ceiling
 from witness import select_witnesses
 from recovery import update_recovery_parameters
@@ -28,6 +30,41 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.environ.get('SESSION_SECRET', os.environ.get('SECRET_KEY', 'solidarity-dev-key-change-in-production'))
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///solidarity.db')
+
+# ── Admin access control ───────────────────────────────────────────────────────
+ADMIN_PHONES = ['0769547988']
+
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('login'))
+        user = User.query.get(session['user_id'])
+        if not user or user.phone not in ADMIN_PHONES:
+            return "Access denied — admin only.", 403
+        admin_secret = os.environ.get('ADMIN_SECRET', '')
+        token = request.args.get('token') or request.form.get('token')
+        if admin_secret:
+            if token == admin_secret:
+                session['admin_authed'] = True
+            elif not session.get('admin_authed'):
+                return "Invalid admin token. Append ?token=YOUR_SECRET to the URL.", 403
+        else:
+            session['admin_authed'] = True
+        return f(*args, **kwargs)
+    return decorated
+
+def _log_admin_action(admin_id, action, target_user_id=None, details=''):
+    log = AdminAuditLog(
+        admin_id=admin_id,
+        target_user_id=target_user_id,
+        action=action,
+        details=details[:500],
+        ip=request.remote_addr,
+    )
+    db.session.add(log)
+    db.session.commit()
+
 db.init_app(app)
 app.register_blueprint(communities_bp)
 app.register_blueprint(providers_bp)
@@ -143,15 +180,20 @@ def login():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
-        # User registration (also auto-login for existing)
         phone = request.form['phone']
         name = request.form['name']
         referred_by = request.form.get('referred_by')
+        pin = request.form.get('pin', '1234').strip()
+        confirm_pin = request.form.get('confirm_pin', '').strip()
         existing = User.query.filter_by(phone=phone).first()
         if existing:
             session['user_id'] = existing.id
             return redirect(url_for('home'))
-        user = User(phone=phone, name=name, sub_wallet_balance=0.0, trust_score=0.5)
+        if not pin.isdigit() or len(pin) != 4:
+            return render_template('register.html', error='PIN must be exactly 4 digits.')
+        if pin != confirm_pin:
+            return render_template('register.html', error='PINs do not match. Please try again.')
+        user = User(phone=phone, name=name, pin=pin, sub_wallet_balance=0.0, trust_score=0.5)
         if referred_by:
             referrer = User.query.filter_by(phone=referred_by).first()
             if referrer:
@@ -393,6 +435,8 @@ def mpesa_callback():
 def request_care():
     if 'user_id' not in session:
         return redirect(url_for('register'))
+    if not session.get('pin_verified'):
+        return redirect(url_for('verify_pin', next=url_for('request_care')))
     user = User.query.get(session['user_id'])
     if request.method == 'POST':
         needed_amount = float(request.form['needed_amount'])
@@ -544,9 +588,8 @@ def trust_history():
     return render_template('trust_history.html', user=user, events=events)
 
 @app.route('/admin/care')
+@admin_required
 def admin_care():
-    if 'user_id' not in session:
-        return redirect(url_for('register'))
     user = User.query.get(session['user_id'])
     _check_emergency_auto_approvals()
     pending = CareRequest.query.filter_by(status='pending_admin', admin_approved=False).all()
@@ -559,9 +602,8 @@ def admin_care():
 
 
 @app.route('/admin/set-solidarity-percent', methods=['POST'])
+@admin_required
 def admin_set_solidarity_percent():
-    if 'user_id' not in session:
-        return redirect(url_for('register'))
     try:
         pct = float(request.form['percent'])
         pct = max(1.0, min(25.0, pct))
@@ -597,9 +639,8 @@ def mobile_money_callback():
 
 
 @app.route('/admin/verified-providers')
+@admin_required
 def admin_verified_providers():
-    if 'user_id' not in session:
-        return redirect(url_for('register'))
     applications = VerifiedProvider.query.order_by(VerifiedProvider.created_at.desc()).all()
     for app_ in applications:
         if app_.reviewed_by:
@@ -610,9 +651,8 @@ def admin_verified_providers():
 
 
 @app.route('/admin/verified-providers/apply', methods=['POST'])
+@admin_required
 def apply_verified_provider():
-    if 'user_id' not in session:
-        return redirect(url_for('register'))
     vp = VerifiedProvider(
         provider_name=request.form.get('provider_name', '').strip(),
         phone=request.form.get('phone', '').strip().lstrip('+'),
@@ -627,9 +667,8 @@ def apply_verified_provider():
 
 
 @app.route('/admin/verified-providers/<int:app_id>/review', methods=['POST'])
+@admin_required
 def admin_verify_provider_application(app_id):
-    if 'user_id' not in session:
-        return redirect(url_for('register'))
     vp = VerifiedProvider.query.get_or_404(app_id)
     action = request.form.get('action')
     notes = request.form.get('notes', '').strip()
@@ -643,9 +682,8 @@ def admin_verify_provider_application(app_id):
 
 
 @app.route('/admin/fraud-alerts')
+@admin_required
 def admin_fraud_alerts():
-    if 'user_id' not in session:
-        return redirect(url_for('register'))
     open_alerts = FraudAlert.query.filter_by(resolved=False).order_by(FraudAlert.created_at.desc()).all()
     resolved_alerts = FraudAlert.query.filter_by(resolved=True).order_by(FraudAlert.created_at.desc()).limit(20).all()
     for alert in open_alerts + resolved_alerts:
@@ -655,9 +693,8 @@ def admin_fraud_alerts():
 
 
 @app.route('/admin/fraud-alerts/<int:alert_id>/resolve', methods=['POST'])
+@admin_required
 def admin_resolve_fraud_alert(alert_id):
-    if 'user_id' not in session:
-        return redirect(url_for('register'))
     alert = FraudAlert.query.get_or_404(alert_id)
     alert.resolved = True
     alert.resolved_by = session['user_id']
@@ -666,9 +703,8 @@ def admin_resolve_fraud_alert(alert_id):
     return redirect(url_for('admin_fraud_alerts'))
 
 @app.route('/admin/care/<int:request_id>', methods=['POST'])
+@admin_required
 def admin_care_action(request_id):
-    if 'user_id' not in session:
-        return redirect(url_for('register'))
     user = User.query.get(session['user_id'])
     care_req = CareRequest.query.get(request_id)
     if not care_req:
@@ -729,17 +765,13 @@ def verify_witness(request_id, response):
     return redirect(url_for('witness_dashboard'))
 
 @app.route('/admin/approve/<int:request_id>/<action>')
+@admin_required
 def admin_approve(request_id, action):
-    if 'user_id' not in session:
-        return redirect(url_for('register'))
     user = User.query.get(session['user_id'])
     care_req = CareRequest.query.get(request_id)
     if not care_req:
         return "Request not found"
     community = Community.query.get(care_req.community_id)
-    membership = CommunityMembership.query.filter_by(user_id=user.id, community_id=community.id).first()
-    if not membership or membership.role not in ['admin', 'coadmin']:
-        return "Not authorized"
     if care_req.status != 'pending_admin':
         return "Request not pending admin approval"
     if action == 'approve':
@@ -766,7 +798,64 @@ def admin_approve(request_id, action):
 @app.route('/logout')
 def logout():
     session.pop('user_id', None)
+    session.pop('pin_verified', None)
+    session.pop('admin_authed', None)
     return redirect(url_for('login'))
+
+# ── PIN verification ───────────────────────────────────────────────────────────
+
+@app.route('/verify_pin', methods=['GET', 'POST'])
+def verify_pin():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    next_url = request.args.get('next') or request.form.get('next') or url_for('home')
+    if request.method == 'POST':
+        user = User.query.get(session['user_id'])
+        entered = request.form.get('pin', '').strip()
+        if entered == (user.pin or '1234'):
+            session['pin_verified'] = True
+            return redirect(next_url)
+        return render_template('verify_pin.html', next=next_url, error='Incorrect PIN. Please try again.')
+    return render_template('verify_pin.html', next=next_url, error=None)
+
+# ── Repayment page ─────────────────────────────────────────────────────────────
+
+@app.route('/repay', methods=['GET', 'POST'])
+def repay():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    if not session.get('pin_verified'):
+        return redirect(url_for('verify_pin', next=url_for('repay')))
+    user = User.query.get(session['user_id'])
+    if user.total_social_credit <= 0:
+        return render_template('repay.html', user=user, error=None, message='You have no outstanding social credit.')
+    if request.method == 'POST':
+        try:
+            repay_amount = float(request.form['repay_amount'])
+            if repay_amount <= 0:
+                raise ValueError
+        except (ValueError, KeyError):
+            return render_template('repay.html', user=user, error='Enter a valid amount.')
+        if repay_amount > user.sub_wallet_balance:
+            return render_template('repay.html', user=user,
+                                   error=f'Insufficient wallet balance (UGX {user.sub_wallet_balance:,.0f}).')
+        actual = min(repay_amount, user.total_social_credit)
+        user.sub_wallet_balance -= actual
+        old_credit = user.total_social_credit
+        user.total_social_credit = max(0.0, user.total_social_credit - actual)
+        improvement = min(0.05, actual / 100_000 * 0.1)
+        old_score = user.trust_score
+        user.trust_score = min(1.0, user.trust_score + improvement)
+        event = TrustEvent(user_id=user.id, old_score=old_score, new_score=user.trust_score,
+                           delta=round(improvement, 6), reason='debt_repayment')
+        db.session.add(event)
+        tx = Transaction(user_id=user.id, amount=-actual, type='debt_repayment',
+                         description=f'Social credit repayment of UGX {actual:,.0f}')
+        db.session.add(tx)
+        db.session.commit()
+        return render_template('repay.html', user=user, error=None,
+                               message=f'Repaid UGX {actual:,.0f}. Remaining social credit: UGX {user.total_social_credit:,.0f}. Trust score updated to {user.trust_score:.4f}.')
+    return render_template('repay.html', user=user, error=None, message=None)
 
 @app.route('/provider/logout')
 def provider_logout():
@@ -845,7 +934,6 @@ def provider_invoice():
 ussd_sessions = {}
 
 def _ussd_main_menu(user, role, primary_comm, r_fn):
-    mpesa_configured = bool(os.getenv('MPESA_CONSUMER_KEY') and os.getenv('MPESA_CONSUMER_SECRET'))
     menu = (f"Hi {user.name}\n"
             "1. Balance\n"
             "2. Request care\n"
@@ -854,8 +942,8 @@ def _ussd_main_menu(user, role, primary_comm, r_fn):
             "5. Witness tasks\n"
             "7. Help/FAQ\n"
             "9. Contribution history\n")
-    if mpesa_configured:
-        menu += "8. Top up via M-Pesa\n"
+    if user.total_social_credit > 0:
+        menu += "8. Repay debt\n"
     if role in ['admin', 'coadmin'] and primary_comm:
         menu += "6. Admin panel\n"
     menu += "0. Exit"
@@ -891,8 +979,13 @@ def ussd():
         if step == 1 and choice == "1":
             return r("Enter your full name:")
         if step == 2 and raw_inputs[0] == "1":
+            return r("Choose a 4-digit PIN:")
+        if step == 3 and raw_inputs[0] == "1":
             name = inputs[1]
-            new_user = User(phone=phone, name=name, sub_wallet_balance=0.0, trust_score=0.5)
+            pin = inputs[2].strip()
+            if not pin.isdigit() or len(pin) != 4:
+                return r("PIN must be exactly 4 digits. Dial again.", end=True)
+            new_user = User(phone=phone, name=name, pin=pin, sub_wallet_balance=0.0, trust_score=0.5)
             db.session.add(new_user)
             db.session.commit()
             default_comm = Community.query.first()
@@ -991,8 +1084,39 @@ def ussd():
         if not user_communities:
             return r("Join a community first (option 4).", end=True)
 
-        # step 1 → select community (or skip if only one) / enter amount
+        # PIN gate: step 1 asks for PIN; step 2 verifies it; rest of flow shifts by 1
         if step == 1:
+            return r("Enter your PIN to continue:")
+        if step == 2:
+            entered_pin = inputs[1].strip()
+            if entered_pin != (user.pin or '1234'):
+                return r("Incorrect PIN. Dial again.", end=True)
+            # PIN verified — show care request entry
+            try:
+                _ceil = compute_draw_ceiling(user.id)
+            except Exception:
+                _ceil = 0.0
+            if len(user_communities) == 1:
+                ussd_sessions[phone] = {
+                    "selected_comm_id": user_communities[0].id,
+                    "state": "awaiting_amount", "ceiling": _ceil,
+                }
+                return r(f"Request care\nYour ceiling: UGX {_ceil:,.0f}\nEnter amount (UGX):\n0. Back")
+            else:
+                comm_list = "\n".join([f"{i+1}. {c.name}" for i, c in enumerate(user_communities)])
+                ussd_sessions[phone] = {
+                    "state": "choose_comm",
+                    "communities": [(c.id, c.name) for c in user_communities],
+                    "ceiling": _ceil,
+                }
+                return r(f"Your ceiling: UGX {_ceil:,.0f}\nSelect community:\n{comm_list}\n0. Back")
+
+        # step 3+ → original flow but reading inputs shifted by 1 (inputs[n] instead of inputs[n-1])
+        # Re-index: effective step within the care flow = step - 1
+        eff_step = step - 1
+
+        # step 1 → select community (or skip if only one) / enter amount
+        if eff_step == 1:
             try:
                 _ceil = compute_draw_ceiling(user.id)
             except Exception:
@@ -1015,10 +1139,10 @@ def ussd():
         sess = ussd_sessions.get(phone, {})
         state = sess.get("state", "")
 
-        # step 2 → community selection (multi-community path)
-        if step == 2 and state == "choose_comm":
+        # eff_step 2 → community selection (multi-community path)
+        if eff_step == 2 and state == "choose_comm":
             try:
-                idx = int(inputs[1]) - 1
+                idx = int(inputs[2]) - 1
             except ValueError:
                 return r("Invalid choice.\n0. Back")
             comms = sess["communities"]
@@ -1029,11 +1153,11 @@ def ussd():
                 return r("Enter amount (UGX):\n0. Back")
             return r("Invalid choice.\n0. Back")
 
-        # Amount input (step 2 for single-comm, step 3 for multi-comm)
+        # Amount input (eff_step 2 for single-comm, eff_step 3 for multi-comm)
         amt_step = 2 if sess.get("state") == "awaiting_amount" or "selected_comm_id" in sess else 3
-        if step == amt_step and "selected_comm_id" in sess:
+        if eff_step == amt_step and "selected_comm_id" in sess:
             try:
-                amount = float(inputs[step - 1])
+                amount = float(inputs[eff_step])
             except ValueError:
                 return r("Invalid amount. Enter a number (UGX):\n0. Back")
             sess["amount"] = amount
@@ -1043,8 +1167,8 @@ def ussd():
 
         # Provider code input
         prov_step = amt_step + 1
-        if step == prov_step and "amount" in sess:
-            provider_code = inputs[step - 1].strip().upper()
+        if eff_step == prov_step and "amount" in sess:
+            provider_code = inputs[eff_step].strip().upper()
             provider = Provider.query.filter_by(provider_code=provider_code, verified=True).first()
             if not provider:
                 sample = Provider.query.filter_by(verified=True).first()
@@ -1056,8 +1180,8 @@ def ussd():
 
         # Confirm + submit
         conf_step = prov_step + 1
-        if step == conf_step and "provider_id" in sess:
-            emerg = (inputs[step - 1] == "1")
+        if eff_step == conf_step and "provider_id" in sess:
+            emerg = (inputs[eff_step] == "1")
             amount = sess["amount"]
             provider_id = sess["provider_id"]
             selected_comm = Community.query.get(sess["selected_comm_id"])
@@ -1272,43 +1396,48 @@ def ussd():
             return r(answers[topic], end=True)
         return r("Invalid topic. Dial again.", end=True)
 
-    # ── 8. M-Pesa top-up ─────────────────────────────────────────────────────
+    # ── 8. Repay debt ─────────────────────────────────────────────────────────
     if choice == "8":
+        if user.total_social_credit <= 0:
+            return r("You have no outstanding debt to repay.", end=True)
+        # step 1 → ask for PIN
         if step == 1:
-            return r("M-Pesa Top-up\nEnter amount (UGX):\n0. Back")
-        try:
-            topup_amount = float(inputs[1])
-            if topup_amount < 1:
-                raise ValueError("Minimum UGX 1")
-        except (ValueError, IndexError):
-            return r("Invalid amount. Enter a whole number:\n0. Back")
-        if not (os.getenv('MPESA_CONSUMER_KEY') and os.getenv('MPESA_CONSUMER_SECRET')):
-            return r("M-Pesa is not configured. Contact support.", end=True)
-        try:
-            result = stk_push(
-                phone=phone, amount=topup_amount,
-                account_reference='SolidarityPool',
-                description=f'USSD top-up for {user.name}',
-            )
-            checkout_id = result.get('CheckoutRequestID', '')
-            topup_rec = MpesaTopup(
-                user_id=user.id, amount=topup_amount,
-                checkout_request_id=checkout_id,
-                merchant_request_id=result.get('MerchantRequestID', ''),
-                status='pending',
-            )
-            db.session.add(topup_rec)
+            return r(f"Repay debt\nOwed: UGX {user.total_social_credit:,.0f}\nEnter your PIN:")
+        # step 2 → verify PIN
+        if step == 2:
+            entered_pin = inputs[1].strip()
+            if entered_pin != (user.pin or '1234'):
+                return r("Incorrect PIN. Dial again.", end=True)
+            return r(f"Enter amount to repay (UGX)\nMax wallet: UGX {user.sub_wallet_balance:,.0f}\n0. Back")
+        # step 3 → process repayment
+        if step == 3:
+            try:
+                repay_amt = float(inputs[2])
+                if repay_amt <= 0:
+                    raise ValueError
+            except (ValueError, IndexError):
+                return r("Invalid amount. Dial again.", end=True)
+            if repay_amt > user.sub_wallet_balance:
+                return r(f"Insufficient wallet balance (UGX {user.sub_wallet_balance:,.0f}).", end=True)
+            actual = min(repay_amt, user.total_social_credit)
+            user.sub_wallet_balance -= actual
+            user.total_social_credit = max(0.0, user.total_social_credit - actual)
+            improvement = min(0.05, actual / 100_000 * 0.1)
+            old_score = user.trust_score
+            user.trust_score = min(1.0, user.trust_score + improvement)
+            event = TrustEvent(user_id=user.id, old_score=old_score, new_score=user.trust_score,
+                               delta=round(improvement, 6), reason='debt_repayment')
+            db.session.add(event)
+            tx = Transaction(user_id=user.id, amount=-actual, type='debt_repayment',
+                             description=f'USSD debt repayment of UGX {actual:,.0f}')
+            db.session.add(tx)
             db.session.commit()
             return r(
-                f"M-Pesa prompt sent to {phone}.\n"
-                f"Amount: UGX {int(topup_amount):,}\n"
-                "Approve on your phone to top up your wallet.",
+                f"Repaid UGX {actual:,.0f}.\n"
+                f"Remaining debt: UGX {user.total_social_credit:,.0f}\n"
+                f"Trust score: {user.trust_score:.4f}",
                 end=True,
             )
-        except MpesaError as exc:
-            from loguru import logger as _log
-            _log.error("USSD STK push failed: {}", exc)
-            return r("M-Pesa prompt failed. Try again later.", end=True)
 
     # ── 9. Contribution history ───────────────────────────────────────────────
     if choice == "9":
@@ -1348,9 +1477,8 @@ def ussd():
 # ------------------ Admin: Platform Monitor ------------------
 
 @app.route('/admin/monitor')
+@admin_required
 def admin_monitor():
-    if 'user_id' not in session:
-        return redirect(url_for('register'))
     from sqlalchemy import func
     thirty_days_ago = datetime.utcnow() - timedelta(days=30)
 
@@ -1399,22 +1527,16 @@ def admin_monitor():
 # ------------------ Admin: Trust Override ------------------
 
 @app.route('/admin/trust')
+@admin_required
 def admin_trust_page():
-    if 'user_id' not in session:
-        return redirect(url_for('register'))
     user = User.query.get(session['user_id'])
     return render_template('admin_trust.html', user=user)
 
 
 @app.route('/admin/trust/override', methods=['POST'])
+@admin_required
 def admin_trust_override_by_phone():
-    if 'user_id' not in session:
-        return redirect(url_for('register'))
     admin = User.query.get(session['user_id'])
-    memberships = CommunityMembership.query.filter_by(user_id=admin.id).all()
-    is_comm_admin = admin.is_global_admin or any(m.role in ['admin', 'coadmin'] for m in memberships)
-    if not is_comm_admin:
-        return "Not authorized — only community admins can override trust scores.", 403
     phone = request.form.get('phone', '').strip()
     target = User.query.filter_by(phone=phone).first()
     if not target:
@@ -1445,22 +1567,9 @@ def admin_trust_override_by_phone():
 # ------------------ Admin: CSV Exports ------------------
 
 @app.route('/admin/export/payments.csv')
+@admin_required
 def export_payments_csv():
-    if 'user_id' not in session:
-        return redirect(url_for('register'))
-    admin = User.query.get(session['user_id'])
-    admin_comm_ids = [
-        m.community_id for m in CommunityMembership.query.filter_by(user_id=admin.id).all()
-        if m.role in ['admin', 'coadmin']
-    ]
-    if not admin_comm_ids and not admin.is_global_admin:
-        return "Not authorized — community admin access required.", 403
-    if admin.is_global_admin:
-        payments = PaymentRecord.query.order_by(PaymentRecord.created_at.desc()).all()
-    else:
-        payments = PaymentRecord.query.filter(
-            PaymentRecord.community_id.in_(admin_comm_ids)
-        ).order_by(PaymentRecord.created_at.desc()).all()
+    payments = PaymentRecord.query.order_by(PaymentRecord.created_at.desc()).all()
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(['Date', 'Reference', 'Member', 'Phone', 'Provider', 'Amount (UGX)', 'Status', 'Confirmed At'])
@@ -1486,27 +1595,9 @@ def export_payments_csv():
 
 
 @app.route('/admin/export/trust.csv')
+@admin_required
 def export_trust_csv():
-    if 'user_id' not in session:
-        return redirect(url_for('register'))
-    admin = User.query.get(session['user_id'])
-    admin_comm_ids = [
-        m.community_id for m in CommunityMembership.query.filter_by(user_id=admin.id).all()
-        if m.role in ['admin', 'coadmin']
-    ]
-    if not admin_comm_ids and not admin.is_global_admin:
-        return "Not authorized — community admin access required.", 403
-    if admin.is_global_admin:
-        events = TrustEvent.query.order_by(TrustEvent.timestamp.desc()).all()
-    else:
-        member_ids = [
-            m.user_id for m in CommunityMembership.query.filter(
-                CommunityMembership.community_id.in_(admin_comm_ids)
-            ).all()
-        ]
-        events = TrustEvent.query.filter(
-            TrustEvent.user_id.in_(member_ids)
-        ).order_by(TrustEvent.timestamp.desc()).all()
+    events = TrustEvent.query.order_by(TrustEvent.timestamp.desc()).all()
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(['Date', 'Member', 'Phone', 'Old Score', 'New Score', 'Delta', 'Reason',
@@ -1532,6 +1623,55 @@ def export_trust_csv():
         mimetype='text/csv',
         headers={'Content-Disposition': 'attachment; filename="solidarity_trust_history.csv"'},
     )
+
+
+# ── Admin: View user profile ──────────────────────────────────────────────────
+
+@app.route('/admin/view-user')
+@admin_required
+def admin_view_user():
+    from trust_graph import compute_draw_ceiling
+    search_phone = request.args.get('phone', '').strip()
+    target = None
+    not_found = False
+    care_requests = []
+    trust_events = []
+    ceiling = 0.0
+    primary_comm = None
+    if search_phone:
+        target = User.query.filter_by(phone=search_phone).first()
+        if not target:
+            not_found = True
+        else:
+            care_requests = (CareRequest.query.filter_by(user_id=target.id)
+                             .order_by(CareRequest.created_at.desc()).limit(10).all())
+            trust_events = (TrustEvent.query.filter_by(user_id=target.id)
+                            .order_by(TrustEvent.timestamp.desc()).limit(10).all())
+            try:
+                ceiling = compute_draw_ceiling(target.id)
+            except Exception:
+                ceiling = 0.0
+            primary_comm = (Community.query.get(target.primary_community_id)
+                            if target.primary_community_id else None)
+            _log_admin_action(session['user_id'], 'view_user', target_user_id=target.id,
+                              details=f'Viewed profile of {target.name} ({target.phone})')
+    return render_template('admin_user_profile.html',
+                           target=target, search_phone=search_phone, not_found=not_found,
+                           care_requests=care_requests, trust_events=trust_events,
+                           ceiling=ceiling, primary_comm=primary_comm,
+                           admin_phones=ADMIN_PHONES)
+
+
+# ── Admin: Audit log ──────────────────────────────────────────────────────────
+
+@app.route('/admin/audit-log')
+@admin_required
+def admin_audit_log():
+    logs = (AdminAuditLog.query.order_by(AdminAuditLog.timestamp.desc()).limit(200).all())
+    for log in logs:
+        log.admin = User.query.get(log.admin_id)
+        log.target_user = User.query.get(log.target_user_id) if log.target_user_id else None
+    return render_template('admin_audit_log.html', logs=logs)
 
 
 # ------------------ Leaderboard ------------------

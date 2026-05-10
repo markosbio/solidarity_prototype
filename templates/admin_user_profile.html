@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>User Profile – Admin – SolidarityPool</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; }
+  h2 { margin-bottom: 4px; }
+  .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 20px; }
+  .search-bar { display: flex; gap: 8px; margin-bottom: 24px; }
+  .search-bar input { flex: 1; padding: 9px 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 1rem; }
+  .search-bar button { padding: 9px 18px; background: #2d7dd2; color: white; border: none;
+                       border-radius: 4px; cursor: pointer; font-size: 0.95rem; }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: 20px; background: #fafafa; margin-bottom: 16px; }
+  .card h3 { margin: 0 0 14px; font-size: 1.05rem; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+  .row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 0.9rem;
+         border-bottom: 1px solid #f0f0f0; }
+  .row:last-child { border-bottom: none; }
+  .row .label { color: #666; }
+  .row .val { font-weight: bold; }
+  .trust-high { color: #28a745; }
+  .trust-mid { color: #ffc107; }
+  .trust-low { color: #dc3545; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 8px; font-size: 0.78rem; font-weight: bold; }
+  .badge-admin { background: #cce5ff; color: #004085; }
+  .badge-member { background: #e2e3e5; color: #383d41; }
+  .error { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24;
+           padding: 10px 14px; border-radius: 4px; margin-bottom: 14px; }
+  .not-found { background: #fff3cd; border: 1px solid #ffc107; color: #856404;
+               padding: 14px; border-radius: 8px; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 6px; }
+  th { background: #f0f0f0; text-align: left; padding: 6px 8px; border-bottom: 2px solid #ddd;
+       font-size: 0.78rem; color: #555; }
+  td { padding: 6px 8px; border-bottom: 1px solid #eee; }
+  .back { font-size: 0.88rem; color: #2d7dd2; }
+</style>
+</head>
+<body>
+<h2>Admin — View User Profile</h2>
+<p class="subtitle">Look up any member by phone number.</p>
+
+<form method="GET">
+  <div class="search-bar">
+    <input type="tel" name="phone" value="{{ search_phone or '' }}"
+           placeholder="e.g. 254712345678" required>
+    <button type="submit">Search</button>
+  </div>
+</form>
+
+{% if not_found %}
+<div class="not-found">No user found with phone <strong>{{ search_phone }}</strong>.</div>
+{% endif %}
+
+{% if target %}
+<div class="card">
+  <h3>{{ target.name }}
+    {% if target.phone in admin_phones %}
+    <span class="badge badge-admin">ADMIN</span>
+    {% else %}
+    <span class="badge badge-member">Member</span>
+    {% endif %}
+  </h3>
+  <div class="row"><span class="label">Phone</span><span class="val">{{ target.phone }}</span></div>
+  <div class="row"><span class="label">User ID</span><span class="val">#{{ target.id }}</span></div>
+  <div class="row">
+    <span class="label">Trust score</span>
+    <span class="val {% if target.trust_score >= 0.7 %}trust-high{% elif target.trust_score >= 0.4 %}trust-mid{% else %}trust-low{% endif %}">
+      {{ "%.4f"|format(target.trust_score) }}
+    </span>
+  </div>
+  <div class="row"><span class="label">Sub-wallet</span><span class="val">UGX {{ "{:,.0f}".format(target.sub_wallet_balance) }}</span></div>
+  <div class="row"><span class="label">Social credit</span><span class="val">UGX {{ "{:,.0f}".format(target.total_social_credit) }}</span></div>
+  <div class="row"><span class="label">Witness accuracy</span><span class="val">{{ "%.0f"|format(target.witness_accuracy_score * 100) }}%</span></div>
+  <div class="row"><span class="label">Round-up multiplier</span><span class="val">{{ "%.2f"|format(target.roundup_intensifier) }}x</span></div>
+  <div class="row"><span class="label">Draw ceiling</span><span class="val">UGX {{ "{:,.0f}".format(ceiling) }}</span></div>
+  <div class="row"><span class="label">Primary community</span><span class="val">{{ primary_comm.name if primary_comm else 'None' }}</span></div>
+  <div class="row"><span class="label">is_admin flag</span><span class="val">{{ 'Yes' if target.is_admin else 'No' }}</span></div>
+</div>
+
+{% if care_requests %}
+<div class="card">
+  <h3>Recent Care Requests</h3>
+  <table>
+    <thead><tr><th>Date</th><th>Amount</th><th>Status</th><th>Emergency</th></tr></thead>
+    <tbody>
+    {% for cr in care_requests %}
+    <tr>
+      <td>{{ cr.created_at.strftime('%d/%m/%Y') }}</td>
+      <td>UGX {{ "{:,.0f}".format(cr.amount_needed) }}</td>
+      <td>{{ cr.status }}</td>
+      <td>{{ 'Yes' if cr.is_emergency else 'No' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if trust_events %}
+<div class="card">
+  <h3>Recent Trust Events</h3>
+  <table>
+    <thead><tr><th>Date</th><th>Old</th><th>New</th><th>Delta</th><th>Reason</th></tr></thead>
+    <tbody>
+    {% for e in trust_events %}
+    <tr>
+      <td>{{ e.timestamp.strftime('%d/%m/%Y') }}</td>
+      <td>{{ "%.4f"|format(e.old_score) if e.old_score is not none else '-' }}</td>
+      <td>{{ "%.4f"|format(e.new_score) if e.new_score is not none else '-' }}</td>
+      <td>{{ "%+.4f"|format(e.delta) if e.delta is not none else '-' }}</td>
+      <td>{{ e.reason or '-' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endif %}
+
+<p style="margin-top:20px;">
+  <a class="back" href="{{ url_for('admin_care') }}">← Admin Dashboard</a>
+  &nbsp;|&nbsp;
+  <a class="back" href="{{ url_for('admin_audit_log') }}">Audit Log →</a>
+</p>
+</body>
+</html>

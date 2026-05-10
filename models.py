@@ -7,6 +7,8 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     phone = db.Column(db.String(20), unique=True)
     name = db.Column(db.String(100))
+    pin = db.Column(db.String(10), default='1234')
+    is_admin = db.Column(db.Boolean, default=False)
     sub_wallet_balance = db.Column(db.Float, default=0.0)
     trust_score = db.Column(db.Float, default=0.5)
     total_social_credit = db.Column(db.Float, default=0.0)
@@ -236,3 +238,17 @@ class MpesaTopup(db.Model):
     confirmed_at = db.Column(db.DateTime)
 
     user = db.relationship('User', backref='mpesa_topups')
+
+
+class AdminAuditLog(db.Model):
+    """Log of all admin actions for audit and accountability."""
+    id = db.Column(db.Integer, primary_key=True)
+    admin_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    target_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    action = db.Column(db.String(100), nullable=False)
+    details = db.Column(db.String(500))
+    ip = db.Column(db.String(50))
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+    admin = db.relationship('User', foreign_keys=[admin_id], backref='audit_actions')
+    target_user = db.relationship('User', foreign_keys=[target_user_id], backref='audit_logs')
