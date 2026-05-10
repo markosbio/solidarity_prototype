@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>My Balance – SolidarityPool</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: sans-serif; max-width: 480px; margin: 40px auto; padding: 0 16px; }
+  h2 { margin-bottom: 2px; }
+  .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 24px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+  .stat { border: 1px solid #ddd; border-radius: 8px; padding: 16px; background: #fafafa; }
+  .stat .label { font-size: 0.78rem; color: #777; margin-bottom: 6px; }
+  .stat .value { font-size: 1.5rem; font-weight: bold; color: #2d7dd2; }
+  .stat .value.green { color: #28a745; }
+  .stat .value.amber { color: #e0a800; }
+  .stat .value.red   { color: #dc3545; }
+  .community-box { border: 1px solid #ddd; border-radius: 8px; padding: 14px 16px;
+                   background: #f0f8f0; margin-bottom: 20px; }
+  .comm-name { font-weight: bold; font-size: 1rem; margin-bottom: 4px; }
+  .gauge-bar { height: 10px; border-radius: 5px; background: #e9ecef; overflow: hidden; margin: 6px 0 2px; }
+  .gauge-fill { height: 100%; border-radius: 5px; }
+  .gauge-fill.green { background: #28a745; }
+  .gauge-fill.amber { background: #ffc107; }
+  .gauge-fill.red   { background: #dc3545; }
+  .gauge-label { font-size: 0.78rem; color: #555; }
+  .credit-warn { background: #fff3cd; border: 1px solid #ffc107; padding: 12px 14px;
+                 border-radius: 6px; font-size: 0.88rem; margin-bottom: 18px; }
+  .pin-note { display: flex; align-items: center; gap: 6px; background: #e8f4f8;
+              border: 1px solid #bee5eb; border-radius: 6px; padding: 8px 12px;
+              font-size: 0.8rem; color: #2c4a6e; margin-bottom: 18px; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+  .btn { display: inline-block; padding: 10px 18px; border-radius: 6px; font-size: 0.9rem;
+         text-decoration: none; border: none; cursor: pointer; }
+  .btn-primary { background: #2d7dd2; color: white; }
+  .btn-success { background: #28a745; color: white; }
+  .btn-warning { background: #ffc107; color: #333; }
+  .btn-secondary { background: #f8f9fa; color: #555; border: 1px solid #ddd; }
+  .btn:hover { opacity: 0.88; }
+</style>
+</head>
+<body>
+
+<h2>My Balance</h2>
+<p class="subtitle">Verified with your PIN · {{ user.name }} · {{ user.phone }}</p>
+
+<div class="pin-note">
+  🔒 This page is PIN-protected. Your figures are accurate as of right now.
+</div>
+
+{% if user.total_social_credit > 0 %}
+<div class="credit-warn">
+  You have <strong>UGX {{ "{:,.0f}".format(user.total_social_credit) }}</strong> in outstanding social credit.
+  <a href="{{ url_for('repay') }}" style="color:#856404; font-weight:bold;">Repay now →</a> to improve your trust score.
+</div>
+{% endif %}
+
+<div class="grid">
+  <div class="stat">
+    <div class="label">Sub-wallet</div>
+    <div class="value">UGX {{ "{:,.0f}".format(user.sub_wallet_balance) }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Draw ceiling</div>
+    <div class="value green">UGX {{ "{:,.0f}".format(ceiling) }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Trust score</div>
+    {% set ts = user.trust_score %}
+    <div class="value {% if ts >= 0.7 %}green{% elif ts >= 0.4 %}amber{% else %}red{% endif %}">
+      {{ "%.4f"|format(ts) }}
+    </div>
+  </div>
+  <div class="stat">
+    <div class="label">Social credit owed</div>
+    <div class="value {% if user.total_social_credit > 0 %}red{% else %}green{% endif %}">
+      UGX {{ "{:,.0f}".format(user.total_social_credit) }}
+    </div>
+  </div>
+</div>
+
+{% if primary_comm and pool_health %}
+<div class="community-box">
+  <div class="comm-name">{{ primary_comm.name }}</div>
+  <div class="gauge-bar">
+    <div class="gauge-fill {{ pool_health.color }}" style="width:{{ pool_health.pct }}%"></div>
+  </div>
+  <div class="gauge-label">
+    Pool health: <strong>{{ pool_health.pct }}% — {{ pool_health.label }}</strong>
+    &nbsp;·&nbsp; UGX {{ "{:,.0f}".format(primary_comm.pool_balance) }} available
+  </div>
+</div>
+{% endif %}
+
+<div class="actions">
+  {% if user.total_social_credit > 0 %}
+  <a href="{{ url_for('repay') }}" class="btn btn-warning">💳 Repay Debt</a>
+  {% endif %}
+  <a href="{{ url_for('simulate_roundup') }}" class="btn btn-success">💰 Contribute</a>
+  <a href="{{ url_for('trust_history') }}" class="btn btn-secondary">📊 Trust History</a>
+  <a href="{{ url_for('home') }}" class="btn btn-secondary">← Dashboard</a>
+</div>
+
+</body>
+</html>

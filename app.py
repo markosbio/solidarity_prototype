@@ -686,15 +686,50 @@ def apply_verified_provider():
 @app.route('/admin/verified-providers/<int:app_id>/review', methods=['POST'])
 @admin_required
 def admin_verify_provider_application(app_id):
+    from loguru import logger
+    from notifications import notify_provider_approved, notify_provider_rejected
     vp = VerifiedProvider.query.get_or_404(app_id)
     action = request.form.get('action')
     notes = request.form.get('notes', '').strip()
-    if action in ('verify', 'reject'):
-        vp.verification_status = 'verified' if action == 'verify' else 'rejected'
+
+    if action == 'verify':
+        vp.verification_status = 'verified'
+        vp.review_notes = notes
+        vp.reviewed_at = datetime.utcnow()
+        vp.reviewed_by = session['user_id']
+
+        # Generate a clean provider code from the clinic name if not already in Provider table
+        import re
+        base_code = re.sub(r'[^A-Z0-9]', '', vp.provider_name.upper())[:8] or 'CLINIC'
+        existing = Provider.query.filter_by(provider_code=base_code).first()
+        if existing:
+            provider = existing
+            provider.verified = True
+        else:
+            provider = Provider(
+                name=vp.provider_name,
+                provider_code=base_code,
+                payment_type='mobile_money',
+                payment_details=vp.provider_wallet_number or '',
+                verified=True,
+                contact_name=vp.provider_name,
+                contact_phone=vp.phone,
+            )
+            db.session.add(provider)
+
+        db.session.commit()
+        logger.info("Provider application approved: vp_id={} code={}", vp.id, provider.provider_code)
+        notify_provider_approved(vp.phone, vp.provider_name, provider.provider_code)
+
+    elif action == 'reject':
+        vp.verification_status = 'rejected'
         vp.review_notes = notes
         vp.reviewed_at = datetime.utcnow()
         vp.reviewed_by = session['user_id']
         db.session.commit()
+        logger.info("Provider application rejected: vp_id={} reason={}", vp.id, notes)
+        notify_provider_rejected(vp.phone, vp.provider_name, notes)
+
     return redirect(url_for('admin_verified_providers'))
 
 
@@ -897,6 +932,23 @@ def repay():
                                message=f'Repaid UGX {actual:,.0f}. Remaining social credit: UGX {user.total_social_credit:,.0f}. Trust score updated to {user.trust_score:.4f}.')
     return render_template('repay.html', user=user, error=None, message=None)
 
+@app.route('/balance')
+def balance():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    if not session.get('pin_verified'):
+        return redirect(url_for('verify_pin', next=url_for('balance')))
+    user = User.query.get(session['user_id'])
+    primary_comm = Community.query.get(user.primary_community_id) if user.primary_community_id else None
+    try:
+        ceiling = round(compute_draw_ceiling(user.id), 2)
+    except Exception:
+        ceiling = 0.0
+    ph = _pool_health(primary_comm.pool_balance) if primary_comm else None
+    return render_template('balance.html', user=user, primary_comm=primary_comm,
+                           ceiling=ceiling, pool_health=ph)
+
+
 @app.route('/provider/logout')
 def provider_logout():
     session.pop('provider_id', None)
@@ -1055,20 +1107,30 @@ def ussd():
     if choice == "0" and step == 1:
         return r("Goodbye. Stay well!", end=True)
 
-    # ── 1. Balance ────────────────────────────────────────────────────────────
+    # ── 1. Balance (PIN-gated) ─────────────────────────────────────────────────
     if choice == "1":
-        try:
-            ceil_val = compute_draw_ceiling(user.id)
-        except Exception:
-            ceil_val = 0.0
-        if primary_comm:
-            ph = _pool_health(primary_comm.pool_balance)
-            bal = (f"Wallet: UGX {user.sub_wallet_balance:,.0f}\n"
-                   f"Draw ceiling: UGX {ceil_val:,.0f}\n"
-                   f"Pool: UGX {primary_comm.pool_balance:,.0f} ({ph['label']})")
-        else:
-            bal = f"Wallet: UGX {user.sub_wallet_balance:,.0f}\nDraw ceiling: UGX {ceil_val:,.0f}"
-        return r(bal, end=True)
+        if step == 1:
+            return r("Enter your PIN to check balance:")
+        if step == 2:
+            entered_pin = inputs[1].strip()
+            if entered_pin != (user.pin or '1234'):
+                return r("Incorrect PIN. Dial again.", end=True)
+            try:
+                ceil_val = compute_draw_ceiling(user.id)
+            except Exception:
+                ceil_val = 0.0
+            if primary_comm:
+                ph = _pool_health(primary_comm.pool_balance)
+                bal = (f"Wallet: UGX {user.sub_wallet_balance:,.0f}\n"
+                       f"Draw ceiling: UGX {ceil_val:,.0f}\n"
+                       f"Social credit: UGX {user.total_social_credit:,.0f}\n"
+                       f"Pool: UGX {primary_comm.pool_balance:,.0f} ({ph['label']})")
+            else:
+                bal = (f"Wallet: UGX {user.sub_wallet_balance:,.0f}\n"
+                       f"Draw ceiling: UGX {ceil_val:,.0f}\n"
+                       f"Social credit: UGX {user.total_social_credit:,.0f}")
+            return r(bal, end=True)
+        return r("Session error. Dial again.", end=True)
 
     # ── 3. Trust score ────────────────────────────────────────────────────────
     if choice == "3":

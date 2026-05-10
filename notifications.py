@@ -78,6 +78,28 @@ def notify_fraud_flagged(admin_phone: str, user_name: str, amount: float,
     _send_sms(admin_phone, msg)
 
 
+def notify_provider_approved(phone: str, provider_name: str, provider_code: str) -> None:
+    """Notify a clinic that their provider application has been approved."""
+    msg = (
+        f"[SolidarityPool] Congratulations! Your provider application for '{provider_name}' "
+        f"has been approved. Log in to your provider dashboard at /provider/login "
+        f"using your provider code: {provider_code}. No password needed — only your code."
+    )
+    logger.info("Provider approved notification: phone={} code={}", phone, provider_code)
+    _send_sms(phone, msg)
+
+
+def notify_provider_rejected(phone: str, provider_name: str, reason: str = '') -> None:
+    """Notify a clinic that their provider application was not approved."""
+    reason_text = f" Reason: {reason}." if reason else ""
+    msg = (
+        f"[SolidarityPool] Your provider application for '{provider_name}' was not approved."
+        f"{reason_text} Contact support for details or reapply with updated documents."
+    )
+    logger.info("Provider rejected notification: phone={} reason={!r}", phone, reason)
+    _send_sms(phone, msg)
+
+
 def _send_sms(phone: str, message: str) -> None:
     at_username = os.getenv('AT_USERNAME')
     at_api_key = os.getenv('AT_API_KEY')

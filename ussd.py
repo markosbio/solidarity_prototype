@@ -62,6 +62,7 @@ def _route(phone: str, steps: list, level: int) -> str:
     if steps[0] == '':
         if user:
             mpesa_line = "5. Top up via M-Pesa\n" if (os.getenv('MPESA_CONSUMER_KEY') and os.getenv('MPESA_CONSUMER_SECRET')) else ""
+            repay_line = "8. Repay social credit\n" if user.total_social_credit > 0 else ""
             return (
                 f"CON Welcome back, {user.name}\n"
                 "1. Check balance & draw ceiling\n"
@@ -71,6 +72,7 @@ def _route(phone: str, steps: list, level: int) -> str:
                 + mpesa_line +
                 "6. Provider payment check\n"
                 "7. Help / FAQ\n"
+                + repay_line +
                 "0. Exit"
             )
         else:
@@ -98,7 +100,7 @@ def _route(phone: str, steps: list, level: int) -> str:
 
     # ── Registered user flows ─────────────────────────────────────────────────
     if top == '1':
-        return _balance(user)
+        return _balance_flow(user, steps, level)
     if top == '2':
         return _roundup_flow(user, steps, level)
     if top == '3':
@@ -111,8 +113,10 @@ def _route(phone: str, steps: list, level: int) -> str:
         return _provider_check_flow(steps, level)
     if top == '7':
         return _help_faq(steps, level)
+    if top == '8':
+        return _repay_flow(user, steps, level)
 
-    return "END Invalid option. Please dial again and choose 1–7 or 0 to exit."
+    return "END Invalid option. Please dial again and choose 1–8 or 0 to exit."
 
 
 # ── sub-flows ─────────────────────────────────────────────────────────────────
@@ -164,6 +168,16 @@ def _register_flow(phone: str, steps: list, level: int) -> str:
     return f"END Registration successful!\nWelcome, {name}.\nDial again to access your account."
 
 
+def _balance_flow(user: User, steps: list, level: int) -> str:
+    """Balance check — requires PIN before revealing sensitive figures."""
+    if level == 1:
+        return "CON Enter your PIN to check balance:"
+    pin = steps[1].strip()
+    if pin != (user.pin or '1234'):
+        return "END Incorrect PIN. Please dial again."
+    return _balance(user)
+
+
 def _balance(user: User) -> str:
     state = SystemState.query.first()
     pool = state.communal_pool_balance if state else 0.0
@@ -178,6 +192,87 @@ def _balance(user: User) -> str:
         f"Social credit: KES {user.total_social_credit:.2f}\n"
         f"Communal pool: KES {pool:.2f}"
     )
+
+
+def _repay_flow(user: User, steps: list, level: int) -> str:
+    """Repay social credit debt via USSD — PIN-gated, updates trust score on repayment."""
+    if user.total_social_credit <= 0:
+        return "END You have no outstanding social credit to repay."
+
+    if level == 1:
+        return (
+            f"CON Repay Social Credit\n"
+            f"Outstanding: UGX {user.total_social_credit:,.0f}\n"
+            f"Enter your PIN to continue:"
+        )
+
+    if level == 2:
+        pin = steps[1].strip()
+        if pin != (user.pin or '1234'):
+            return "END Incorrect PIN. Please dial again."
+        return (
+            f"CON Enter amount to repay (UGX)\n"
+            f"Wallet balance: UGX {user.sub_wallet_balance:,.0f}\n"
+            f"Outstanding debt: UGX {user.total_social_credit:,.0f}"
+        )
+
+    if level == 3:
+        # Re-verify PIN wasn't wrong at step 2 (stateless check)
+        pin = steps[1].strip()
+        if pin != (user.pin or '1234'):
+            return "END Incorrect PIN. Please dial again."
+        try:
+            repay_amt = float(steps[2].strip())
+            if repay_amt <= 0:
+                raise ValueError
+        except (ValueError, IndexError):
+            return "END Invalid amount. Please dial again and enter a number."
+
+        if repay_amt > user.sub_wallet_balance:
+            return (
+                f"END Insufficient wallet balance.\n"
+                f"Your wallet: UGX {user.sub_wallet_balance:,.0f}\n"
+                f"Top up first, then repay."
+            )
+
+        from models import Transaction, TrustEvent
+        actual = min(repay_amt, user.total_social_credit)
+        user.sub_wallet_balance -= actual
+        old_credit = user.total_social_credit
+        user.total_social_credit = max(0.0, user.total_social_credit - actual)
+        improvement = min(0.05, actual / 100_000 * 0.1)
+        old_score = user.trust_score
+        user.trust_score = min(1.0, user.trust_score + improvement)
+
+        from models import db
+        db.session.add(TrustEvent(
+            user_id=user.id,
+            old_score=old_score,
+            new_score=user.trust_score,
+            delta=round(improvement, 6),
+            reason='debt_repayment',
+        ))
+        db.session.add(Transaction(
+            user_id=user.id,
+            amount=-actual,
+            type='debt_repayment',
+            description=f'USSD social credit repayment of UGX {actual:,.0f}',
+        ))
+        db.session.commit()
+
+        logger.info(
+            "USSD repayment: user_id={} repaid={:.0f} remaining_credit={:.0f} "
+            "trust: {:.4f} → {:.4f}",
+            user.id, actual, user.total_social_credit, old_score, user.trust_score,
+        )
+        return (
+            f"END Repaid UGX {actual:,.0f}.\n"
+            f"Remaining debt: UGX {user.total_social_credit:,.0f}\n"
+            f"Trust score: {user.trust_score:.4f}\n"
+            f"(was {old_score:.4f})"
+        )
+
+    return "END Session error. Please dial again."
 
 
 def _roundup_flow(user: User, steps: list, level: int) -> str:
