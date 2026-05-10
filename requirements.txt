@@ -14,3 +14,11 @@ loguru
 psycopg2-binary
 python-dotenv
 requests
+flask
+flask-login
+flask-sqlalchemy
+gunicorn
+loguru
+psycopg2-binary
+python-dotenv
+requests
