@@ -818,6 +818,29 @@ def verify_pin():
         return render_template('verify_pin.html', next=next_url, error='Incorrect PIN. Please try again.')
     return render_template('verify_pin.html', next=next_url, error=None)
 
+# ── Change PIN ────────────────────────────────────────────────────────────────
+
+@app.route('/change_pin', methods=['GET', 'POST'])
+def change_pin():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    user = User.query.get(session['user_id'])
+    if request.method == 'POST':
+        current_pin = request.form.get('current_pin', '').strip()
+        new_pin = request.form.get('new_pin', '').strip()
+        confirm_pin = request.form.get('confirm_pin', '').strip()
+        if current_pin != (user.pin or '1234'):
+            return render_template('change_pin.html', error='Current PIN is incorrect.', success=None)
+        if not new_pin.isdigit() or len(new_pin) != 4:
+            return render_template('change_pin.html', error='New PIN must be exactly 4 digits.', success=None)
+        if new_pin != confirm_pin:
+            return render_template('change_pin.html', error='New PINs do not match.', success=None)
+        user.pin = new_pin
+        session.pop('pin_verified', None)
+        db.session.commit()
+        return render_template('change_pin.html', error=None, success='PIN updated successfully. Please re-verify when accessing sensitive features.')
+    return render_template('change_pin.html', error=None, success=None)
+
 # ── Repayment page ─────────────────────────────────────────────────────────────
 
 @app.route('/repay', methods=['GET', 'POST'])

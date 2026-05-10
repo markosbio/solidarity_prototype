@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Change PIN – SolidarityPool</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: sans-serif; max-width: 400px; margin: 60px auto; padding: 0 16px; }
+  h2 { margin-bottom: 4px; }
+  .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 24px; }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: 24px; background: #fafafa; }
+  label { display: block; font-weight: bold; margin-top: 14px; font-size: 0.9rem; }
+  input[type=password] { width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 4px;
+                         box-sizing: border-box; font-size: 1.5rem; letter-spacing: 8px;
+                         text-align: center; margin-top: 4px; }
+  button { margin-top: 18px; padding: 11px; background: #2d7dd2; color: white; border: none;
+           border-radius: 4px; cursor: pointer; font-size: 1rem; width: 100%; }
+  button:hover { background: #2566b0; }
+  .error { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24;
+           padding: 10px 14px; border-radius: 4px; margin-bottom: 14px; font-size: 0.9rem; }
+  .success { background: #d4edda; border: 1px solid #c3e6cb; color: #155724;
+             padding: 10px 14px; border-radius: 4px; margin-bottom: 14px; font-size: 0.9rem; }
+  .back { display: block; text-align: center; margin-top: 14px; font-size: 0.88rem; color: #2d7dd2; }
+</style>
+</head>
+<body>
+<h2>Change PIN</h2>
+<p class="subtitle">Update your 4-digit security PIN.</p>
+
+<div class="card">
+  {% if error %}
+  <div class="error">{{ error }}</div>
+  {% endif %}
+  {% if success %}
+  <div class="success">{{ success }}</div>
+  {% endif %}
+
+  <form method="POST">
+    <label>Current PIN
+      <input type="password" name="current_pin" maxlength="4" inputmode="numeric"
+             pattern="[0-9]{4}" placeholder="••••" autofocus required>
+    </label>
+    <label>New PIN
+      <input type="password" name="new_pin" maxlength="4" inputmode="numeric"
+             pattern="[0-9]{4}" placeholder="••••" required>
+    </label>
+    <label>Confirm New PIN
+      <input type="password" name="confirm_pin" maxlength="4" inputmode="numeric"
+             pattern="[0-9]{4}" placeholder="••••" required>
+    </label>
+    <button type="submit">Update PIN →</button>
+  </form>
+
+  <a class="back" href="/">← Back to dashboard</a>
+</div>
+</body>
+</html>
