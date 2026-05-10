@@ -109,37 +109,12 @@
   <p class="empty">No rejected applications.</p>
 {% endif %}
 
-<div class="section-title">Submit New Provider Application</div>
-<div class="apply-card">
-  <p style="margin:0 0 14px; font-size:0.88rem; color:#444;">
-    Healthcare providers can apply here to be verified and receive care fund payments directly.
-  </p>
-  <form method="POST" action="{{ url_for('apply_verified_provider') }}">
-    <div class="form-row">
-      <label>Facility / Provider name</label>
-      <input type="text" name="provider_name" required placeholder="e.g. Kampala City Clinic">
-    </div>
-    <div class="form-row">
-      <label>Contact phone number</label>
-      <input type="text" name="phone" required placeholder="e.g. 256712345678">
-    </div>
-    <div class="form-row">
-      <label>Wallet / payment number (MTN / Airtel)</label>
-      <input type="text" name="provider_wallet_number" placeholder="e.g. 256712345678">
-    </div>
-    <div class="form-row">
-      <label>Business license number</label>
-      <input type="text" name="business_license" placeholder="e.g. MOH-2024-01234">
-    </div>
-    <div class="form-row">
-      <label>Location / address</label>
-      <input type="text" name="location" placeholder="e.g. Plot 15, Kololo, Kampala">
-    </div>
-    <button class="btn-submit" type="submit">Submit Application</button>
-  </form>
-</div>
+<p style="margin-top:28px;font-size:0.85rem;color:#666;">
+  New applications arrive here from the public form at
+  <a href="{{ url_for('apply_provider') }}">/apply-provider</a>.
+</p>
 
-<p style="margin-top:28px;">
+<p style="margin-top:12px;">
   <a href="{{ url_for('admin_care') }}" class="btn btn-back">← Admin Panel</a>
   <a href="{{ url_for('home') }}">← Dashboard</a>
 </p>

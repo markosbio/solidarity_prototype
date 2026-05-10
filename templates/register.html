@@ -15,13 +15,13 @@
   button { margin-top: 18px; padding: 10px 24px; background: #2d7dd2; color: white;
            border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; width: 100%; }
   button:hover { background: #2566b0; }
-  .btn-provider { background: #28a745; }
-  .btn-provider:hover { background: #218838; }
-  .divider { text-align: center; color: #aaa; margin: 8px 0; font-size: 0.85rem; }
   .login-link { text-align: center; margin-top: 12px; font-size: 0.9rem; }
   .login-link a { color: #2d7dd2; }
   .alert { background: #fff3cd; border: 1px solid #ffc107; padding: 10px 14px;
            border-radius: 4px; margin-bottom: 16px; font-size: 0.9rem; }
+  .provider-banner { border: 1px solid #bee5eb; border-radius: 8px; padding: 16px 20px;
+                     background: #e8f4f8; margin-bottom: 0; font-size: 0.9rem; }
+  .provider-banner a { color: #2d7dd2; font-weight: bold; }
 </style>
 </head>
 <body>
@@ -61,41 +61,13 @@
   <div class="login-link">Already registered? <a href="{{ url_for('login') }}">Log in here</a></div>
 </div>
 
-<!-- ── Provider / clinic registration ────────────────────── -->
-<div class="card">
-  <h2>Register as a Healthcare Provider</h2>
-  <p style="font-size:0.87em; color:#555; margin-bottom:12px;">
-    Hospitals and clinics register here to receive care funds directly via M-Pesa.
-  </p>
-  <form method="POST" action="{{ url_for('register_provider') }}">
-    <label>Facility name
-      <input type="text" name="name" placeholder="e.g. Mulago National Hospital" required>
-    </label>
-    <label>Provider code (uppercase, no spaces)
-      <input type="text" name="provider_code" placeholder="e.g. MULAGO001"
-             pattern="[A-Z0-9]+" title="Uppercase letters and numbers only" required>
-      <span class="hint">Members use this code in USSD menus.</span>
-    </label>
-    <label>Payment method
-      <select name="payment_type" required>
-        <option value="">— Select —</option>
-        <option value="mpesa">M-Pesa</option>
-        <option value="bank">Bank transfer</option>
-        <option value="till">Till number</option>
-        <option value="paybill">Paybill</option>
-      </select>
-    </label>
-    <label>Payment details (M-Pesa number / account)
-      <input type="text" name="payment_details" placeholder="e.g. 254700000000" required>
-    </label>
-    <label>Contact person name
-      <input type="text" name="contact_name" placeholder="e.g. Dr. Fatima Nakato">
-    </label>
-    <label>Contact phone
-      <input type="tel" name="contact_phone" placeholder="e.g. 254711000000">
-    </label>
-    <button type="submit" class="btn-provider">Register Provider</button>
-  </form>
+<!-- ── Healthcare provider callout ───────────────────────── -->
+<div class="provider-banner">
+  🏥 <strong>Are you a healthcare provider?</strong>
+  Clinics and hospitals can <a href="{{ url_for('apply_provider') }}">apply for provider status</a> —
+  your application goes to our admin team for review before you can receive care fund payments.
+  <br><br>
+  Already approved? <a href="{{ url_for('provider_login') }}">Provider login →</a>
 </div>
 
 </body>

@@ -212,24 +212,41 @@ def register():
 
 @app.route('/register_provider', methods=['POST'])
 def register_provider():
-    name = request.form['name']
-    provider_code = request.form['provider_code'].upper().strip()
-    payment_type = request.form['payment_type']
-    payment_details = request.form['payment_details']
-    contact_name = request.form.get('contact_name', '')
-    contact_phone = request.form.get('contact_phone', '')
-    existing = Provider.query.filter_by(provider_code=provider_code).first()
-    if existing:
-        return f"Provider code '{provider_code}' already taken."
-    new_provider = Provider(
-        name=name, provider_code=provider_code, payment_type=payment_type,
-        payment_details=payment_details, verified=True,
-        contact_name=contact_name, contact_phone=contact_phone
-    )
-    db.session.add(new_provider)
-    db.session.commit()
-    session['provider_registered_code'] = provider_code
-    return redirect(url_for('provider_login'))
+    return redirect(url_for('apply_provider'))
+
+# ── Public provider application page ──────────────────────────────────────────
+
+@app.route('/apply-provider', methods=['GET', 'POST'])
+def apply_provider():
+    if request.method == 'POST':
+        provider_name = request.form.get('provider_name', '').strip()
+        phone = request.form.get('phone', '').strip()
+        provider_wallet_number = request.form.get('provider_wallet_number', '').strip()
+        business_license = request.form.get('business_license', '').strip()
+        location = request.form.get('location', '').strip()
+        payment_type = request.form.get('payment_type', '').strip()
+        notes = request.form.get('notes', '').strip()
+
+        if not all([provider_name, phone, provider_wallet_number, business_license, location, payment_type]):
+            form = request.form
+            return render_template('apply_provider.html', submitted=False,
+                                   error='All required fields must be filled in.', form=form)
+
+        vp = VerifiedProvider(
+            provider_name=provider_name,
+            phone=phone,
+            provider_wallet_number=provider_wallet_number,
+            business_license=business_license,
+            location=location,
+            verification_status='pending',
+            review_notes=f'Payment: {payment_type}. Notes: {notes}' if notes else f'Payment: {payment_type}',
+        )
+        db.session.add(vp)
+        db.session.commit()
+        return render_template('apply_provider.html', submitted=True,
+                               submitted_name=provider_name, submitted_phone=phone, form={})
+
+    return render_template('apply_provider.html', submitted=False, error=None, form={})
 
 @app.route('/create_community', methods=['GET', 'POST'])
 def create_community():
@@ -964,7 +981,8 @@ def _ussd_main_menu(user, role, primary_comm, r_fn):
             "4. Community\n"
             "5. Witness tasks\n"
             "7. Help/FAQ\n"
-            "9. Contribution history\n")
+            "9. Contribution history\n"
+            "10. Change PIN\n")
     if user.total_social_credit > 0:
         menu += "8. Repay debt\n"
     if role in ['admin', 'coadmin'] and primary_comm:
@@ -1461,6 +1479,29 @@ def ussd():
                 f"Trust score: {user.trust_score:.4f}",
                 end=True,
             )
+
+    # ── 10. Change PIN ────────────────────────────────────────────────────────
+    if choice == "10":
+        if step == 1:
+            return r("Change PIN\nEnter your current PIN:")
+        if step == 2:
+            entered = inputs[1].strip()
+            if entered != (user.pin or '1234'):
+                return r("Incorrect current PIN. Dial again.", end=True)
+            return r("Enter your new 4-digit PIN:")
+        if step == 3:
+            new_pin = inputs[2].strip()
+            if not new_pin.isdigit() or len(new_pin) != 4:
+                return r("PIN must be exactly 4 digits. Dial again.", end=True)
+            return r("Confirm new PIN:")
+        if step == 4:
+            new_pin = inputs[2].strip()
+            confirm_pin = inputs[3].strip()
+            if new_pin != confirm_pin:
+                return r("PINs do not match. Dial again.", end=True)
+            user.pin = new_pin
+            db.session.commit()
+            return r("PIN changed successfully.", end=True)
 
     # ── 9. Contribution history ───────────────────────────────────────────────
     if choice == "9":
