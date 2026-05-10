@@ -10,6 +10,7 @@ process_fee_contribution() is the single entry point:
   - Optionally rounds to nearest 10 UGX
   - Splits solidarity_amount using the existing 70/20/10 wallet/pool/fee split
   - Updates sub_wallet_balance, community pool_balance, and records Transactions
+  - Records the platform fee portion as a PlatformRevenue row
   - Returns solidarity_amount
 """
 from __future__ import annotations
@@ -19,7 +20,7 @@ from datetime import datetime
 
 from loguru import logger
 
-from models import db, User, Transaction, Community, SystemState
+from models import db, User, Transaction, Community, SystemState, PlatformRevenue
 
 
 def _get_solidarity_percent() -> float:
@@ -70,12 +71,13 @@ def process_fee_contribution(user_id: int, normal_fee: float,
         to_wallet, to_pool, to_fee = _roundup_split(solidarity_amount)
 
         user.sub_wallet_balance += to_wallet
-        db.session.add(Transaction(
+        wallet_tx = Transaction(
             user_id=user_id,
             amount=to_wallet,
             type='solidarity_wallet',
             description=f'Solidarity contribution wallet share (fee UGX {normal_fee:.0f})',
-        ))
+        )
+        db.session.add(wallet_tx)
 
         primary_comm = Community.query.get(user.primary_community_id) if user.primary_community_id else None
         if primary_comm and to_pool > 0:
@@ -87,19 +89,32 @@ def process_fee_contribution(user_id: int, normal_fee: float,
                 description=f'Solidarity contribution pool share (fee UGX {normal_fee:.0f})',
             ))
 
+        fee_tx = None
         if to_fee > 0:
-            db.session.add(Transaction(
+            fee_tx = Transaction(
                 user_id=user_id,
                 amount=to_fee,
                 type='solidarity_fee',
                 description=f'Solidarity contribution platform fee (fee UGX {normal_fee:.0f})',
-            ))
+            )
+            db.session.add(fee_tx)
+
+        db.session.flush()
+
+        # Record platform revenue
+        if to_fee > 0:
+            rev = PlatformRevenue(
+                amount=to_fee,
+                source='solidarity_fee',
+                transaction_id=fee_tx.id if fee_tx else None,
+            )
+            db.session.add(rev)
 
         db.session.commit()
 
         logger.info(
             "Fee contribution: user_id={} normal_fee={:.0f} solidarity={:.0f} "
-            "wallet={:.0f} pool={:.0f} fee={:.0f}",
+            "wallet={:.0f} pool={:.0f} platform_fee={:.0f}",
             user_id, normal_fee, solidarity_amount, to_wallet, to_pool, to_fee,
         )
         return solidarity_amount

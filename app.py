@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 from models import (db, User, Transaction, Community, CommunityMembership, Provider,
                     CareRequest, SystemState, PaymentRecord, MpesaTopup,
-                    MobileMoneyTransaction, VerifiedProvider, FraudAlert)
+                    MobileMoneyTransaction, VerifiedProvider, FraudAlert, PlatformRevenue)
 from trust_graph import compute_draw_ceiling
 from witness import select_witnesses
 from recovery import update_recovery_parameters
@@ -844,58 +844,84 @@ def provider_invoice():
 # ------------------ USSD (Africa's Talking) ------------------
 ussd_sessions = {}
 
+def _ussd_main_menu(user, role, primary_comm, r_fn):
+    mpesa_configured = bool(os.getenv('MPESA_CONSUMER_KEY') and os.getenv('MPESA_CONSUMER_SECRET'))
+    menu = (f"Hi {user.name}\n"
+            "1. Balance\n"
+            "2. Request care\n"
+            "3. Trust score\n"
+            "4. Community\n"
+            "5. Witness tasks\n"
+            "7. Help/FAQ\n"
+            "9. Contribution history\n")
+    if mpesa_configured:
+        menu += "8. Top up via M-Pesa\n"
+    if role in ['admin', 'coadmin'] and primary_comm:
+        menu += "6. Admin panel\n"
+    menu += "0. Exit"
+    return r_fn(menu)
+
+
 @app.route('/ussd', methods=['GET', 'POST'])
 def ussd():
     phone = request.values.get("phoneNumber", "")
-    text = request.values.get("text", "")
-    user = User.query.filter_by(phone=phone).first()
-    inputs = text.split('*') if text else []
-    step = len(inputs)
+    text  = request.values.get("text", "")
 
     def r(msg, end=False):
         return f"{'END' if end else 'CON'} {msg}"
 
+    # ── Parse inputs with universal back handler ──────────────────────────────
+    raw_inputs = text.split('*') if text else []
+
+    # Universal back: pressing 0 at any submenu level goes up one level.
+    # We strip trailing "0"s until we reach either step 0 (main menu) or a
+    # non-zero last input, then re-dispatch normally.
+    inputs = raw_inputs[:]
+    while len(inputs) > 1 and inputs[-1] == "0":
+        inputs = inputs[:-1]
+
+    step   = len(inputs)
+    choice = inputs[0] if inputs else ""
+
+    # ── Unregistered user flow ────────────────────────────────────────────────
+    user = User.query.filter_by(phone=phone).first()
     if not user:
         if step == 0:
             return r("Welcome to Solidarity Health Pool.\nNot registered.\n1. Register\n2. Exit")
-        elif step == 1 and inputs[0] == "1":
+        if step == 1 and choice == "1":
             return r("Enter your full name:")
-        elif step == 2:
+        if step == 2 and raw_inputs[0] == "1":
             name = inputs[1]
             new_user = User(phone=phone, name=name, sub_wallet_balance=0.0, trust_score=0.5)
             db.session.add(new_user)
             db.session.commit()
             default_comm = Community.query.first()
             if default_comm:
-                membership = CommunityMembership(user_id=new_user.id, community_id=default_comm.id, role='member')
-                db.session.add(membership)
+                mem = CommunityMembership(user_id=new_user.id, community_id=default_comm.id, role='member')
+                db.session.add(mem)
                 new_user.primary_community_id = default_comm.id
                 db.session.commit()
-            return r(f"Registered {name}. Use same number to access services.", end=True)
+            return r(f"Registered as {name}. Dial again to access your account.", end=True)
         return r("Invalid.", end=True)
 
+    # ── Registered user setup ─────────────────────────────────────────────────
     primary_comm = Community.query.get(user.primary_community_id) if user.primary_community_id else None
-    membership = None
     role = 'member'
     if primary_comm:
-        membership = CommunityMembership.query.filter_by(user_id=user.id, community_id=user.primary_community_id).first()
-        role = membership.role if membership else 'member'
+        mem = CommunityMembership.query.filter_by(user_id=user.id, community_id=user.primary_community_id).first()
+        role = mem.role if mem else 'member'
 
-    if not primary_comm and step == 0:
-        return r("You are not in any community.\n4. Community (create/join)\n7. Help/FAQ\n0. Exit")
-
+    # Main menu (step 0, or back-navigated to root)
     if step == 0:
-        mpesa_configured = bool(os.getenv('MPESA_CONSUMER_KEY') and os.getenv('MPESA_CONSUMER_SECRET'))
-        menu = f"Hi {user.name}\n1. Balance\n2. Request care\n3. Trust score\n4. Community\n5. Witness tasks\n7. Help/FAQ\n"
-        if mpesa_configured:
-            menu += "8. Top up via M-Pesa\n"
-        if role in ['admin', 'coadmin'] and primary_comm:
-            menu += "6. Admin panel\n"
-        menu += "0. Exit"
-        return r(menu)
+        if not primary_comm:
+            return r("You are not in a community yet.\n4. Community (create/join)\n7. Help/FAQ\n0. Exit")
+        return _ussd_main_menu(user, role, primary_comm, r)
 
-    choice = inputs[0]
+    # ── 0. Exit from main menu ────────────────────────────────────────────────
+    if choice == "0" and step == 1:
+        return r("Goodbye. Stay well!", end=True)
 
+    # ── 1. Balance ────────────────────────────────────────────────────────────
     if choice == "1":
         try:
             ceil_val = compute_draw_ceiling(user.id)
@@ -910,413 +936,464 @@ def ussd():
             bal = f"Wallet: UGX {user.sub_wallet_balance:,.0f}\nDraw ceiling: UGX {ceil_val:,.0f}"
         return r(bal, end=True)
 
+    # ── 3. Trust score ────────────────────────────────────────────────────────
     if choice == "3":
         score = get_combined_score(user.id)
-        return r(f"Trust score: {score:.2f}")
+        return r(f"Trust score: {score:.4f}\n\nHigher = more pool access.\nImprove by contributing & witnessing.", end=True)
 
+    # ── 4. Community ──────────────────────────────────────────────────────────
     if choice == "4":
         if step == 1:
-            return r("1. Create community\n2. Join community\n0. Back")
-        elif step == 2:
-            sub = inputs[1]
-            if sub == "1":
+            return r("Community\n1. Create community\n2. Join community\n0. Back")
+        sub = inputs[1] if step > 1 else ''
+        if sub == "1":
+            if step == 2:
                 ussd_sessions[phone] = {"state": "create_name"}
-                return r("Enter community name:")
-            elif sub == "2":
-                ussd_sessions[phone] = {"state": "join_invite"}
-                return r("Enter invite code:")
-            else:
-                return r("Invalid.", end=True)
-        elif step == 3:
-            state = ussd_sessions.get(phone, {}).get("state")
-            if state == "create_name":
+                return r("Enter a name for your community:\n0. Back")
+            if step >= 3:
                 comm_name = inputs[2]
                 invite = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
-                new_comm = Community(name=comm_name, invite_code=invite, pool_balance=0.0, admin_user_id=user.id)
+                new_comm = Community(name=comm_name, invite_code=invite,
+                                     pool_balance=0.0, admin_user_id=user.id)
                 db.session.add(new_comm)
                 db.session.commit()
-                membership = CommunityMembership(user_id=user.id, community_id=new_comm.id, role='admin')
-                db.session.add(membership)
+                new_mem = CommunityMembership(user_id=user.id, community_id=new_comm.id, role='admin')
+                db.session.add(new_mem)
                 user.primary_community_id = new_comm.id
                 db.session.commit()
                 ussd_sessions.pop(phone, None)
-                return r(f"Community '{comm_name}' created. Invite code: {invite}", end=True)
-            elif state == "join_invite":
+                return r(f"Community '{comm_name}' created.\nInvite code: {invite}", end=True)
+        elif sub == "2":
+            if step == 2:
+                ussd_sessions[phone] = {"state": "join_invite"}
+                return r("Enter invite code:\n0. Back")
+            if step >= 3:
                 invite_code = inputs[2].strip().upper()
                 comm = Community.query.filter_by(invite_code=invite_code).first()
                 if not comm:
-                    return r("Invalid invite code.", end=True)
+                    return r("Invalid invite code. Try again.", end=True)
                 existing = CommunityMembership.query.filter_by(user_id=user.id, community_id=comm.id).first()
                 if existing:
-                    return r("Already a member.", end=True)
-                membership = CommunityMembership(user_id=user.id, community_id=comm.id, role='member')
-                db.session.add(membership)
-                user.primary_community_id = comm.id
+                    return r("You are already a member of that community.", end=True)
+                new_mem = CommunityMembership(user_id=user.id, community_id=comm.id, role='member')
+                db.session.add(new_mem)
+                if not user.primary_community_id:
+                    user.primary_community_id = comm.id
                 db.session.commit()
                 return r(f"Joined {comm.name}.", end=True)
-        return r("Session expired.", end=True)
+        return r("Invalid choice.\n0. Back")
 
+    # ── 2. Request care ───────────────────────────────────────────────────────
     if choice == "2":
+        if not primary_comm:
+            return r("Join a community first (option 4).", end=True)
         user_communities = get_user_communities(user.id)
         if not user_communities:
             return r("Join a community first (option 4).", end=True)
-        if len(user_communities) == 1:
-            selected_comm = user_communities[0]
-            if step == 1:
-                try:
-                    _ceil = compute_draw_ceiling(user.id)
-                except Exception:
-                    _ceil = 0.0
-                ussd_sessions[phone] = {"selected_comm_id": selected_comm.id, "state": "awaiting_amount", "ceiling": _ceil}
-                return r(f"Your ceiling: UGX {_ceil:,.0f}\nEnter amount (UGX):")
-            elif step == 2:
-                try:
-                    amount = float(inputs[1])
-                except:
-                    return r("Invalid amount.", end=True)
-                ussd_sessions[phone]["amount"] = amount
-                ussd_sessions[phone]["state"] = "awaiting_provider"
-                return r("Enter provider code (e.g., MULAGO001):")
-            elif step == 3:
-                provider_code = inputs[2].strip().upper()
-                provider = Provider.query.filter_by(provider_code=provider_code, verified=True).first()
-                if not provider:
-                    sample = Provider.query.filter_by(verified=True).first()
-                    hint = sample.provider_code if sample else 'MULAGO001'
-                    return r(f"Invalid code '{provider_code}'.\nTry {hint} or ask your clinic.", end=True)
-                amount = ussd_sessions[phone]["amount"]
-                ussd_sessions[phone]["provider_id"] = provider.id
-                return r("Emergency? (1=Yes, 2=No)")
-            elif step == 4:
-                emerg = (inputs[3] == "1")
-                amount = ussd_sessions[phone]["amount"]
-                provider_id = ussd_sessions[phone]["provider_id"]
-                selected_comm_id = ussd_sessions[phone]["selected_comm_id"]
-                selected_comm = Community.query.get(selected_comm_id)
-                ceiling = ussd_sessions[phone].get("ceiling") or compute_draw_ceiling(user.id)
-                from_sub = min(user.sub_wallet_balance, amount)
-                remaining = amount - from_sub
-                user.sub_wallet_balance -= from_sub
-                from_pool = 0.0
-                social_credit = 0.0
-                if remaining > 0:
-                    allowed = min(remaining, ceiling - from_sub, selected_comm.pool_balance)
-                    from_pool = allowed
-                    selected_comm.pool_balance -= from_pool
-                    social_credit = remaining - from_pool
-                    if social_credit > 0:
-                        user.total_social_credit += social_credit
-                        update_recovery_parameters(user.id, social_credit)
-                    db.session.commit()
-                care_req = CareRequest(
-                    user_id=user.id, community_id=selected_comm.id, provider_id=provider_id,
-                    amount_needed=amount, amount_from_sub=from_sub, amount_from_pool=from_pool,
-                    social_credit=social_credit, is_emergency=emerg, status='pending_witness'
-                )
-                db.session.add(care_req)
-                db.session.commit()
-                witnesses = select_witnesses(user.id, provider_id, community_id=selected_comm.id)
-                witness_ids = ','.join(str(w.id) for w in witnesses)
-                care_req.witness_ids = witness_ids
-                db.session.commit()
-                ussd_sessions.pop(phone, None)
-                ceiling_remaining = max(0.0, ceiling - from_pool)
-                need_admin = (amount > 50) or emerg
-                msg = f"Request submitted.\nCeiling remaining: ${ceiling_remaining:.0f}\n{len(witnesses)} witnesses notified."
-                if emerg:
-                    msg += " Auto-approved in 2h if no admin."
-                elif need_admin:
-                    msg += " Admin approval required."
-                return r(msg, end=True)
-            else:
-                return r("Invalid step.", end=True)
-        else:
-            if step == 1:
-                try:
-                    _ceil = compute_draw_ceiling(user.id)
-                except Exception:
-                    _ceil = 0.0
-                comm_list = "\n".join([f"{i+1}. {c.name}" for i, c in enumerate(user_communities)])
-                ussd_sessions[phone] = {"state": "choose_comm", "communities": [(c.id, c.name) for c in user_communities], "ceiling": _ceil}
-                return r(f"Your ceiling: UGX {_ceil:,.0f}\nSelect community:\n{comm_list}\n0. Back")
-            elif step == 2 and ussd_sessions.get(phone, {}).get("state") == "choose_comm":
-                idx = int(inputs[1]) - 1
-                comms = ussd_sessions[phone]["communities"]
-                if 0 <= idx < len(comms):
-                    selected_comm_id = comms[idx][0]
-                    ussd_sessions[phone]["selected_comm_id"] = selected_comm_id
-                    ussd_sessions[phone]["state"] = "awaiting_amount"
-                    return r("Enter amount (USD):")
-                else:
-                    return r("Invalid choice.", end=True)
-            elif step == 3 and ussd_sessions.get(phone, {}).get("state") == "awaiting_amount":
-                try:
-                    amount = float(inputs[2])
-                except:
-                    return r("Invalid amount.", end=True)
-                ussd_sessions[phone]["amount"] = amount
-                ussd_sessions[phone]["state"] = "awaiting_provider"
-                return r("Enter provider code (e.g., MULAGO001):")
-            elif step == 4:
-                provider_code = inputs[3].strip().upper()
-                provider = Provider.query.filter_by(provider_code=provider_code, verified=True).first()
-                if not provider:
-                    sample = Provider.query.filter_by(verified=True).first()
-                    hint = sample.provider_code if sample else 'MULAGO001'
-                    return r(f"Invalid code '{provider_code}'.\nTry {hint} or ask your clinic.", end=True)
-                amount = ussd_sessions[phone]["amount"]
-                ussd_sessions[phone]["provider_id"] = provider.id
-                return r("Emergency? (1=Yes, 2=No)")
-            elif step == 5:
-                emerg = (inputs[4] == "1")
-                amount = ussd_sessions[phone]["amount"]
-                provider_id = ussd_sessions[phone]["provider_id"]
-                selected_comm_id = ussd_sessions[phone]["selected_comm_id"]
-                selected_comm = Community.query.get(selected_comm_id)
-                ceiling = ussd_sessions[phone].get("ceiling") or compute_draw_ceiling(user.id)
-                from_sub = min(user.sub_wallet_balance, amount)
-                remaining = amount - from_sub
-                user.sub_wallet_balance -= from_sub
-                from_pool = 0.0
-                social_credit = 0.0
-                if remaining > 0:
-                    allowed = min(remaining, ceiling - from_sub, selected_comm.pool_balance)
-                    from_pool = allowed
-                    selected_comm.pool_balance -= from_pool
-                    social_credit = remaining - from_pool
-                    if social_credit > 0:
-                        user.total_social_credit += social_credit
-                        update_recovery_parameters(user.id, social_credit)
-                    db.session.commit()
-                care_req = CareRequest(
-                    user_id=user.id, community_id=selected_comm.id, provider_id=provider_id,
-                    amount_needed=amount, amount_from_sub=from_sub, amount_from_pool=from_pool,
-                    social_credit=social_credit, is_emergency=emerg, status='pending_witness'
-                )
-                db.session.add(care_req)
-                db.session.commit()
-                witnesses = select_witnesses(user.id, provider_id, community_id=selected_comm.id)
-                witness_ids = ','.join(str(w.id) for w in witnesses)
-                care_req.witness_ids = witness_ids
-                db.session.commit()
-                ussd_sessions.pop(phone, None)
-                ceiling_remaining = max(0.0, ceiling - from_pool)
-                need_admin = (amount > 50) or emerg
-                msg = f"Request submitted.\nCeiling remaining: ${ceiling_remaining:.0f}\n{len(witnesses)} witnesses notified."
-                if emerg:
-                    msg += " Auto-approved in 2h if no admin."
-                elif need_admin:
-                    msg += " Admin approval required."
-                return r(msg, end=True)
-            else:
-                return r("Invalid step.", end=True)
 
-    if choice == "5":
-        pending = []
-        requests = CareRequest.query.filter_by(status='pending_witness').all()
-        for req in requests:
-            if req.witness_ids and str(user.id) in req.witness_ids.split(','):
-                pending.append(req)
-        if not pending:
-            return r("No pending witness requests.")
-        req = pending[0]
-        ussd_sessions[phone] = {"witness_req_id": req.id}
-        return r(f"Request #{req.id}: ${req.amount_needed}\n1. Accept\n2. Reject")
-    if step == 2 and choice == "5":
-        req_id = ussd_sessions.get(phone, {}).get("witness_req_id")
-        if not req_id:
-            return r("Session error.", end=True)
-        care_req = CareRequest.query.get(req_id)
-        if not care_req or care_req.status != 'pending_witness':
-            return r("Request already processed.", end=True)
-        vote = inputs[1]
-        response = "accept" if vote == "1" else "reject"
-        votes = care_req.witness_votes.split(',') if care_req.witness_votes else []
-        if f"{user.id}:{response}" not in votes:
-            votes.append(f"{user.id}:{response}")
-            care_req.witness_votes = ','.join(votes)
-            db.session.commit()
-        yes_count = sum(1 for v in votes if v.endswith('accept'))
-        total = len(care_req.witness_ids.split(','))
-        if yes_count >= 2:
-            need_admin = (care_req.amount_needed > 180000) or care_req.is_emergency
-            if need_admin:
-                care_req.status = 'pending_admin'
-            else:
-                care_req.status = 'admin_approved'
-                care_req.admin_approved = True
-                success, ref = pay_provider(
-                    care_request_id=care_req.id, amount=care_req.amount_from_pool,
-                    provider_id=care_req.provider_id, user_id=care_req.user_id,
-                    community_id=care_req.community_id
-                )
-                if success:
-                    care_req.payment_transaction_id = ref
-            db.session.commit()
-        elif len(votes) >= total:
-            care_req.status = 'rejected'
-            db.session.commit()
-        ussd_sessions.pop(phone, None)
-        return r("Vote recorded. Thank you.", end=True)
-
-    if choice == "6" and role in ['admin', 'coadmin'] and primary_comm:
+        # step 1 → select community (or skip if only one) / enter amount
         if step == 1:
-            return r("Admin:\n1. Approve requests\n2. Invite code\n3. Members\n0. Back")
-        elif step == 2:
-            sub = inputs[1]
-            if sub == "1":
-                pending_reqs = CareRequest.query.filter_by(community_id=primary_comm.id, status='pending_admin', admin_approved=False).all()
-                if not pending_reqs:
-                    return r("No pending approvals.")
-                ussd_sessions[phone] = {'admin_pending': [r.id for r in pending_reqs], 'admin_idx': 0}
-                req = pending_reqs[0]
-                requester = User.query.get(req.user_id)
-                prov = Provider.query.get(req.provider_id)
-                return r(f"Request by {requester.name}: ${req.amount_needed} at {prov.name}\n1. Approve\n2. Reject\n0. Next")
-            elif sub == "2":
-                return r(f"Invite code: {primary_comm.invite_code}")
-            elif sub == "3":
-                members = CommunityMembership.query.filter_by(community_id=primary_comm.id).all()
-                names = [User.query.get(m.user_id).name for m in members[:5]]
-                msg = "Members:\n" + "\n".join(names)
-                if len(members) > 5:
-                    msg += f"\n+{len(members)-5} more"
-                return r(msg)
+            try:
+                _ceil = compute_draw_ceiling(user.id)
+            except Exception:
+                _ceil = 0.0
+            if len(user_communities) == 1:
+                ussd_sessions[phone] = {
+                    "selected_comm_id": user_communities[0].id,
+                    "state": "awaiting_amount", "ceiling": _ceil,
+                }
+                return r(f"Request care\nYour ceiling: UGX {_ceil:,.0f}\nEnter amount (UGX):\n0. Back")
             else:
-                return r("Invalid.", end=True)
-        elif step == 3 and inputs[1] == "1":
-            data = ussd_sessions.get(phone, {})
-            pending_ids = data.get('admin_pending', [])
-            idx = data.get('admin_idx', 0)
-            if idx >= len(pending_ids):
-                return r("No more requests.", end=True)
-            req_id = pending_ids[idx]
-            care_req = CareRequest.query.get(req_id)
-            action = inputs[2]
-            if action == "1":
-                care_req.admin_approved = True
-                care_req.admin_id = user.id
-                care_req.status = 'admin_approved'
-                success, ref = pay_provider(
-                    care_request_id=care_req.id, amount=care_req.amount_from_pool,
-                    provider_id=care_req.provider_id, user_id=care_req.user_id,
-                    community_id=care_req.community_id
-                )
-                if success:
-                    care_req.payment_transaction_id = ref
+                comm_list = "\n".join([f"{i+1}. {c.name}" for i, c in enumerate(user_communities)])
+                ussd_sessions[phone] = {
+                    "state": "choose_comm",
+                    "communities": [(c.id, c.name) for c in user_communities],
+                    "ceiling": _ceil,
+                }
+                return r(f"Your ceiling: UGX {_ceil:,.0f}\nSelect community:\n{comm_list}\n0. Back")
+
+        sess = ussd_sessions.get(phone, {})
+        state = sess.get("state", "")
+
+        # step 2 → community selection (multi-community path)
+        if step == 2 and state == "choose_comm":
+            try:
+                idx = int(inputs[1]) - 1
+            except ValueError:
+                return r("Invalid choice.\n0. Back")
+            comms = sess["communities"]
+            if 0 <= idx < len(comms):
+                sess["selected_comm_id"] = comms[idx][0]
+                sess["state"] = "awaiting_amount"
+                ussd_sessions[phone] = sess
+                return r("Enter amount (UGX):\n0. Back")
+            return r("Invalid choice.\n0. Back")
+
+        # Amount input (step 2 for single-comm, step 3 for multi-comm)
+        amt_step = 2 if sess.get("state") == "awaiting_amount" or "selected_comm_id" in sess else 3
+        if step == amt_step and "selected_comm_id" in sess:
+            try:
+                amount = float(inputs[step - 1])
+            except ValueError:
+                return r("Invalid amount. Enter a number (UGX):\n0. Back")
+            sess["amount"] = amount
+            sess["state"] = "awaiting_provider"
+            ussd_sessions[phone] = sess
+            return r("Enter provider code (e.g., MULAGO001):\n0. Back")
+
+        # Provider code input
+        prov_step = amt_step + 1
+        if step == prov_step and "amount" in sess:
+            provider_code = inputs[step - 1].strip().upper()
+            provider = Provider.query.filter_by(provider_code=provider_code, verified=True).first()
+            if not provider:
+                sample = Provider.query.filter_by(verified=True).first()
+                hint = sample.provider_code if sample else 'MULAGO001'
+                return r(f"Invalid code '{provider_code}'.\nTry {hint} or ask your clinic.\n0. Back")
+            sess["provider_id"] = provider.id
+            ussd_sessions[phone] = sess
+            return r("Emergency?\n1. Yes\n2. No\n0. Back")
+
+        # Confirm + submit
+        conf_step = prov_step + 1
+        if step == conf_step and "provider_id" in sess:
+            emerg = (inputs[step - 1] == "1")
+            amount = sess["amount"]
+            provider_id = sess["provider_id"]
+            selected_comm = Community.query.get(sess["selected_comm_id"])
+            ceiling = sess.get("ceiling") or compute_draw_ceiling(user.id)
+
+            # Pool health guard
+            if is_large_withdrawal_blocked(selected_comm, amount):
+                ussd_sessions.pop(phone, None)
+                return r("Large withdrawals paused — pool is low.\nTry a smaller amount.", end=True)
+
+            from_sub = min(user.sub_wallet_balance, amount)
+            remaining = amount - from_sub
+            user.sub_wallet_balance -= from_sub
+            from_pool = social_credit = 0.0
+            if remaining > 0:
+                allowed = min(remaining, ceiling - from_sub, selected_comm.pool_balance)
+                from_pool = allowed
+                selected_comm.pool_balance -= from_pool
+                social_credit = remaining - from_pool
+                if social_credit > 0:
+                    user.total_social_credit += social_credit
+                    update_recovery_parameters(user.id, social_credit)
                 db.session.commit()
-                msg = f"Request #{req_id} approved."
-            elif action == "2":
+            care_req = CareRequest(
+                user_id=user.id, community_id=selected_comm.id, provider_id=provider_id,
+                amount_needed=amount, amount_from_sub=from_sub, amount_from_pool=from_pool,
+                social_credit=social_credit, is_emergency=emerg, status='pending_witness',
+            )
+            db.session.add(care_req)
+            db.session.commit()
+            witnesses = select_witnesses(user.id, provider_id, community_id=selected_comm.id)
+            care_req.witness_ids = ','.join(str(w.id) for w in witnesses)
+            db.session.commit()
+            enforce_pool_health(selected_comm)
+            ussd_sessions.pop(phone, None)
+            ceiling_remaining = max(0.0, ceiling - from_pool)
+            need_admin = (amount > 180000) or emerg
+            msg = (f"Request submitted.\n"
+                   f"UGX {amount:,.0f} requested.\n"
+                   f"Ceiling remaining: UGX {ceiling_remaining:,.0f}\n"
+                   f"{len(witnesses)} witnesses notified.")
+            if emerg:
+                msg += " Auto-approved in 2h if no admin action."
+            elif need_admin:
+                msg += " Awaiting admin approval."
+            return r(msg, end=True)
+
+        return r("Session expired. Dial again.", end=True)
+
+    # ── 5. Witness tasks ──────────────────────────────────────────────────────
+    if choice == "5":
+        if step == 1:
+            pending_witness = []
+            all_reqs = CareRequest.query.filter_by(status='pending_witness').all()
+            for req in all_reqs:
+                if req.witness_ids and str(user.id) in req.witness_ids.split(','):
+                    votes_cast = [v.split(':')[0] for v in (req.witness_votes or '').split(',') if v]
+                    if str(user.id) not in votes_cast:
+                        pending_witness.append(req)
+            if not pending_witness:
+                return r("No pending witness tasks.", end=True)
+            req = pending_witness[0]
+            req_user = User.query.get(req.user_id)
+            prov = Provider.query.get(req.provider_id)
+            ussd_sessions[phone] = {"witness_req_id": req.id}
+            return r(
+                f"Witness task\nRequest #{req.id}\n"
+                f"By: {req_user.name if req_user else '?'}\n"
+                f"Provider: {prov.name if prov else '?'}\n"
+                f"Amount: UGX {req.amount_needed:,.0f}\n"
+                "1. Accept\n2. Reject\n0. Back"
+            )
+        if step == 2:
+            req_id = ussd_sessions.get(phone, {}).get("witness_req_id")
+            if not req_id:
+                return r("Session error. Dial again.", end=True)
+            care_req = CareRequest.query.get(req_id)
+            if not care_req or care_req.status != 'pending_witness':
+                return r("Request already processed.", end=True)
+            vote_input = inputs[1]
+            response = "accept" if vote_input == "1" else "reject"
+            votes = [v for v in (care_req.witness_votes or '').split(',') if v]
+            if f"{user.id}:{response}" not in votes:
+                votes.append(f"{user.id}:{response}")
+                care_req.witness_votes = ','.join(votes)
+                db.session.commit()
+            yes_count = sum(1 for v in votes if v.endswith('accept'))
+            total = len(care_req.witness_ids.split(','))
+            if yes_count >= 2:
+                need_admin = (care_req.amount_needed > 180000) or care_req.is_emergency
+                if need_admin:
+                    care_req.status = 'pending_admin'
+                else:
+                    care_req.status = 'admin_approved'
+                    care_req.admin_approved = True
+                    ok, ref = pay_provider(
+                        care_request_id=care_req.id, amount=care_req.amount_from_pool,
+                        provider_id=care_req.provider_id, user_id=care_req.user_id,
+                        community_id=care_req.community_id,
+                    )
+                    if ok:
+                        care_req.payment_transaction_id = ref
+                db.session.commit()
+            elif len(votes) >= total:
                 care_req.status = 'rejected'
                 db.session.commit()
-                msg = f"Request #{req_id} rejected."
-            else:
-                data['admin_idx'] = idx + 1
-                ussd_sessions[phone] = data
-                next_idx = idx + 1
-                if next_idx < len(pending_ids):
-                    next_req = CareRequest.query.get(pending_ids[next_idx])
-                    requester = User.query.get(next_req.user_id)
-                    prov = Provider.query.get(next_req.provider_id)
-                    return r(f"Request by {requester.name}: UGX {next_req.amount_needed:,.0f} at {prov.name}\n1. Approve\n2. Reject\n0. Next")
-                else:
-                    return r("All requests processed.", end=True)
-            return r(msg + "\nContinue? 1. Yes 2. No")
-        return r("Invalid.", end=True)
+            ussd_sessions.pop(phone, None)
+            return r("Vote recorded. Thank you.", end=True)
 
-    if choice == "8":
+    # ── 6. Admin panel ────────────────────────────────────────────────────────
+    if choice == "6":
+        if role not in ['admin', 'coadmin'] or not primary_comm:
+            return r("Not authorised.", end=True)
         if step == 1:
-            return r("Enter top-up amount (UGX):")
-        try:
-            topup_amount = float(inputs[1])
-            if topup_amount < 1:
-                raise ValueError("Minimum UGX 1")
-        except (ValueError, IndexError):
-            return r("Invalid amount. Please enter a whole number.", end=True)
-        if not (os.getenv('MPESA_CONSUMER_KEY') and os.getenv('MPESA_CONSUMER_SECRET')):
-            return r("M-Pesa is not configured. Contact support.", end=True)
-        try:
-            result = stk_push(
-                phone=phone,
-                amount=topup_amount,
-                account_reference='SolidarityPool',
-                description=f'USSD top-up for {user.name}',
-            )
-            checkout_id = result.get('CheckoutRequestID', '')
-            merchant_id = result.get('MerchantRequestID', '')
-            topup = MpesaTopup(
-                user_id=user.id,
-                amount=topup_amount,
-                checkout_request_id=checkout_id,
-                merchant_request_id=merchant_id,
-                status='pending',
-            )
-            db.session.add(topup)
-            db.session.commit()
-            return r(
-                f"M-Pesa prompt sent to {phone}.\n"
-                f"Amount: UGX {int(topup_amount)}\n"
-                "Approve on your phone to top up your wallet.",
-                end=True,
-            )
-        except MpesaError as exc:
-            logger.error("USSD STK push failed: {}", exc)
-            return r("M-Pesa prompt failed. Try again later.", end=True)
+            return r("Admin panel\n1. Approve requests\n2. Invite code\n3. Members\n0. Back")
+        sub = inputs[1] if step > 1 else ''
+        if sub == "1":
+            if step == 2:
+                pending_reqs = CareRequest.query.filter_by(
+                    community_id=primary_comm.id, status='pending_admin', admin_approved=False
+                ).all()
+                if not pending_reqs:
+                    return r("No pending approvals.\n0. Back")
+                ussd_sessions[phone] = {'admin_pending': [rq.id for rq in pending_reqs], 'admin_idx': 0}
+                req = pending_reqs[0]
+                req_user = User.query.get(req.user_id)
+                prov = Provider.query.get(req.provider_id)
+                return r(
+                    f"Request by {req_user.name if req_user else '?'}:\n"
+                    f"UGX {req.amount_needed:,.0f} at {prov.name if prov else '?'}\n"
+                    "1. Approve\n2. Reject\n0. Next"
+                )
+            if step == 3:
+                data = ussd_sessions.get(phone, {})
+                pending_ids = data.get('admin_pending', [])
+                idx = data.get('admin_idx', 0)
+                if idx >= len(pending_ids):
+                    return r("No more requests.", end=True)
+                req_id = pending_ids[idx]
+                care_req = CareRequest.query.get(req_id)
+                action = inputs[2]
+                if action == "1":
+                    care_req.admin_approved = True
+                    care_req.admin_id = user.id
+                    care_req.status = 'admin_approved'
+                    ok, ref = pay_provider(
+                        care_request_id=care_req.id, amount=care_req.amount_from_pool,
+                        provider_id=care_req.provider_id, user_id=care_req.user_id,
+                        community_id=care_req.community_id,
+                    )
+                    if ok:
+                        care_req.payment_transaction_id = ref
+                    db.session.commit()
+                    msg = f"Request #{req_id} approved and payment initiated."
+                elif action == "2":
+                    care_req.status = 'rejected'
+                    db.session.commit()
+                    msg = f"Request #{req_id} rejected."
+                else:
+                    data['admin_idx'] = idx + 1
+                    ussd_sessions[phone] = data
+                    next_idx = idx + 1
+                    if next_idx < len(pending_ids):
+                        next_req = CareRequest.query.get(pending_ids[next_idx])
+                        ru = User.query.get(next_req.user_id)
+                        pv = Provider.query.get(next_req.provider_id)
+                        return r(
+                            f"Request by {ru.name if ru else '?'}:\n"
+                            f"UGX {next_req.amount_needed:,.0f} at {pv.name if pv else '?'}\n"
+                            "1. Approve\n2. Reject\n0. Next"
+                        )
+                    return r("All requests processed.", end=True)
+                return r(msg, end=True)
+        elif sub == "2":
+            return r(f"Invite code: {primary_comm.invite_code}\n\nShare with new members.", end=True)
+        elif sub == "3":
+            members = CommunityMembership.query.filter_by(community_id=primary_comm.id).all()
+            names = [User.query.get(m.user_id).name for m in members[:5] if User.query.get(m.user_id)]
+            msg = f"Members ({len(members)} total):\n" + "\n".join(names)
+            if len(members) > 5:
+                msg += f"\n+{len(members) - 5} more"
+            return r(msg, end=True)
+        return r("Invalid.\n0. Back")
 
-    if choice == "0":
-        return r("Goodbye. Stay well!", end=True)
-
+    # ── 7. Help / FAQ ─────────────────────────────────────────────────────────
     if choice == "7":
         if step == 1:
             return r(
-                "SolidarityPool Help\n"
+                "Help & FAQ\n"
                 "1. What is SolidarityPool?\n"
-                "2. How do round-ups work?\n"
+                "2. How do contributions work?\n"
                 "3. How do I request care funds?\n"
                 "4. What is a trust score?\n"
                 "5. What is a draw ceiling?\n"
                 "0. Back"
             )
         topic = inputs[1] if step > 1 else ''
-        if topic == '1':
-            return r(
-                "SolidarityPool is a community mutual-aid fund. "
-                "Members save via micro round-ups and can access care funds for medical emergencies.",
-                end=True
+        answers = {
+            '1': ("SolidarityPool is a community mutual-aid fund. "
+                  "Members contribute via mobile money fees and access care funds for medical needs."),
+            '2': ("When you make a mobile money transaction, a small solidarity contribution "
+                  "is calculated from your operator fee. 70% goes to your health wallet, "
+                  "20% to the community pool, 10% is a platform fee."),
+            '3': ("Choose option 2 from the main menu. Enter the amount and your clinic's "
+                  "provider code (ask your clinic). Three members will verify your request."),
+            '4': ("Your trust score (0-1) measures your reliability: repaying social credit, "
+                  "accurate witness votes, network connections, and regular contributions."),
+            '5': ("Your draw ceiling is the maximum you can request from the pool. "
+                  "It grows with your trust score and the pool's health. Check it in Balance (option 1)."),
+        }
+        if topic in answers:
+            return r(answers[topic], end=True)
+        return r("Invalid topic. Dial again.", end=True)
+
+    # ── 8. M-Pesa top-up ─────────────────────────────────────────────────────
+    if choice == "8":
+        if step == 1:
+            return r("M-Pesa Top-up\nEnter amount (UGX):\n0. Back")
+        try:
+            topup_amount = float(inputs[1])
+            if topup_amount < 1:
+                raise ValueError("Minimum UGX 1")
+        except (ValueError, IndexError):
+            return r("Invalid amount. Enter a whole number:\n0. Back")
+        if not (os.getenv('MPESA_CONSUMER_KEY') and os.getenv('MPESA_CONSUMER_SECRET')):
+            return r("M-Pesa is not configured. Contact support.", end=True)
+        try:
+            result = stk_push(
+                phone=phone, amount=topup_amount,
+                account_reference='SolidarityPool',
+                description=f'USSD top-up for {user.name}',
             )
-        elif topic == '2':
-            return r(
-                "When you buy something (e.g. UGX 12,500), we round up to UGX 13,000 "
-                "and save the UGX 500. "
-                "70% goes to your wallet, 20% to the community pool, 10% is a platform fee.",
-                end=True
+            checkout_id = result.get('CheckoutRequestID', '')
+            topup_rec = MpesaTopup(
+                user_id=user.id, amount=topup_amount,
+                checkout_request_id=checkout_id,
+                merchant_request_id=result.get('MerchantRequestID', ''),
+                status='pending',
             )
-        elif topic == '3':
+            db.session.add(topup_rec)
+            db.session.commit()
             return r(
-                "Choose option 2 from the main menu. Enter the amount, then your clinic's "
-                "provider code (e.g. MULAGO001 — ask your clinic). "
-                "Three community members will verify your request.",
-                end=True
+                f"M-Pesa prompt sent to {phone}.\n"
+                f"Amount: UGX {int(topup_amount):,}\n"
+                "Approve on your phone to top up your wallet.",
+                end=True,
             )
-        elif topic == '4':
-            return r(
-                "Your trust score (0-1) measures your reliability: "
-                "repaying social credit, accurate witness votes, "
-                "network connections, and regular round-up contributions.",
-                end=True
-            )
-        elif topic == '5':
-            return r(
-                "Your draw ceiling is the maximum you can request from the pool. "
-                "It grows as your trust score improves and the pool stays healthy. "
-                "Check it with option 1 (Balance).",
-                end=True
-            )
-        elif topic == '0':
-            return r("Returning to main menu. Dial again to continue.")
-        return r("Invalid help topic. Dial again.", end=True)
+        except MpesaError as exc:
+            from loguru import logger as _log
+            _log.error("USSD STK push failed: {}", exc)
+            return r("M-Pesa prompt failed. Try again later.", end=True)
+
+    # ── 9. Contribution history ───────────────────────────────────────────────
+    if choice == "9":
+        txns = (MobileMoneyTransaction.query
+                .filter_by(user_id=user.id)
+                .order_by(MobileMoneyTransaction.timestamp.desc())
+                .limit(5).all())
+        if not txns:
+            # Also check Transaction table for solidarity_wallet entries
+            wallet_txns = (Transaction.query
+                           .filter_by(user_id=user.id, type='solidarity_wallet')
+                           .order_by(Transaction.timestamp.desc())
+                           .limit(5).all())
+            if not wallet_txns:
+                return r(
+                    "Contribution history\nNo contributions yet.\n"
+                    "Contributions are logged when mobile money fees are processed.",
+                    end=True
+                )
+            lines = [f"  UGX {t.amount:,.0f} ({t.timestamp.strftime('%d/%m')})" for t in wallet_txns]
+            total_contrib = sum(t.amount for t in wallet_txns)
+        else:
+            lines = []
+            for t in txns:
+                lines.append(
+                    f"  {t.timestamp.strftime('%d/%m')} "
+                    f"{t.type}: fee UGX {t.normal_fee:,.0f} "
+                    f"→ contrib UGX {t.solidarity_amount:,.0f}"
+                )
+            total_contrib = sum(t.solidarity_amount for t in txns)
+        msg = f"Last contributions:\n" + "\n".join(lines) + f"\n\nShown: UGX {total_contrib:,.0f}"
+        return r(msg, end=True)
 
     return r("Invalid choice.", end=True)
+
+
+# ------------------ Admin: Platform Monitor ------------------
+
+@app.route('/admin/monitor')
+def admin_monitor():
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    from sqlalchemy import func
+    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+
+    # Total solidarity contributions (solidarity_wallet transactions)
+    total_solidarity = db.session.query(
+        func.coalesce(func.sum(Transaction.amount), 0.0)
+    ).filter(Transaction.type.in_(['solidarity_wallet', 'solidarity_pool', 'solidarity_fee'])).scalar() or 0.0
+
+    # Platform revenue
+    total_platform_revenue = db.session.query(
+        func.coalesce(func.sum(PlatformRevenue.amount), 0.0)
+    ).scalar() or 0.0
+    revenue_count = PlatformRevenue.query.count()
+    recent_revenue = PlatformRevenue.query.order_by(PlatformRevenue.timestamp.desc()).limit(20).all()
+
+    # Active users (any transaction in last 30 days)
+    active_users = db.session.query(func.count(func.distinct(Transaction.user_id))).filter(
+        Transaction.timestamp >= thirty_days_ago
+    ).scalar() or 0
+
+    total_users = User.query.count()
+    fraud_count = FraudAlert.query.filter_by(resolved=False).count()
+    pending_verifications = VerifiedProvider.query.filter_by(verification_status='pending').count()
+
+    # Communities with member counts
+    communities_raw = Community.query.order_by(Community.pool_balance.desc()).all()
+    communities = []
+    for comm in communities_raw:
+        comm.member_count = CommunityMembership.query.filter_by(community_id=comm.id).count()
+        communities.append(comm)
+
+    now_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
+    return render_template('admin_monitor.html',
+                           total_solidarity=total_solidarity,
+                           total_platform_revenue=total_platform_revenue,
+                           revenue_count=revenue_count,
+                           recent_revenue=recent_revenue,
+                           active_users=active_users,
+                           total_users=total_users,
+                           fraud_count=fraud_count,
+                           pending_verifications=pending_verifications,
+                           communities=communities,
+                           now=now_str)
 
 
 # ------------------ Admin: Trust Override ------------------

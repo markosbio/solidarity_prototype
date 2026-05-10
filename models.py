@@ -213,6 +213,15 @@ class MobileMoneyTransaction(db.Model):
     user = db.relationship('User', backref='mobile_money_transactions')
 
 
+class PlatformRevenue(db.Model):
+    """Records every platform fee collected from solidarity contributions."""
+    id = db.Column(db.Integer, primary_key=True)
+    amount = db.Column(db.Float, nullable=False)
+    source = db.Column(db.String(50), nullable=False, default='solidarity_fee')
+    transaction_id = db.Column(db.Integer, db.ForeignKey('transaction.id'), nullable=True)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 class MpesaTopup(db.Model):
     """Tracks a pending STK Push top-up until Safaricom confirms it."""
     id = db.Column(db.Integer, primary_key=True)

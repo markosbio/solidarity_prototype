@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Platform Monitor – Admin</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="60">
+<style>
+  body { font-family: sans-serif; max-width: 900px; margin: 40px auto; padding: 0 16px; background: #f8f9fa; }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  .subtitle { color: #666; font-size: 0.88rem; margin-bottom: 24px; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin-bottom: 28px; }
+  .kpi { background: white; border: 1px solid #ddd; border-radius: 8px; padding: 18px 16px; }
+  .kpi .label { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+  .kpi .value { font-size: 1.6rem; font-weight: bold; color: #2d7dd2; }
+  .kpi .value.green { color: #28a745; }
+  .kpi .value.orange { color: #fd7e14; }
+  .kpi .value.red { color: #dc3545; }
+  .kpi .sub { font-size: 0.78rem; color: #888; margin-top: 4px; }
+  .section-title { font-size: 0.82rem; font-weight: bold; color: #555;
+                   text-transform: uppercase; letter-spacing: .05em; margin: 22px 0 10px;
+                   display: flex; align-items: center; gap: 8px; }
+  .section-title::after { content: ''; flex: 1; border-top: 1px solid #ddd; }
+  .table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px;
+           overflow: hidden; border: 1px solid #ddd; font-size: 0.87rem; }
+  .table th { background: #f0f0f0; text-align: left; padding: 10px 12px;
+              border-bottom: 2px solid #ddd; font-size: 0.78rem; color: #555; }
+  .table td { padding: 9px 12px; border-bottom: 1px solid #eee; }
+  .table tr:last-child td { border-bottom: none; }
+  .gauge-bar { height: 8px; border-radius: 4px; background: #e9ecef; overflow: hidden; margin-top: 4px; }
+  .gauge-fill { height: 100%; border-radius: 4px; }
+  .fill-green { background: #28a745; }
+  .fill-amber { background: #ffc107; }
+  .fill-red   { background: #dc3545; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 8px; font-size: 0.74rem; }
+  .badge-ok   { background: #d4edda; color: #155724; }
+  .badge-warn { background: #fff3cd; color: #856404; }
+  .badge-crit { background: #f8d7da; color: #721c24; }
+  .action-links { margin-top: 28px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .btn { display: inline-block; padding: 8px 18px; border-radius: 4px; font-size: 0.88rem;
+         text-decoration: none; }
+  .btn-blue { background: #2d7dd2; color: white; }
+  .btn-gray { background: #6c757d; color: white; }
+  .refresh-note { font-size: 0.76rem; color: #aaa; margin-top: 6px; }
+</style>
+</head>
+<body>
+
+<h1>Platform Monitor</h1>
+<p class="subtitle">Live overview — auto-refreshes every 60 seconds.</p>
+
+<!-- KPI cards -->
+<div class="kpi-grid">
+  <div class="kpi">
+    <div class="label">Total solidarity contributions</div>
+    <div class="value green">UGX {{ "{:,.0f}".format(total_solidarity) }}</div>
+    <div class="sub">All time, all members</div>
+  </div>
+  <div class="kpi">
+    <div class="label">Platform revenue</div>
+    <div class="value green">UGX {{ "{:,.0f}".format(total_platform_revenue) }}</div>
+    <div class="sub">{{ revenue_count }} fee events</div>
+  </div>
+  <div class="kpi">
+    <div class="label">Active members</div>
+    <div class="value">{{ active_users }}</div>
+    <div class="sub">Contributed in last 30 days</div>
+  </div>
+  <div class="kpi">
+    <div class="label">Pending fraud alerts</div>
+    <div class="value {% if fraud_count >= 5 %}red{% elif fraud_count >= 1 %}orange{% else %}green{% endif %}">
+      {{ fraud_count }}
+    </div>
+    <div class="sub"><a href="{{ url_for('admin_fraud_alerts') }}">Review →</a></div>
+  </div>
+  <div class="kpi">
+    <div class="label">Provider verifications pending</div>
+    <div class="value {% if pending_verifications >= 5 %}orange{% elif pending_verifications >= 1 %}orange{% else %}green{% endif %}">
+      {{ pending_verifications }}
+    </div>
+    <div class="sub"><a href="{{ url_for('admin_verified_providers') }}">Review →</a></div>
+  </div>
+  <div class="kpi">
+    <div class="label">Total users</div>
+    <div class="value">{{ total_users }}</div>
+    <div class="sub">All registered members</div>
+  </div>
+</div>
+
+<!-- Community pool balances -->
+<div class="section-title">Community Pools</div>
+{% if communities %}
+<table class="table">
+  <thead>
+    <tr>
+      <th>Community</th>
+      <th>Pool balance</th>
+      <th>Pool health</th>
+      <th>Members</th>
+      <th>Ceiling×</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for comm in communities %}
+  {% set pct = [[(comm.pool_balance / comm.pool_target * 100) if comm.pool_target else 100, 0]|max, 100]|min %}
+  <tr>
+    <td><strong>{{ comm.name }}</strong></td>
+    <td>UGX {{ "{:,.0f}".format(comm.pool_balance) }}</td>
+    <td>
+      <div class="gauge-bar">
+        <div class="gauge-fill {% if pct >= 60 %}fill-green{% elif pct >= 30 %}fill-amber{% else %}fill-red{% endif %}"
+             style="width:{{ pct }}%"></div>
+      </div>
+      <span style="font-size:0.78rem; color:#555;">{{ "%.0f"|format(pct) }}%</span>
+    </td>
+    <td>{{ comm.member_count }}</td>
+    <td>{{ "%.0f"|format(comm.ceiling_multiplier * 100) }}%</td>
+    <td>
+      {% if comm.large_withdrawal_paused %}
+        <span class="badge badge-crit">Paused</span>
+      {% elif pct < 30 %}
+        <span class="badge badge-crit">Critical</span>
+      {% elif pct < 60 %}
+        <span class="badge badge-warn">Fair</span>
+      {% else %}
+        <span class="badge badge-ok">Healthy</span>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p style="color:#888; font-style:italic;">No communities yet.</p>
+{% endif %}
+
+<!-- Recent platform revenue -->
+<div class="section-title">Recent Platform Revenue</div>
+{% if recent_revenue %}
+<table class="table">
+  <thead>
+    <tr><th>Timestamp</th><th>Source</th><th>Amount</th></tr>
+  </thead>
+  <tbody>
+  {% for rev in recent_revenue %}
+  <tr>
+    <td>{{ rev.timestamp.strftime('%b %d %H:%M') }}</td>
+    <td>{{ rev.source.replace('_', ' ').title() }}</td>
+    <td>UGX {{ "{:,.0f}".format(rev.amount) }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p style="color:#888; font-style:italic;">No revenue records yet.</p>
+{% endif %}
+
+<p class="refresh-note">Page auto-refreshes every 60 s. Last loaded: {{ now }}.</p>
+
+<div class="action-links">
+  <a class="btn btn-blue" href="{{ url_for('admin_care') }}">← Admin Panel</a>
+  <a class="btn btn-blue" href="{{ url_for('admin_fraud_alerts') }}">Fraud Alerts ({{ fraud_count }})</a>
+  <a class="btn btn-blue" href="{{ url_for('admin_verified_providers') }}">Provider Verification</a>
+  <a class="btn btn-gray" href="{{ url_for('export_payments_csv') }}">⬇ Export Payments CSV</a>
+  <a class="btn btn-gray" href="{{ url_for('home') }}">← Dashboard</a>
+</div>
+
+</body>
+</html>
