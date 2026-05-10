@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'solidarity-dev-key-change-in-production')
+app.secret_key = os.environ.get('SESSION_SECRET', os.environ.get('SECRET_KEY', 'solidarity-dev-key-change-in-production'))
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///solidarity.db')
 db.init_app(app)
 app.register_blueprint(communities_bp)
@@ -1318,7 +1318,7 @@ def leaderboard():
     month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     rows = (
         db.session.query(Transaction.user_id, func.sum(Transaction.amount).label('total'))
-        .filter(Transaction.type == 'pool_contribution', Transaction.created_at >= month_start)
+        .filter(Transaction.type == 'pool_contribution', Transaction.timestamp >= month_start)
         .group_by(Transaction.user_id)
         .order_by(func.sum(Transaction.amount).desc())
         .limit(20)
