@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Round-up – Solidarity Pool</title>
+<title>Contribute – Solidarity Pool</title>
 <link rel="manifest" href="/static/manifest.json">
 <meta name="theme-color" content="#2d7dd2">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -35,12 +35,17 @@
   .divider::before, .divider::after { content: ''; flex: 1; border-top: 1px solid #ddd; margin: 0 8px; }
   .nav { margin-top: 20px; }
   .nav a { color: #2d7dd2; text-decoration: none; font-size: 0.9rem; }
+  .preview-box { background: #e8f4f8; border: 1px solid #bee5eb; border-radius: 6px;
+                 padding: 10px 14px; margin-top: 10px; font-size: 0.85rem; display: none; }
+  .preview-row { display: flex; justify-content: space-between; padding: 2px 0; }
+  .preview-row .label { color: #555; }
+  .preview-row .val { font-weight: bold; color: #155724; }
 </style>
 </head>
 <body>
 
-<h1>Add to Sub-wallet</h1>
-<p class="subtitle">Build your pool contribution through micro round-ups or a direct top-up.</p>
+<h1>Health Contributions</h1>
+<p class="subtitle">Contribute to your solidarity health pool through your mobile money fees.</p>
 
 {% if mpesa_enabled %}
 <div class="card">
@@ -59,17 +64,16 @@
     <strong>UGX {{ "{:,.0f}".format(user.sub_wallet_balance) }}</strong>
   </div>
 </div>
-<div class="divider">or simulate a purchase round-up</div>
+<div class="divider">or simulate a fee-based contribution</div>
 {% endif %}
 
 <div class="card">
-  {% if mpesa_enabled %}
-  <h2>Simulate a Round-up</h2>
-  <p class="card-desc">Enter a purchase amount — the shillings above the nearest thousand round up.</p>
-  {% else %}
-  <h2>Simulate a Purchase Round-up</h2>
-  <p class="card-desc">Enter any purchase amount — the shillings round up to your sub-wallet and community pool.</p>
-  {% endif %}
+  <h2>Simulate a Fee Contribution</h2>
+  <p class="card-desc">
+    Enter the normal operator fee from a mobile money transaction. A solidarity
+    contribution is calculated from that fee and split between your wallet and
+    the community health pool.
+  </p>
 
   <div class="split-pills">
     <span class="pill pill-wallet">{{ wallet_pct }}% your wallet</span>
@@ -77,16 +81,24 @@
     <span class="pill pill-fee">{{ fee_pct }}% platform fee</span>
   </div>
   <div class="hint" style="margin-bottom:8px;">
-    Each round-up is automatically split between your personal savings, the communal health pool, and platform operations.
+    Your contribution is automatically split between your personal health savings,
+    the communal pool, and platform operations.
   </div>
 
-  <form method="POST">
-    <label>Purchase amount (UGX, e.g. 12500)
-      <input type="number" step="1" min="1" name="purchase_amount"
-             placeholder="0" required {% if not mpesa_enabled %}autofocus{% endif %}>
-      <span class="hint">E.g. UGX 12,500 → rounds up UGX 500 · UGX 99,800 → rounds up UGX 200</span>
+  <form method="POST" id="fee-form">
+    <label>Normal fee (UGX)
+      <input type="number" step="1" min="1" name="normal_fee" id="fee-input"
+             placeholder="e.g. 1500" required {% if not mpesa_enabled %}autofocus{% endif %}>
+      <span class="hint">Enter the operator fee from your mobile money send or withdrawal.</span>
     </label>
-    <button class="btn btn-green" type="submit">Round up &amp; Contribute</button>
+
+    <div class="preview-box" id="preview">
+      <div class="preview-row"><span class="label">Solidarity contribution</span><span class="val" id="p-solidarity">—</span></div>
+      <div class="preview-row"><span class="label">Your wallet gets</span><span class="val" id="p-wallet">—</span></div>
+      <div class="preview-row"><span class="label">Community pool gets</span><span class="val" id="p-pool">—</span></div>
+    </div>
+
+    <button class="btn btn-green" type="submit">Contribute &amp; Save</button>
   </form>
 
   <div class="balance-row">
@@ -94,7 +106,7 @@
     <strong>UGX {{ "{:,.0f}".format(user.sub_wallet_balance) }}</strong>
   </div>
   <div class="balance-row">
-    <span>Round-up multiplier</span>
+    <span>Contribution multiplier</span>
     <strong>{{ user.roundup_intensifier }}×</strong>
   </div>
 </div>
@@ -103,6 +115,25 @@
 
 <script>
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/static/sw.js');
+
+const pct = {{ solidarity_pct }};
+const walletPct = {{ wallet_pct }} / 100;
+const poolPct = {{ pool_pct }} / 100;
+
+function fmt(n) { return 'UGX ' + Math.round(n).toLocaleString(); }
+function roundTo10(n) { return Math.round(n / 10) * 10; }
+
+document.getElementById('fee-input').addEventListener('input', function () {
+  const fee = parseFloat(this.value) || 0;
+  if (fee <= 0) { document.getElementById('preview').style.display = 'none'; return; }
+  const solidarity = roundTo10(fee * pct / 100);
+  const wallet = Math.round(solidarity * walletPct);
+  const pool = Math.round(solidarity * poolPct);
+  document.getElementById('p-solidarity').textContent = fmt(solidarity);
+  document.getElementById('p-wallet').textContent = fmt(wallet);
+  document.getElementById('p-pool').textContent = fmt(pool);
+  document.getElementById('preview').style.display = 'block';
+});
 </script>
 </body>
 </html>

@@ -1,5 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
-from models import db, User, Transaction, Community, CommunityMembership, Provider, CareRequest, SystemState, PaymentRecord, MpesaTopup
+from models import (db, User, Transaction, Community, CommunityMembership, Provider,
+                    CareRequest, SystemState, PaymentRecord, MpesaTopup,
+                    MobileMoneyTransaction, VerifiedProvider, FraudAlert)
 from trust_graph import compute_draw_ceiling
 from witness import select_witnesses
 from recovery import update_recovery_parameters
@@ -9,13 +11,17 @@ from trust_engine import get_combined_score
 from communities import communities_bp
 from providers_bp import providers_bp
 from ussd import ussd_bp
+from fee_contribution import process_fee_contribution, _get_solidarity_percent
+from fraud import calculate_fraud_risk, log_fraud_alert, is_fraud_flagged
+from pool_health import enforce_pool_health, is_large_withdrawal_blocked, required_witness_approvals
+from mobile_money import normalise_payload, verify_webhook_signature, process_webhook
 import random
 import string
 import os
 import io
 import csv
 from datetime import datetime, timedelta
-from notifications import notify_ceiling_increase, notify_pool_low
+from notifications import notify_ceiling_increase, notify_pool_low, notify_fraud_flagged
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -110,8 +116,17 @@ def home():
             ceiling = 0.0
         pool_balance = primary_comm.pool_balance if primary_comm else 0.0
         ph = _pool_health(pool_balance)
+        ceiling_multiplier = primary_comm.ceiling_multiplier if primary_comm else 1.0
+        health_contributions = (
+            MobileMoneyTransaction.query
+            .filter_by(user_id=user.id)
+            .order_by(MobileMoneyTransaction.timestamp.desc())
+            .limit(10).all()
+        )
         return render_template('dashboard.html', user=user, primary_comm=primary_comm,
-                               is_admin=is_admin, ceiling=ceiling, pool_health=ph)
+                               is_admin=is_admin, ceiling=ceiling, pool_health=ph,
+                               ceiling_multiplier=ceiling_multiplier,
+                               health_contributions=health_contributions)
     return redirect(url_for('register'))
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -250,30 +265,23 @@ def simulate_roundup():
     wallet_pct = int(os.getenv('ROUNDUP_WALLET_PCT', 70))
     pool_pct   = int(os.getenv('ROUNDUP_POOL_PCT',   20))
     fee_pct    = 100 - wallet_pct - pool_pct
+    solidarity_pct = _get_solidarity_percent()
     if request.method == 'POST':
-        purchase_amount = float(request.form['purchase_amount'])
-        round_up = round(round(purchase_amount) - purchase_amount, 4)
-        if round_up <= 0:
-            round_up = 0.01
+        normal_fee = float(request.form.get('normal_fee', 0) or 0)
+        if normal_fee <= 0:
+            return redirect(url_for('simulate_roundup'))
         try:
             old_ceiling = compute_draw_ceiling(user.id)
         except Exception:
             old_ceiling = 0.0
-        to_wallet, to_pool, to_fee = _roundup_split(round_up)
-        user.sub_wallet_balance += to_wallet
+        solidarity_amount = process_fee_contribution(user.id, normal_fee)
         primary_comm = Community.query.get(user.primary_community_id) if user.primary_community_id else None
-        if primary_comm and to_pool > 0:
+        if primary_comm:
+            to_pool = round(solidarity_amount * pool_pct / 100, 4)
             primary_comm.pool_balance += to_pool
+            health = enforce_pool_health(primary_comm)
             ph = _pool_health(primary_comm.pool_balance)
             notify_pool_low(primary_comm, ph['pct'])
-        db.session.add(Transaction(user_id=user.id, amount=to_wallet, type='roundup',
-                                   description=f'Round-up wallet share from UGX {purchase_amount:.0f}'))
-        if to_pool > 0 and primary_comm:
-            db.session.add(Transaction(user_id=user.id, amount=to_pool, type='pool_contribution',
-                                       description=f'Round-up pool share from UGX {purchase_amount:.0f}'))
-        if to_fee > 0:
-            db.session.add(Transaction(user_id=user.id, amount=to_fee, type='platform_fee',
-                                       description=f'Round-up platform fee from UGX {purchase_amount:.0f}'))
         db.session.commit()
         try:
             new_ceiling = compute_draw_ceiling(user.id)
@@ -282,7 +290,8 @@ def simulate_roundup():
             pass
         return redirect(url_for('home'))
     return render_template('simulate_roundup.html', user=user, mpesa_enabled=mpesa_enabled,
-                           wallet_pct=wallet_pct, pool_pct=pool_pct, fee_pct=fee_pct)
+                           wallet_pct=wallet_pct, pool_pct=pool_pct, fee_pct=fee_pct,
+                           solidarity_pct=solidarity_pct)
 
 
 @app.route('/mpesa/topup', methods=['POST'])
@@ -408,6 +417,14 @@ def request_care():
                 user.total_social_credit += social_credit
                 update_recovery_parameters(user.id, social_credit)
             db.session.commit()
+        # Pool health guard — block large withdrawals when pool is stressed
+        if is_large_withdrawal_blocked(community, needed_amount):
+            return render_template('request_care.html', user=user,
+                                   providers=Provider.query.filter_by(verified=True).all(),
+                                   communities=get_user_communities(session['user_id']),
+                                   ceiling=ceiling,
+                                   error='Large withdrawals are temporarily paused to protect the pool. Please try a smaller amount or wait for the pool to recover.')
+
         care_req = CareRequest(
             user_id=user.id, community_id=community.id, provider_id=provider_id,
             amount_needed=needed_amount, amount_from_sub=from_sub, amount_from_pool=from_pool,
@@ -415,10 +432,32 @@ def request_care():
         )
         db.session.add(care_req)
         db.session.commit()
-        witnesses = select_witnesses(user.id, provider_id, community_id=community.id)
-        witness_ids = ','.join(str(w.id) for w in witnesses)
-        care_req.witness_ids = witness_ids
-        db.session.commit()
+
+        # Fraud scoring
+        try:
+            fraud_score, fraud_reasons = calculate_fraud_risk(user.id, care_req.id)
+            if is_fraud_flagged(fraud_score):
+                care_req.fraud_flagged = True
+                care_req.fraud_score = fraud_score
+                care_req.fraud_reasons = '; '.join(fraud_reasons)
+                care_req.status = 'pending_admin'
+                db.session.commit()
+                alert = log_fraud_alert(user.id, care_req.id, fraud_score, fraud_reasons)
+                # Notify admin if found
+                admin_comm = Community.query.get(community_id)
+                if admin_comm and admin_comm.admin_user_id:
+                    admin_user = User.query.get(admin_comm.admin_user_id)
+                    if admin_user:
+                        notify_fraud_flagged(admin_user.phone, user.name,
+                                             needed_amount, care_req.id, fraud_score)
+        except Exception:
+            pass
+
+        if care_req.status == 'pending_witness':
+            witnesses = select_witnesses(user.id, provider_id, community_id=community.id)
+            witness_ids = ','.join(str(w.id) for w in witnesses)
+            care_req.witness_ids = witness_ids
+            db.session.commit()
         try:
             ceiling_remaining = max(0.0, round(ceiling - from_pool, 2))
         except Exception:
@@ -513,7 +552,118 @@ def admin_care():
     pending = CareRequest.query.filter_by(status='pending_admin', admin_approved=False).all()
     for cr in pending:
         cr.requester = User.query.get(cr.user_id)
-    return render_template('admin_care.html', user=user, pending=pending)
+    solidarity_pct = _get_solidarity_percent()
+    fraud_count = FraudAlert.query.filter_by(resolved=False).count()
+    return render_template('admin_care.html', user=user, pending=pending,
+                           solidarity_pct=solidarity_pct, fraud_count=fraud_count)
+
+
+@app.route('/admin/set-solidarity-percent', methods=['POST'])
+def admin_set_solidarity_percent():
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    try:
+        pct = float(request.form['percent'])
+        pct = max(1.0, min(25.0, pct))
+    except (ValueError, KeyError):
+        return redirect(url_for('admin_care'))
+    state = SystemState.query.first()
+    if state:
+        state.solidarity_percent = pct
+    else:
+        db.session.add(SystemState(communal_pool_balance=0.0, solidarity_percent=pct))
+    db.session.commit()
+    return redirect(url_for('admin_care'))
+
+
+@app.route('/api/mobile-money/callback', methods=['POST'])
+def mobile_money_callback():
+    """Unified mobile money webhook — MTN and Airtel both post here."""
+    from loguru import logger
+    raw = request.get_data()
+    network = request.args.get('network', 'unknown').lower()
+    sig = request.headers.get('X-MTN-Signature', '') or request.headers.get('X-Airtel-Signature', '')
+    if not verify_webhook_signature(raw, sig, network):
+        logger.warning("Webhook signature mismatch for network={}", network)
+        return jsonify({'error': 'invalid_signature'}), 401
+    data = request.get_json(force=True, silent=True) or {}
+    internal = normalise_payload(data)
+    if not internal:
+        return jsonify({'error': 'unrecognised_payload'}), 400
+    ok, msg = process_webhook(internal)
+    if ok:
+        return jsonify({'status': msg}), 200
+    return jsonify({'error': msg}), 422
+
+
+@app.route('/admin/verified-providers')
+def admin_verified_providers():
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    applications = VerifiedProvider.query.order_by(VerifiedProvider.created_at.desc()).all()
+    for app_ in applications:
+        if app_.reviewed_by:
+            app_.resolver = User.query.get(app_.reviewed_by)
+        else:
+            app_.resolver = None
+    return render_template('admin_verified_providers.html', applications=applications)
+
+
+@app.route('/admin/verified-providers/apply', methods=['POST'])
+def apply_verified_provider():
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    vp = VerifiedProvider(
+        provider_name=request.form.get('provider_name', '').strip(),
+        phone=request.form.get('phone', '').strip().lstrip('+'),
+        provider_wallet_number=request.form.get('provider_wallet_number', '').strip(),
+        business_license=request.form.get('business_license', '').strip(),
+        location=request.form.get('location', '').strip(),
+        verification_status='pending',
+    )
+    db.session.add(vp)
+    db.session.commit()
+    return redirect(url_for('admin_verified_providers'))
+
+
+@app.route('/admin/verified-providers/<int:app_id>/review', methods=['POST'])
+def admin_verify_provider_application(app_id):
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    vp = VerifiedProvider.query.get_or_404(app_id)
+    action = request.form.get('action')
+    notes = request.form.get('notes', '').strip()
+    if action in ('verify', 'reject'):
+        vp.verification_status = 'verified' if action == 'verify' else 'rejected'
+        vp.review_notes = notes
+        vp.reviewed_at = datetime.utcnow()
+        vp.reviewed_by = session['user_id']
+        db.session.commit()
+    return redirect(url_for('admin_verified_providers'))
+
+
+@app.route('/admin/fraud-alerts')
+def admin_fraud_alerts():
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    open_alerts = FraudAlert.query.filter_by(resolved=False).order_by(FraudAlert.created_at.desc()).all()
+    resolved_alerts = FraudAlert.query.filter_by(resolved=True).order_by(FraudAlert.created_at.desc()).limit(20).all()
+    for alert in open_alerts + resolved_alerts:
+        alert.user = User.query.get(alert.user_id)
+        alert.resolver = User.query.get(alert.resolved_by) if alert.resolved_by else None
+    return render_template('admin_fraud_alerts.html', open_alerts=open_alerts, resolved_alerts=resolved_alerts)
+
+
+@app.route('/admin/fraud-alerts/<int:alert_id>/resolve', methods=['POST'])
+def admin_resolve_fraud_alert(alert_id):
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    alert = FraudAlert.query.get_or_404(alert_id)
+    alert.resolved = True
+    alert.resolved_by = session['user_id']
+    alert.resolved_at = datetime.utcnow()
+    db.session.commit()
+    return redirect(url_for('admin_fraud_alerts'))
 
 @app.route('/admin/care/<int:request_id>', methods=['POST'])
 def admin_care_action(request_id):

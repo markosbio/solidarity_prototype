@@ -5,12 +5,13 @@
 <meta name="theme-color" content="#2d7dd2">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  body { font-family: sans-serif; max-width: 780px; margin: 40px auto; padding: 0 16px; }
+  body { font-family: sans-serif; max-width: 820px; margin: 40px auto; padding: 0 16px; }
   h1 { margin-bottom: 4px; }
   .section-title { font-size: 0.85rem; font-weight: bold; color: #555;
                    text-transform: uppercase; letter-spacing: .05em; margin: 28px 0 10px; }
   .card { border: 1px solid #ddd; border-radius: 8px; padding: 18px; margin-bottom: 16px; background: #fafafa; }
   .card.emergency { border-left: 4px solid #dc3545; background: #fff8f8; }
+  .card.fraud-flag { border-left: 4px solid #fd7e14; background: #fff8f0; }
   .card h3 { margin: 0 0 10px 0; }
   .meta { font-size: 0.88em; color: #444; line-height: 1.7; }
   .meta strong { color: #111; }
@@ -23,11 +24,14 @@
   .btn-deny:hover { background: #c82333; }
   .btn-export { background: #6c757d; color: white; font-size: 0.85rem; }
   .btn-export:hover { background: #5a6268; }
+  .btn-primary { background: #2d7dd2; color: white; }
+  .btn-primary:hover { background: #2566b0; }
   .empty { color: #888; font-style: italic; padding: 20px 0; }
   .tag { display: inline-block; font-size: 0.75em; padding: 2px 8px; border-radius: 10px; }
   .tag-emergency { background: #f8d7da; color: #721c24; }
   .tag-large { background: #fff3cd; color: #856404; }
   .tag-auto { background: #d4edda; color: #155724; font-size: 0.7em; }
+  .tag-fraud { background: #f8d7da; color: #721c24; }
   .witness-count { font-size: 0.82em; color: #555; }
   .trust-card { border: 1px solid #dee2e6; border-radius: 8px; padding: 18px; background: #f8f9fa; }
   .trust-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; margin-top: 10px; }
@@ -38,18 +42,55 @@
                       border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
   .trust-row button:hover { background: #2566b0; }
   .help-text { font-size: 0.78rem; color: #888; margin-top: 4px; }
+  /* Solidarity config card */
+  .solidarity-card { border: 1px solid #c3e6cb; border-radius: 8px; padding: 18px; background: #f0fff4; }
+  .solidarity-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  .solidarity-row input[type=number] { width: 90px; padding: 8px; border: 1px solid #ccc;
+                                       border-radius: 4px; font-size: 0.95rem; }
+  .solidarity-row button { padding: 8px 16px; background: #28a745; color: white; border: none;
+                           border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
+  .fraud-score { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 0.82em;
+                 font-weight: bold; }
+  .fraud-low { background: #d4edda; color: #155724; }
+  .fraud-med { background: #fff3cd; color: #856404; }
+  .fraud-high { background: #f8d7da; color: #721c24; }
 </style>
 </head>
 <body>
 
 <h1>Admin Panel</h1>
 
-<div style="margin-bottom: 20px;">
+<div style="margin-bottom: 20px; display:flex; gap:8px; flex-wrap:wrap;">
   <a class="btn btn-export" href="{{ url_for('export_payments_csv') }}">⬇ Export Payments CSV</a>
   <a class="btn btn-export" href="{{ url_for('export_trust_csv') }}">⬇ Export Trust History CSV</a>
   <a class="btn btn-export" href="{{ url_for('leaderboard') }}">🏆 Leaderboard</a>
+  <a class="btn btn-primary" href="{{ url_for('admin_verified_providers') }}">🏥 Provider Verification</a>
+  <a class="btn btn-primary" href="{{ url_for('admin_fraud_alerts') }}">🚨 Fraud Alerts{% if fraud_count %} ({{ fraud_count }}){% endif %}</a>
 </div>
 
+<!-- Solidarity percent config -->
+<div class="section-title">Solidarity Contribution Rate</div>
+<div class="solidarity-card">
+  <p style="margin:0 0 6px; font-size:0.9rem; color:#444;">
+    Current rate: <strong>{{ solidarity_pct }}%</strong> of mobile money fee.
+    This percentage is applied to every transaction fee to calculate the solidarity health contribution.
+  </p>
+  <form method="POST" action="{{ url_for('admin_set_solidarity_percent') }}">
+    <div class="solidarity-row">
+      <div>
+        <label style="font-size:0.82rem; color:#555;">New percentage (1–25%)</label>
+        <input type="number" name="percent" step="0.1" min="1" max="25"
+               value="{{ solidarity_pct }}" required>
+      </div>
+      <button type="submit">Update Rate</button>
+    </div>
+    <div class="help-text">
+      Changes take effect immediately for all new contributions.
+    </div>
+  </form>
+</div>
+
+<div class="section-title">Pending Care Approvals</div>
 <p style="color:#666; margin-bottom:16px; font-size:0.9rem;">
   These requests passed witness consensus and are waiting for sign-off
   (amount &gt; UGX 180,000 or marked emergency).
@@ -57,13 +98,24 @@
 
 {% if pending %}
 {% for cr in pending %}
-<div class="card {% if cr.is_emergency %}emergency{% endif %}">
+<div class="card {% if cr.fraud_flagged %}fraud-flag{% elif cr.is_emergency %}emergency{% endif %}">
   <h3>
     Care Request #{{ cr.id }}
+    {% if cr.fraud_flagged %}<span class="tag tag-fraud">FRAUD REVIEW</span>{% endif %}
     {% if cr.is_emergency %}<span class="tag tag-emergency">EMERGENCY</span>{% endif %}
     {% if cr.amount_needed > 180000 %}<span class="tag tag-large">Large Request</span>{% endif %}
-    {% if cr.is_emergency %}<span class="tag tag-auto">Auto-approves in 2h if no action</span>{% endif %}
+    {% if cr.is_emergency and not cr.fraud_flagged %}<span class="tag tag-auto">Auto-approves in 2h if no action</span>{% endif %}
   </h3>
+
+  {% if cr.fraud_flagged %}
+  <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:4px;padding:8px 12px;margin-bottom:10px;font-size:0.83rem;color:#856404;">
+    <strong>Fraud flag:</strong>
+    <span class="fraud-score {% if cr.fraud_score >= 0.7 %}fraud-high{% elif cr.fraud_score >= 0.5 %}fraud-med{% else %}fraud-low{% endif %}">
+      {{ "%.0f"|format(cr.fraud_score * 100) }}% risk
+    </span>
+    &nbsp;Reasons: {{ cr.fraud_reasons or 'see fraud log' }}
+  </div>
+  {% endif %}
 
   <div class="meta">
     <strong>Requester:</strong> {{ cr.requester.name }} — {{ cr.requester.phone }}<br>

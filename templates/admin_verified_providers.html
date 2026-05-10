@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+<head><title>Provider Verification – Admin</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: sans-serif; max-width: 860px; margin: 40px auto; padding: 0 16px; }
+  h1 { margin-bottom: 4px; }
+  .section-title { font-size: 0.85rem; font-weight: bold; color: #555;
+                   text-transform: uppercase; letter-spacing: .05em; margin: 28px 0 10px; }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: 18px; margin-bottom: 14px; background: #fafafa; }
+  .card h3 { margin: 0 0 8px 0; font-size: 1rem; }
+  .meta { font-size: 0.87em; color: #444; line-height: 1.7; }
+  .meta strong { color: #111; }
+  .btn { display: inline-block; padding: 7px 18px; border-radius: 4px; font-size: 0.88rem;
+         border: none; cursor: pointer; margin-right: 6px; text-decoration: none; }
+  .btn-verify { background: #28a745; color: white; }
+  .btn-reject { background: #dc3545; color: white; }
+  .btn-verify:hover { background: #218838; }
+  .btn-reject:hover { background: #c82333; }
+  .btn-back { background: #6c757d; color: white; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 0.78em; }
+  .badge-pending  { background: #fff3cd; color: #856404; }
+  .badge-verified { background: #d4edda; color: #155724; }
+  .badge-rejected { background: #f8d7da; color: #721c24; }
+  .empty { color: #888; font-style: italic; }
+  /* Application form */
+  .apply-card { border: 1px solid #c3e6cb; border-radius: 8px; padding: 20px; background: #f0fff4; }
+  .form-row { margin-bottom: 12px; }
+  .form-row label { display: block; font-size: 0.85rem; font-weight: bold; color: #333; margin-bottom: 4px; }
+  .form-row input, .form-row textarea {
+    width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px;
+    font-size: 0.9rem; box-sizing: border-box; }
+  .btn-submit { background: #2d7dd2; color: white; padding: 9px 22px; border: none;
+                border-radius: 4px; cursor: pointer; font-size: 0.95rem; }
+  .notes-input { width: 240px; padding: 7px; border: 1px solid #ccc; border-radius: 4px;
+                 font-size: 0.87rem; }
+</style>
+</head>
+<body>
+
+<h1>Provider Verification</h1>
+<p style="color:#666; margin-bottom:20px;">
+  Review provider applications and approve those with valid business licenses.
+  Only verified providers can receive care fund payments.
+</p>
+
+<div class="section-title">Pending Applications</div>
+{% set pending = applications | selectattr('verification_status', 'equalto', 'pending') | list %}
+{% if pending %}
+  {% for app in pending %}
+  <div class="card">
+    <h3>{{ app.provider_name }} <span class="badge badge-pending">Pending</span></h3>
+    <div class="meta">
+      <strong>Phone / Wallet:</strong> {{ app.phone }} · {{ app.provider_wallet_number or '—' }}<br>
+      <strong>Location:</strong> {{ app.location or '—' }}<br>
+      <strong>Business License:</strong> {{ app.business_license or '—' }}<br>
+      <strong>Applied:</strong> {{ app.created_at.strftime('%Y-%m-%d %H:%M') }}
+    </div>
+    <div style="margin-top: 12px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+      <form method="POST" action="{{ url_for('admin_verify_provider_application', app_id=app.id) }}" style="display:flex;gap:8px;align-items:center;">
+        <input type="hidden" name="action" value="verify">
+        <input class="notes-input" type="text" name="notes" placeholder="Verification notes (optional)">
+        <button class="btn btn-verify">✓ Verify</button>
+      </form>
+      <form method="POST" action="{{ url_for('admin_verify_provider_application', app_id=app.id) }}" style="display:flex;gap:8px;align-items:center;">
+        <input type="hidden" name="action" value="reject">
+        <input class="notes-input" type="text" name="notes" placeholder="Rejection reason">
+        <button class="btn btn-reject">✗ Reject</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+  <p class="empty">No pending applications.</p>
+{% endif %}
+
+<div class="section-title">Verified Providers</div>
+{% set verified = applications | selectattr('verification_status', 'equalto', 'verified') | list %}
+{% if verified %}
+  {% for app in verified %}
+  <div class="card">
+    <h3>{{ app.provider_name }} <span class="badge badge-verified">Verified</span></h3>
+    <div class="meta">
+      <strong>Phone / Wallet:</strong> {{ app.phone }} · {{ app.provider_wallet_number or '—' }}<br>
+      <strong>Location:</strong> {{ app.location or '—' }}<br>
+      <strong>Verified:</strong> {{ app.reviewed_at.strftime('%Y-%m-%d') if app.reviewed_at else '—' }}
+      {% if app.review_notes %}· Notes: {{ app.review_notes }}{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+  <p class="empty">No verified providers yet.</p>
+{% endif %}
+
+<div class="section-title">Rejected Applications</div>
+{% set rejected = applications | selectattr('verification_status', 'equalto', 'rejected') | list %}
+{% if rejected %}
+  {% for app in rejected %}
+  <div class="card">
+    <h3>{{ app.provider_name }} <span class="badge badge-rejected">Rejected</span></h3>
+    <div class="meta">
+      <strong>Phone:</strong> {{ app.phone }}<br>
+      {% if app.review_notes %}<strong>Reason:</strong> {{ app.review_notes }}<br>{% endif %}
+      <strong>Applied:</strong> {{ app.created_at.strftime('%Y-%m-%d') }}
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+  <p class="empty">No rejected applications.</p>
+{% endif %}
+
+<div class="section-title">Submit New Provider Application</div>
+<div class="apply-card">
+  <p style="margin:0 0 14px; font-size:0.88rem; color:#444;">
+    Healthcare providers can apply here to be verified and receive care fund payments directly.
+  </p>
+  <form method="POST" action="{{ url_for('apply_verified_provider') }}">
+    <div class="form-row">
+      <label>Facility / Provider name</label>
+      <input type="text" name="provider_name" required placeholder="e.g. Kampala City Clinic">
+    </div>
+    <div class="form-row">
+      <label>Contact phone number</label>
+      <input type="text" name="phone" required placeholder="e.g. 256712345678">
+    </div>
+    <div class="form-row">
+      <label>Wallet / payment number (MTN / Airtel)</label>
+      <input type="text" name="provider_wallet_number" placeholder="e.g. 256712345678">
+    </div>
+    <div class="form-row">
+      <label>Business license number</label>
+      <input type="text" name="business_license" placeholder="e.g. MOH-2024-01234">
+    </div>
+    <div class="form-row">
+      <label>Location / address</label>
+      <input type="text" name="location" placeholder="e.g. Plot 15, Kololo, Kampala">
+    </div>
+    <button class="btn-submit" type="submit">Submit Application</button>
+  </form>
+</div>
+
+<p style="margin-top:28px;">
+  <a href="{{ url_for('admin_care') }}" class="btn btn-back">← Admin Panel</a>
+  <a href="{{ url_for('home') }}">← Dashboard</a>
+</p>
+</body>
+</html>

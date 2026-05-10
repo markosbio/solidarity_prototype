@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head><title>Fraud Alerts – Admin</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: sans-serif; max-width: 860px; margin: 40px auto; padding: 0 16px; }
+  h1 { margin-bottom: 4px; }
+  .section-title { font-size: 0.85rem; font-weight: bold; color: #555;
+                   text-transform: uppercase; letter-spacing: .05em; margin: 28px 0 10px; }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: 18px; margin-bottom: 14px; background: #fafafa; }
+  .card.unresolved { border-left: 4px solid #fd7e14; background: #fff8f0; }
+  .card.resolved-card { border-left: 4px solid #28a745; }
+  .card h3 { margin: 0 0 8px 0; font-size: 1rem; }
+  .meta { font-size: 0.87em; color: #444; line-height: 1.7; }
+  .meta strong { color: #111; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 0.78em; }
+  .badge-open { background: #f8d7da; color: #721c24; }
+  .badge-resolved { background: #d4edda; color: #155724; }
+  .fraud-score { font-size: 1.3rem; font-weight: bold; }
+  .score-high { color: #dc3545; }
+  .score-med { color: #fd7e14; }
+  .score-low { color: #ffc107; }
+  .btn { display: inline-block; padding: 7px 18px; border-radius: 4px; font-size: 0.88rem;
+         border: none; cursor: pointer; margin-right: 6px; text-decoration: none; }
+  .btn-resolve { background: #28a745; color: white; }
+  .btn-resolve:hover { background: #218838; }
+  .btn-care { background: #2d7dd2; color: white; }
+  .btn-back { background: #6c757d; color: white; }
+  .empty { color: #888; font-style: italic; }
+  .triggers { background: #f8f9fa; border-radius: 4px; padding: 6px 10px;
+              font-size: 0.82rem; color: #555; margin-top: 8px; }
+  .trigger-item { display: inline-block; margin: 2px 4px 2px 0;
+                  background: #fff3cd; color: #856404; padding: 2px 8px;
+                  border-radius: 8px; font-size: 0.78rem; }
+</style>
+</head>
+<body>
+
+<h1>Fraud Alerts</h1>
+<p style="color:#666; margin-bottom:20px;">
+  These care requests were flagged by the automatic risk engine and require manual review
+  before funds can be released.
+</p>
+
+<div class="section-title">Open Alerts ({{ open_alerts | length }})</div>
+{% if open_alerts %}
+  {% for alert in open_alerts %}
+  <div class="card unresolved">
+    <h3>
+      Alert #{{ alert.id }} <span class="badge badge-open">Open</span>
+      {% if alert.care_request_id %}
+        — Care Request #{{ alert.care_request_id }}
+      {% endif %}
+    </h3>
+    <div style="display:flex; align-items:baseline; gap:12px; margin-bottom:8px;">
+      <span class="fraud-score {% if alert.fraud_score >= 0.7 %}score-high{% elif alert.fraud_score >= 0.5 %}score-med{% else %}score-low{% endif %}">
+        {{ "%.0f"|format(alert.fraud_score * 100) }}%
+      </span>
+      <span style="font-size:0.85rem; color:#777;">risk score</span>
+    </div>
+    <div class="meta">
+      <strong>Member:</strong> {{ alert.user.name }} — {{ alert.user.phone }}<br>
+      <strong>Flagged:</strong> {{ alert.created_at.strftime('%Y-%m-%d %H:%M UTC') }}
+    </div>
+    {% if alert.triggers %}
+    <div class="triggers">
+      <strong>Triggered by:</strong><br>
+      {% for t in alert.triggers.split(';') %}
+        {% if t.strip() %}<span class="trigger-item">{{ t.strip() }}</span>{% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+    <div style="margin-top: 12px; display:flex; gap:8px; flex-wrap:wrap;">
+      {% if alert.care_request_id %}
+      <a class="btn btn-care"
+         href="{{ url_for('admin_care') }}#req-{{ alert.care_request_id }}">
+        View Care Request
+      </a>
+      {% endif %}
+      <form method="POST" action="{{ url_for('admin_resolve_fraud_alert', alert_id=alert.id) }}">
+        <button class="btn btn-resolve">✓ Mark Resolved</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+  <p class="empty">No open fraud alerts.</p>
+{% endif %}
+
+<div class="section-title">Resolved Alerts</div>
+{% if resolved_alerts %}
+  {% for alert in resolved_alerts %}
+  <div class="card resolved-card">
+    <h3>
+      Alert #{{ alert.id }} <span class="badge badge-resolved">Resolved</span>
+      {% if alert.care_request_id %}— Care Request #{{ alert.care_request_id }}{% endif %}
+    </h3>
+    <div class="meta">
+      <strong>Member:</strong> {{ alert.user.name }}<br>
+      <strong>Risk score:</strong> {{ "%.0f"|format(alert.fraud_score * 100) }}%<br>
+      <strong>Resolved by:</strong> {{ alert.resolver.name if alert.resolver else 'system' }}<br>
+      <strong>Flagged:</strong> {{ alert.created_at.strftime('%Y-%m-%d') }}
+    </div>
+    {% if alert.triggers %}
+    <div class="triggers">
+      {% for t in alert.triggers.split(';') %}
+        {% if t.strip() %}<span class="trigger-item">{{ t.strip() }}</span>{% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+{% else %}
+  <p class="empty">No resolved alerts.</p>
+{% endif %}
+
+<p style="margin-top:28px;">
+  <a href="{{ url_for('admin_care') }}" class="btn btn-back">← Admin Panel</a>
+  <a href="{{ url_for('home') }}">← Dashboard</a>
+</p>
+</body>
+</html>

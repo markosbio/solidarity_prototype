@@ -13,11 +13,11 @@ def notify_ceiling_increase(user, new_ceiling: float, old_ceiling: float) -> Non
         return
     msg = (
         f"Good news {user.name.split()[0]}! "
-        f"Your SolidarityPool care limit is now ${new_ceiling:.0f}. "
+        f"Your SolidarityPool care limit is now UGX {new_ceiling:,.0f}. "
         f"Dial our shortcode or open the app to request care funds anytime."
     )
     logger.info(
-        "Ceiling increase notification: user_id={} ${:.0f} -> ${:.0f}",
+        "Ceiling increase notification: user_id={} UGX {:.0f} -> UGX {:.0f}",
         user.id, old_ceiling, new_ceiling,
     )
     _send_sms(user.phone, msg)
@@ -39,10 +39,43 @@ def notify_pool_low(community, pct: float) -> None:
         return
     msg = (
         f"[SolidarityPool] Pool alert for '{community.name}': "
-        f"{pct:.0f}% health (${community.pool_balance:.0f} left). "
+        f"{pct:.0f}% health (UGX {community.pool_balance:,.0f} left). "
         f"Encourage members to contribute round-ups to restore the pool."
     )
     _send_sms(admin.phone, msg)
+
+
+def notify_solidarity_contribution(user, solidarity_amount: float, to_wallet: float) -> None:
+    """
+    Notify a member of their solidarity health contribution.
+    Does NOT mention the 8% rate — just the amounts credited.
+    """
+    if solidarity_amount <= 0:
+        return
+    msg = (
+        f"Solidarity Health contribution: UGX {solidarity_amount:,.0f} added. "
+        f"UGX {to_wallet:,.0f} credited to your health wallet."
+    )
+    logger.info(
+        "Solidarity contribution notification: user_id={} solidarity={:.0f} wallet={:.0f}",
+        user.id, solidarity_amount, to_wallet,
+    )
+    _send_sms(user.phone, msg)
+
+
+def notify_fraud_flagged(admin_phone: str, user_name: str, amount: float,
+                         care_request_id: int, score: float) -> None:
+    """Alert admin that a care request has been flagged for manual review."""
+    msg = (
+        f"[SolidarityPool] Fraud review needed: Care Request #{care_request_id} "
+        f"by {user_name} for UGX {amount:,.0f} flagged (risk {score:.0%}). "
+        f"Log in to review."
+    )
+    logger.warning(
+        "Fraud flag notification: care_request_id={} user={} amount={:.0f} score={}",
+        care_request_id, user_name, amount, score,
+    )
+    _send_sms(admin_phone, msg)
 
 
 def _send_sms(phone: str, message: str) -> None:
