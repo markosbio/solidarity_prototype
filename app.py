@@ -38,14 +38,22 @@ ADMIN_PHONES = ['0769547988']
 
 def _ensure_global_admin(user):
     """If user's phone is in ADMIN_PHONES, create GlobalAdmin record if missing."""
-    if user.phone in ADMIN_PHONES:
-        existing = GlobalAdmin.query.filter_by(user_id=user.id).first()
-        if not existing:
-            ga = GlobalAdmin(user_id=user.id, created_by=user.id)
-            db.session.add(ga)
-            db.session.commit()
-        return True
-    return GlobalAdmin.query.filter_by(user_id=user.id).first() is not None
+    try:
+        if user.phone in ADMIN_PHONES:
+            existing = GlobalAdmin.query.filter_by(user_id=user.id).first()
+            if not existing:
+                ga = GlobalAdmin(user_id=user.id, created_by=user.id)
+                db.session.add(ga)
+                try:
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
+            return True
+        return GlobalAdmin.query.filter_by(user_id=user.id).first() is not None
+    except Exception:
+        db.session.rollback()
+        # Fallback: grant access by phone list only if DB check fails
+        return user.phone in ADMIN_PHONES
 
 def admin_required(f):
     @wraps(f)
@@ -723,12 +731,23 @@ def admin_care():
         cr.requester = User.query.get(cr.user_id)
     solidarity_pct = _get_solidarity_percent()
     fraud_count = FraudAlert.query.filter_by(resolved=False).count()
-    # Platform health stats
-    total_members   = User.query.count()
-    total_pool      = db.session.query(db.func.sum(Community.pool_balance)).scalar() or 0.0
-    total_disbursed = db.session.query(db.func.sum(CareRequest.amount_requested))\
-                        .filter(CareRequest.status == 'approved').scalar() or 0.0
-    pending_count   = len(pending)
+    # Platform health stats (simple queries to avoid legacy API issues)
+    try:
+        total_members = User.query.count()
+    except Exception:
+        total_members = 0
+    try:
+        total_pool = sum(float(c.pool_balance or 0) for c in Community.query.all())
+    except Exception:
+        total_pool = 0.0
+    try:
+        total_disbursed = sum(
+            float(cr.amount_requested or 0)
+            for cr in CareRequest.query.filter_by(status='approved').all()
+        )
+    except Exception:
+        total_disbursed = 0.0
+    pending_count = len(pending)
     return render_template('admin_care.html', user=user, pending=pending,
                            solidarity_pct=solidarity_pct, fraud_count=fraud_count,
                            total_members=total_members, total_pool=total_pool,

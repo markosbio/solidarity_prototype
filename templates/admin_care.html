@@ -69,11 +69,11 @@
     <div style="font-size:0.78rem; color:#555; margin-top:2px;">Members</div>
   </div>
   <div style="background:#e8f8ee; border:1px solid #b8e6c8; border-radius:8px; padding:14px 16px; text-align:center;">
-    <div style="font-size:1.6rem; font-weight:bold; color:#155724;">{{ "{:,.0f}".format(total_pool) }}</div>
+    <div style="font-size:1.6rem; font-weight:bold; color:#155724;">{{ "%d" | format(total_pool | int) }}</div>
     <div style="font-size:0.78rem; color:#555; margin-top:2px;">Pool Balance (UGX)</div>
   </div>
   <div style="background:#fff8e8; border:1px solid #fde8a8; border-radius:8px; padding:14px 16px; text-align:center;">
-    <div style="font-size:1.6rem; font-weight:bold; color:#856404;">{{ "{:,.0f}".format(total_disbursed) }}</div>
+    <div style="font-size:1.6rem; font-weight:bold; color:#856404;">{{ "%d" | format(total_disbursed | int) }}</div>
     <div style="font-size:0.78rem; color:#555; margin-top:2px;">Disbursed (UGX)</div>
   </div>
   <div style="background:{% if pending_count > 0 %}#f8d7da{% else %}#f0f0f0{% endif %}; border:1px solid {% if pending_count > 0 %}#f5c6cb{% else %}#ddd{% endif %}; border-radius:8px; padding:14px 16px; text-align:center;">
