@@ -1,46 +1,115 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Login – Solidarity Pool</title>
+<title>Solidarity Health Pool</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  body { font-family: sans-serif; max-width: 420px; margin: 60px auto; padding: 0 16px; }
-  h1 { font-size: 1.4rem; margin-bottom: 4px; }
-  .subtitle { color: #666; margin-bottom: 24px; font-size: 0.9rem; }
-  .card { border: 1px solid #ddd; border-radius: 8px; padding: 22px; background: #fafafa; }
-  label { display: block; font-weight: bold; margin-top: 12px; font-size: 0.9rem; }
-  input { width: 100%; padding: 10px; margin-top: 4px; border: 1px solid #ccc;
-          border-radius: 4px; box-sizing: border-box; font-size: 1rem; }
-  button { margin-top: 18px; padding: 10px 24px; background: #2d7dd2; color: white;
-           border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; width: 100%; }
-  button:hover { background: #2566b0; }
+  * { box-sizing: border-box; }
+  body { font-family: sans-serif; max-width: 420px; margin: 0 auto; padding: 24px 16px 40px; }
+  h1 { font-size: 1.5rem; margin-bottom: 4px; color: #1a1a2e; }
+  .subtitle { color: #666; margin-bottom: 28px; font-size: 0.92rem; line-height: 1.5; }
+  .card { border: 1px solid #ddd; border-radius: 10px; padding: 24px; background: #fafafa; }
+  .step-label { font-size: 0.78rem; font-weight: bold; text-transform: uppercase;
+                letter-spacing: 0.05em; color: #888; margin-bottom: 16px; }
+  label { display: block; font-weight: 600; margin-top: 14px; font-size: 0.9rem; color: #333; }
+  input { width: 100%; padding: 11px 12px; margin-top: 5px; border: 1.5px solid #ccc;
+          border-radius: 6px; font-size: 1rem; transition: border-color 0.15s; }
+  input:focus { outline: none; border-color: #2d7dd2; }
+  .hint { font-size: 0.76rem; color: #888; margin-top: 3px; }
+  .btn { margin-top: 18px; padding: 12px 24px; background: #2d7dd2; color: white;
+         border: none; border-radius: 6px; cursor: pointer; font-size: 1rem;
+         width: 100%; font-weight: 600; transition: background 0.15s; }
+  .btn:hover { background: #2566b0; }
+  .btn-back { background: none; border: 1.5px solid #ccc; color: #555; margin-top: 10px; font-weight: normal; }
+  .btn-back:hover { background: #f0f0f0; }
   .error { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24;
-           padding: 10px 14px; border-radius: 4px; margin-bottom: 14px; font-size: 0.9rem; }
-  .links { margin-top: 16px; text-align: center; font-size: 0.88rem; }
-  .links a { color: #2d7dd2; }
-  .divider { margin-top: 24px; border-top: 1px solid #eee; padding-top: 14px;
-             text-align: center; font-size: 0.85rem; color: #888; }
+           padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 0.9rem; }
+  .welcome { background: #d4edda; border: 1px solid #c3e6cb; color: #155724;
+             padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 0.92rem; }
+  .welcome strong { display: block; font-size: 1rem; margin-bottom: 2px; }
+  .phone-display { background: #e8f0fe; border: 1px solid #b8d0f8; border-radius: 6px;
+                   padding: 10px 14px; font-size: 0.95rem; color: #1a5fc8;
+                   font-weight: bold; margin-bottom: 6px; letter-spacing: 0.03em; }
+  .divider { margin-top: 20px; border-top: 1px solid #eee; padding-top: 16px;
+             text-align: center; font-size: 0.86rem; color: #888; }
+  .divider a { color: #2d7dd2; text-decoration: none; }
+  .section-divider { border: none; border-top: 1.5px dashed #e0e0e0; margin: 20px 0 4px; }
+  .new-badge { display: inline-block; background: #fff3cd; color: #856404; font-size: 0.75rem;
+               font-weight: bold; padding: 2px 8px; border-radius: 10px; margin-left: 6px;
+               vertical-align: middle; }
 </style>
 </head>
 <body>
 
 <h1>Solidarity Health Pool</h1>
-<p class="subtitle">Log in with your phone number — no password needed.</p>
+<p class="subtitle">Community mutual aid — micro round-ups &amp; peer-verified care funds.</p>
 
 <div class="card">
+
   {% if error %}
   <div class="error">{{ error }}</div>
   {% endif %}
 
+  {% if show_register %}
+  <!-- ── STEP 2: New member — show registration fields ── -->
+  <div class="step-label">New member <span class="new-badge">First time</span></div>
+  <div class="phone-display">📱 {{ phone }}</div>
+  <p style="font-size:0.85rem; color:#555; margin:4px 0 12px;">
+    This number isn't registered yet. Fill in the details below to join the pool.
+  </p>
+
   <form method="POST">
-    <label>Phone number
-      <input type="tel" name="phone" placeholder="e.g. 254712345678" required autofocus>
+    <input type="hidden" name="step" value="register">
+    <input type="hidden" name="phone" value="{{ phone }}">
+
+    <label>Full name
+      <input type="text" name="name" placeholder="e.g. Amara Osei" required autofocus>
     </label>
-    <button type="submit">Log in</button>
+
+    <label>Referred by (optional)
+      <input type="tel" name="referred_by" placeholder="Referrer's phone number">
+      <span class="hint">Enter a member's phone to grow their trust network.</span>
+    </label>
+
+    <hr class="section-divider">
+
+    <label>Choose a 4-digit PIN
+      <input type="password" name="pin" maxlength="4" inputmode="numeric"
+             pattern="[0-9]{4}" placeholder="e.g. 1234" required>
+      <span class="hint">Used to authorise care requests &amp; repayments.</span>
+    </label>
+    <label>Confirm PIN
+      <input type="password" name="confirm_pin" maxlength="4" inputmode="numeric"
+             pattern="[0-9]{4}" placeholder="Re-enter PIN" required>
+    </label>
+
+    <button class="btn" type="submit">Join &amp; Enter Pool</button>
   </form>
 
-  <div class="links">
-    New here? <a href="{{ url_for('register') }}">Register as a member</a>
-  </div>
+  <form method="POST" style="margin-top:0;">
+    <input type="hidden" name="step" value="check">
+    <input type="hidden" name="phone" value="">
+    <button class="btn btn-back" type="submit"
+            onclick="this.form.querySelector('[name=phone]').value=''">
+      ← Use a different number
+    </button>
+  </form>
+
+  {% else %}
+  <!-- ── STEP 1: Phone entry ── -->
+  <div class="step-label">Enter your phone number</div>
+
+  <form method="POST">
+    <input type="hidden" name="step" value="check">
+    <label>Phone number
+      <input type="tel" name="phone" value="{{ phone or '' }}"
+             placeholder="e.g. 254712345678" required autofocus>
+      <span class="hint">If you're already a member, you'll be logged in straight away.</span>
+    </label>
+    <button class="btn" type="submit">Continue →</button>
+  </form>
+
+  {% endif %}
 
   <div class="divider">
     Are you a healthcare provider?

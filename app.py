@@ -30,6 +30,7 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.environ.get('SESSION_SECRET', os.environ.get('SECRET_KEY', 'solidarity-dev-key-change-in-production'))
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///solidarity.db')
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
 
 # ── Admin access control ───────────────────────────────────────────────────────
 # Phones always granted admin — auto-seeded into GlobalAdmin on first access
@@ -175,23 +176,73 @@ def home():
 def login():
     if request.method == 'POST':
         phone = request.form.get('phone', '').strip()
-        user = User.query.filter_by(phone=phone).first()
-        if user:
+        step = request.form.get('step', 'check')
+
+        if step == 'check':
+            # Phone-lookup step — decide whether to log in or show registration fields
+            user = User.query.filter_by(phone=phone).first()
+            if user:
+                session.permanent = True
+                session['user_id'] = user.id
+                return redirect(url_for('home'))
+            # Phone not found — show registration fields with phone pre-filled
+            return render_template('login.html', phone=phone, show_register=True)
+
+        elif step == 'register':
+            # New-user registration submitted from the login page
+            name = request.form.get('name', '').strip()
+            pin = request.form.get('pin', '').strip()
+            confirm_pin = request.form.get('confirm_pin', '').strip()
+            referred_by = request.form.get('referred_by', '').strip()
+
+            # Re-check in case they registered in another tab
+            existing = User.query.filter_by(phone=phone).first()
+            if existing:
+                session.permanent = True
+                session['user_id'] = existing.id
+                return redirect(url_for('home'))
+            if not name:
+                return render_template('login.html', phone=phone, show_register=True,
+                                       error='Please enter your full name.')
+            if not pin.isdigit() or len(pin) != 4:
+                return render_template('login.html', phone=phone, show_register=True,
+                                       error='PIN must be exactly 4 digits.')
+            if pin != confirm_pin:
+                return render_template('login.html', phone=phone, show_register=True,
+                                       error='PINs do not match. Please try again.')
+            user = User(phone=phone, name=name, pin=pin, sub_wallet_balance=0.0, trust_score=0.5)
+            if referred_by:
+                referrer = User.query.filter_by(phone=referred_by).first()
+                if referrer:
+                    user.referred_by = referrer.id
+            db.session.add(user)
+            db.session.commit()
+            default_comm = Community.query.first()
+            if default_comm:
+                membership = CommunityMembership(user_id=user.id, community_id=default_comm.id, role='member')
+                db.session.add(membership)
+                user.primary_community_id = default_comm.id
+                db.session.commit()
+            session.permanent = True
             session['user_id'] = user.id
             return redirect(url_for('home'))
-        return render_template('login.html', error='Phone number not found. Please register first.')
-    return render_template('login.html')
+
+    # GET — check for pre-filled phone from register page redirect
+    prefill_phone = request.args.get('phone', '')
+    return render_template('login.html', phone=prefill_phone)
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
+    """Legacy register route — redirects into the unified login flow."""
     if request.method == 'POST':
-        phone = request.form['phone']
-        name = request.form['name']
-        referred_by = request.form.get('referred_by')
+        phone = request.form.get('phone', '').strip()
+        name = request.form.get('name', '').strip()
+        referred_by = request.form.get('referred_by', '').strip()
         pin = request.form.get('pin', '1234').strip()
         confirm_pin = request.form.get('confirm_pin', '').strip()
         existing = User.query.filter_by(phone=phone).first()
         if existing:
+            session.permanent = True
             session['user_id'] = existing.id
             return redirect(url_for('home'))
         if not pin.isdigit() or len(pin) != 4:
@@ -211,9 +262,11 @@ def register():
             db.session.add(membership)
             user.primary_community_id = default_comm.id
             db.session.commit()
+        session.permanent = True
         session['user_id'] = user.id
         return redirect(url_for('home'))
-    return render_template('register.html')
+    prefill = request.args.get('phone', '')
+    return render_template('register.html', prefill_phone=prefill)
 
 @app.route('/register_provider', methods=['POST'])
 def register_provider():
@@ -670,8 +723,16 @@ def admin_care():
         cr.requester = User.query.get(cr.user_id)
     solidarity_pct = _get_solidarity_percent()
     fraud_count = FraudAlert.query.filter_by(resolved=False).count()
+    # Platform health stats
+    total_members   = User.query.count()
+    total_pool      = db.session.query(db.func.sum(Community.pool_balance)).scalar() or 0.0
+    total_disbursed = db.session.query(db.func.sum(CareRequest.amount_requested))\
+                        .filter(CareRequest.status == 'approved').scalar() or 0.0
+    pending_count   = len(pending)
     return render_template('admin_care.html', user=user, pending=pending,
-                           solidarity_pct=solidarity_pct, fraud_count=fraud_count)
+                           solidarity_pct=solidarity_pct, fraud_count=fraud_count,
+                           total_members=total_members, total_pool=total_pool,
+                           total_disbursed=total_disbursed, pending_count=pending_count)
 
 
 @app.route('/admin/set-solidarity-percent', methods=['POST'])

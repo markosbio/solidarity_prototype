@@ -34,7 +34,7 @@
   <h2>Join as a Member</h2>
   <form method="POST" action="{{ url_for('register') }}">
     <label>Phone number
-      <input type="tel" name="phone" placeholder="e.g. 254712345678" required>
+      <input type="tel" name="phone" value="{{ prefill_phone or '' }}" placeholder="e.g. 254712345678" required>
       <span class="hint">Used as your unique login — no password needed.</span>
     </label>
     <label>Full name
