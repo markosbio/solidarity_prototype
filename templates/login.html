@@ -1,194 +1,333 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<title>Solidarity Health Pool</title>
+<title>Solidarity Health Pool — Sign In</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#2d7dd2">
 <style>
-  * { box-sizing: border-box; }
-  body { font-family: sans-serif; max-width: 420px; margin: 0 auto; padding: 24px 16px 40px; }
-  h1 { font-size: 1.5rem; margin-bottom: 4px; color: #1a1a2e; }
-  .subtitle { color: #666; margin-bottom: 28px; font-size: 0.92rem; line-height: 1.5; }
-  .card { border: 1px solid #ddd; border-radius: 10px; padding: 24px; background: #fafafa; }
-  .step-label { font-size: 0.78rem; font-weight: bold; text-transform: uppercase;
-                letter-spacing: 0.05em; color: #888; margin-bottom: 16px; }
-  label { display: block; font-weight: 600; margin-top: 14px; font-size: 0.9rem; color: #333; }
-  input[type=tel], input[type=text], input[type=password] {
-    width: 100%; padding: 11px 12px; margin-top: 5px; border: 1.5px solid #ccc;
-    border-radius: 6px; font-size: 1rem; transition: border-color 0.15s;
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    margin: 0; min-height: 100vh;
+    background: linear-gradient(145deg, #0f1b35 0%, #1a3060 60%, #1e4080 100%);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 24px 16px;
   }
-  input:focus { outline: none; border-color: #2d7dd2; }
-  /* PIN field — large centred digits */
-  .pin-input {
-    font-size: 1.6rem; letter-spacing: 0.3em; text-align: center;
-    font-family: monospace; padding: 12px;
+
+  /* Brand */
+  .brand { text-align: center; margin-bottom: 28px; }
+  .brand-logo { font-size: 2.4rem; margin-bottom: 6px; }
+  .brand-name { color: #fff; font-size: 1.35rem; font-weight: 700; letter-spacing: -0.01em; }
+  .brand-tagline { color: rgba(255,255,255,0.55); font-size: 0.82rem; margin-top: 3px; }
+
+  /* Card */
+  .card {
+    width: 100%; max-width: 400px;
+    background: #fff; border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+    overflow: hidden;
   }
-  .hint { font-size: 0.76rem; color: #888; margin-top: 3px; }
-  .btn { margin-top: 18px; padding: 12px 24px; background: #2d7dd2; color: white;
-         border: none; border-radius: 6px; cursor: pointer; font-size: 1rem;
-         width: 100%; font-weight: 600; transition: background 0.15s; }
-  .btn:hover { background: #2566b0; }
-  .btn-back { background: none; border: 1.5px solid #ccc; color: #555;
-              margin-top: 10px; font-weight: normal; }
-  .btn-back:hover { background: #f0f0f0; }
-  .error { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24;
-           padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 0.9rem; }
-  .success-msg { background: #d4edda; border: 1px solid #c3e6cb; color: #155724;
-                 padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 0.9rem; }
-  .phone-display { background: #e8f0fe; border: 1px solid #b8d0f8; border-radius: 6px;
-                   padding: 10px 14px; font-size: 0.95rem; color: #1a5fc8;
-                   font-weight: bold; margin-bottom: 6px; letter-spacing: 0.03em; }
-  .divider { margin-top: 20px; border-top: 1px solid #eee; padding-top: 16px;
-             text-align: center; font-size: 0.86rem; color: #888; }
-  .divider a { color: #2d7dd2; text-decoration: none; }
-  .section-divider { border: none; border-top: 1.5px dashed #e0e0e0; margin: 20px 0 4px; }
-  .new-badge { display: inline-block; background: #fff3cd; color: #856404; font-size: 0.75rem;
-               font-weight: bold; padding: 2px 8px; border-radius: 10px; margin-left: 6px;
-               vertical-align: middle; }
-  .lock-icon { font-size: 2rem; text-align: center; margin-bottom: 8px; }
-  .attempts-bar { display: flex; gap: 4px; margin-top: 10px; }
-  .attempts-bar .dot { width: 10px; height: 10px; border-radius: 50%; background: #ddd; }
-  .attempts-bar .dot.used { background: #dc3545; }
+  .card-body { padding: 30px 28px 24px; }
+
+  /* Step progress dots */
+  .steps { display: flex; justify-content: center; gap: 8px; margin-bottom: 22px; }
+  .step-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #d0d8e8; transition: background 0.2s, transform 0.2s;
+  }
+  .step-dot.done  { background: #28a745; }
+  .step-dot.active { background: #2d7dd2; transform: scale(1.35); }
+
+  /* Step label */
+  .step-label {
+    font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.08em; color: #2d7dd2; margin-bottom: 6px;
+  }
+  .step-title { font-size: 1.2rem; font-weight: 700; color: #1a1a2e; margin: 0 0 18px; }
+
+  /* Alerts */
+  .alert {
+    padding: 11px 14px; border-radius: 8px; margin-bottom: 18px;
+    font-size: 0.87rem; line-height: 1.45; display: flex; gap: 9px; align-items: flex-start;
+  }
+  .alert-error   { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; }
+  .alert-success { background: #f0fdf4; border: 1px solid #86efac; color: #166534; }
+  .alert-icon { font-size: 1rem; flex-shrink: 0; margin-top: 1px; }
+
+  /* Phone display chip */
+  .phone-chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: #eff6ff; border: 1.5px solid #bfdbfe;
+    border-radius: 8px; padding: 9px 14px;
+    font-size: 1rem; font-weight: 700; color: #1d4ed8;
+    margin-bottom: 14px; width: 100%;
+  }
+  .phone-chip .chip-icon { font-size: 1.1rem; }
+
+  /* Form fields */
+  .field { margin-bottom: 16px; }
+  .field label {
+    display: block; font-size: 0.82rem; font-weight: 600;
+    color: #374151; margin-bottom: 6px;
+  }
+  .field input[type=tel],
+  .field input[type=text],
+  .field input[type=password] {
+    width: 100%; padding: 12px 14px;
+    border: 1.5px solid #d1d5db; border-radius: 8px;
+    font-size: 1rem; color: #111827;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    background: #fff;
+  }
+  .field input:focus {
+    outline: none; border-color: #2d7dd2;
+    box-shadow: 0 0 0 3px rgba(45,125,210,0.12);
+  }
+  .field .hint {
+    font-size: 0.74rem; color: #9ca3af; margin-top: 4px; line-height: 1.4;
+  }
+
+  /* PIN field */
+  .pin-field input {
+    font-size: 1.8rem; letter-spacing: 0.45em; text-align: center;
+    font-family: monospace; padding: 14px;
+  }
+
+  /* PIN strength indicator */
+  .pin-rules {
+    background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px;
+    padding: 9px 12px; margin-top: 8px; font-size: 0.75rem; color: #6b7280;
+    line-height: 1.6;
+  }
+  .pin-rules strong { color: #374151; }
+
+  /* Divider */
+  .or-divider {
+    border: none; border-top: 1.5px dashed #e5e7eb;
+    margin: 18px 0 14px;
+  }
+
+  /* Checkbox row */
+  .tos-row {
+    display: flex; gap: 10px; align-items: flex-start; margin-bottom: 18px;
+  }
+  .tos-row input[type=checkbox] {
+    width: 16px; height: 16px; margin-top: 2px; flex-shrink: 0;
+    accent-color: #2d7dd2; cursor: pointer;
+  }
+  .tos-row label {
+    font-size: 0.8rem; color: #6b7280; line-height: 1.45; cursor: pointer;
+  }
+  .tos-row a { color: #2d7dd2; text-decoration: none; }
+  .tos-row a:hover { text-decoration: underline; }
+
+  /* Buttons */
+  .btn-primary {
+    width: 100%; padding: 13px; background: #2d7dd2; color: #fff;
+    border: none; border-radius: 8px; font-size: 1rem; font-weight: 700;
+    cursor: pointer; letter-spacing: 0.01em;
+    transition: background 0.15s, transform 0.1s;
+  }
+  .btn-primary:hover { background: #2566b0; }
+  .btn-primary:active { transform: scale(0.98); }
+
+  .btn-ghost {
+    width: 100%; padding: 11px; background: none;
+    border: 1.5px solid #e5e7eb; border-radius: 8px;
+    font-size: 0.92rem; color: #6b7280; cursor: pointer;
+    margin-top: 10px; transition: background 0.12s, border-color 0.12s;
+    text-align: center; text-decoration: none; display: block;
+  }
+  .btn-ghost:hover { background: #f9fafb; border-color: #d1d5db; color: #374151; }
+
+  /* Footer links */
+  .card-footer {
+    border-top: 1px solid #f3f4f6; padding: 14px 28px;
+    text-align: center; font-size: 0.82rem; color: #9ca3af;
+    display: flex; justify-content: center; gap: 20px; flex-wrap: wrap;
+  }
+  .card-footer a { color: #2d7dd2; text-decoration: none; }
+  .card-footer a:hover { text-decoration: underline; }
+
+  @media (max-width: 440px) {
+    .card-body { padding: 24px 18px 18px; }
+    .card-footer { padding: 12px 18px; }
+  }
 </style>
 </head>
 <body>
 
-<h1>Solidarity Health Pool</h1>
-<p class="subtitle">Community mutual aid — micro round-ups &amp; peer-verified care funds.</p>
+<div class="brand">
+  <div class="brand-logo">🤝</div>
+  <div class="brand-name">Solidarity Health Pool</div>
+  <div class="brand-tagline">Community mutual aid — micro round-ups &amp; peer-verified care funds</div>
+</div>
 
 <div class="card">
+  <div class="card-body">
 
-  {% if error %}
-  <div class="error">{{ error }}</div>
-  {% endif %}
-
-  {% if success %}
-  <div class="success-msg">{{ success }}</div>
-  {% endif %}
-
-  {# ── STEP 2b: Existing member — enter PIN ───────────────────────────────── #}
-  {% if show_pin %}
-  <div class="step-label">Enter your PIN</div>
-  <div class="phone-display">📱 {{ phone }}</div>
-  <p style="font-size:0.85rem; color:#555; margin:4px 0 12px;">
-    Enter your 4–6 digit PIN to access your account.
-  </p>
-
-  <form method="POST" autocomplete="off">
-    <input type="hidden" name="step" value="pin">
-    <input type="hidden" name="phone" value="{{ phone }}">
-
-    <label>PIN
-      <input class="pin-input" type="password" name="pin"
-             minlength="4" maxlength="6" inputmode="numeric"
-             pattern="[0-9]{4,6}" placeholder="••••"
-             required autofocus autocomplete="current-password">
-      <span class="hint">4–6 digit PIN you chose when registering.</span>
-    </label>
-
-    <button class="btn" type="submit">Log In →</button>
-  </form>
-
-  <a href="/login" class="btn btn-back" style="display:block; text-align:center; text-decoration:none; margin-top:10px;">← Use a different number</a>
-
-  <div style="text-align:center; margin-top:14px; font-size:0.84rem;">
-    <a href="{{ url_for('forgot_pin') }}" style="color:#2d7dd2;">Forgot your PIN?</a>
-  </div>
-
-  {# ── STEP 2a: New member — registration fields ─────────────────────────── #}
-  {% elif show_register %}
-  <div class="step-label">New member <span class="new-badge">First time</span></div>
-
-  <p style="font-size:0.85rem; color:#555; margin:0 0 12px;">
-    This number isn't registered yet. Fill in the details below to join the pool.
-  </p>
-
-  <form method="POST" autocomplete="off">
-    <input type="hidden" name="step" value="register">
-
-    <label>Phone number
-      <input type="tel" name="phone" value="{{ phone or '' }}"
-             placeholder="e.g. 254712345678" required autofocus autocomplete="tel">
-      <span class="hint">Confirm your number or correct it before continuing.</span>
-    </label>
-
-    <label>Full name
-      <input type="text" name="name" placeholder="e.g. Amara Osei" required
-             autocomplete="name">
-    </label>
-
-    <label>Referred by (optional)
-      <input type="tel" name="referred_by" placeholder="Referrer's phone number"
-             autocomplete="off">
-      <span class="hint">Enter a member's phone to grow their trust network.</span>
-    </label>
-
-    <hr class="section-divider">
-
-    <label>Choose a PIN (4–6 digits)
-      <input type="password" name="pin" minlength="4" maxlength="6"
-             inputmode="numeric" pattern="[0-9]{4,6}"
-             placeholder="e.g. 5823" required autocomplete="new-password">
-      <span class="hint">Used to authorise care requests &amp; repayments. Do not reuse PINs from other services.</span>
-    </label>
-    <label>Confirm PIN
-      <input type="password" name="confirm_pin" minlength="4" maxlength="6"
-             inputmode="numeric" pattern="[0-9]{4,6}"
-             placeholder="Re-enter PIN" required autocomplete="new-password">
-    </label>
-
-    <div style="display:flex; gap:10px; align-items:flex-start; margin-top:12px;">
-      <input type="checkbox" name="tos_accept" id="tos_accept_l" value="1" required
-             style="width:auto; margin-top:3px; flex-shrink:0;">
-      <label for="tos_accept_l" style="font-weight:normal; font-size:0.82rem; color:#666; margin:0; line-height:1.4;">
-        I agree to the <a href="/terms" target="_blank" style="color:#2d7dd2;">Terms of Service</a>
-        and <a href="/privacy" target="_blank" style="color:#2d7dd2;">Privacy Policy</a>.
-      </label>
+    {# ─── Step progress dots ─────────────────────────────────────────── #}
+    <div class="steps">
+      <div class="step-dot {% if show_pin or show_register %}done{% elif not show_pin and not show_register %}active{% endif %}"></div>
+      <div class="step-dot {% if show_register %}active{% elif show_pin %}done{% endif %}"></div>
+      <div class="step-dot {% if show_pin %}active{% endif %}"></div>
     </div>
 
-    <button class="btn" type="submit">Create Account</button>
-  </form>
-
-  <a href="/login" class="btn btn-back" style="display:block; text-align:center; text-decoration:none; margin-top:10px;">← Use a different number</a>
-
-  {# ── STEP 1: Phone entry ─────────────────────────────────────────────────── #}
-  {% else %}
-  <div class="step-label">Enter your phone number</div>
-
-  <form method="POST">
-    <input type="hidden" name="step" value="check">
-    <label>Phone number
-      <input type="tel" name="phone" value="{{ phone or '' }}"
-             placeholder="e.g. 254712345678" required autofocus
-             autocomplete="tel">
-      <span class="hint">
-        Existing members proceed to PIN entry. New numbers start registration.
-      </span>
-    </label>
-    <button class="btn" type="submit">Continue →</button>
-  </form>
-
-  {% endif %}
-
-  <div class="divider">
-    {% if not show_pin %}
-    <a href="{{ url_for('forgot_pin') }}">Forgot your PIN?</a>
-    &nbsp;·&nbsp;
+    {# ─── Alerts ─────────────────────────────────────────────────────── #}
+    {% if error %}
+    <div class="alert alert-error">
+      <span class="alert-icon">⚠️</span>
+      <span>{{ error }}</span>
+    </div>
     {% endif %}
-    Are you a healthcare provider?
-    <a href="{{ url_for('provider_login') }}">Provider login →</a>
+    {% if success %}
+    <div class="alert alert-success">
+      <span class="alert-icon">✅</span>
+      <span>{{ success }}</span>
+    </div>
+    {% endif %}
+
+    {# ═══════════════════════════════════════════════════════════════════
+        STEP 3 — Existing member: enter PIN
+       ═══════════════════════════════════════════════════════════════════ #}
+    {% if show_pin %}
+    <div class="step-label">Step 3 of 3</div>
+    <h2 class="step-title">Enter your PIN</h2>
+
+    <div class="phone-chip">
+      <span class="chip-icon">📱</span>
+      <span>{{ phone }}</span>
+    </div>
+
+    <form method="POST" autocomplete="off">
+      <input type="hidden" name="step" value="pin">
+      <input type="hidden" name="phone" value="{{ phone }}">
+
+      <div class="field pin-field">
+        <label for="pin-input">Your PIN</label>
+        <input id="pin-input" type="password" name="pin"
+               minlength="4" maxlength="6" inputmode="numeric"
+               pattern="[0-9]{4,6}" placeholder="· · · ·"
+               required autofocus autocomplete="current-password">
+        <div class="hint">Enter the 4–6 digit PIN you set when you registered.</div>
+      </div>
+
+      <button class="btn-primary" type="submit">Log In →</button>
+    </form>
+
+    <a href="/login" class="btn-ghost">← Use a different number</a>
+
+    {# ═══════════════════════════════════════════════════════════════════
+        STEP 2 — New member: registration form
+       ═══════════════════════════════════════════════════════════════════ #}
+    {% elif show_register %}
+    <div class="step-label">Step 2 of 3 — New member</div>
+    <h2 class="step-title">Create your account</h2>
+
+    <form method="POST" autocomplete="off">
+      <input type="hidden" name="step" value="register">
+
+      <div class="field">
+        <label>Phone number</label>
+        <input type="tel" name="phone" value="{{ phone or '' }}"
+               placeholder="e.g. 254712345678" required autofocus autocomplete="tel">
+        <div class="hint">You can correct it here if you made a typo.</div>
+      </div>
+
+      <div class="field">
+        <label>Full name</label>
+        <input type="text" name="name" placeholder="e.g. Amara Osei" required autocomplete="name">
+      </div>
+
+      <div class="field">
+        <label>Referred by <span style="font-weight:400; color:#9ca3af;">(optional)</span></label>
+        <input type="tel" name="referred_by" placeholder="Referrer's phone number" autocomplete="off">
+        <div class="hint">Enter a member's phone number to grow their trust network.</div>
+      </div>
+
+      <hr class="or-divider">
+
+      <div class="field pin-field">
+        <label>Choose a PIN</label>
+        <input type="password" name="pin" minlength="4" maxlength="6"
+               inputmode="numeric" pattern="[0-9]{4,6}"
+               placeholder="· · · ·" required autocomplete="new-password">
+        <div class="pin-rules">
+          <strong>PIN rules:</strong> 4 to 6 digits · No sequences like 1234 or 9876 · No repeated digits like 1111
+        </div>
+      </div>
+
+      <div class="field pin-field">
+        <label>Confirm PIN</label>
+        <input type="password" name="confirm_pin" minlength="4" maxlength="6"
+               inputmode="numeric" pattern="[0-9]{4,6}"
+               placeholder="· · · ·" required autocomplete="new-password">
+      </div>
+
+      <div class="tos-row">
+        <input type="checkbox" name="tos_accept" id="tos_accept_l" value="1" required>
+        <label for="tos_accept_l">
+          I agree to the <a href="/terms" target="_blank">Terms of Service</a>
+          and <a href="/privacy" target="_blank">Privacy Policy</a>.
+        </label>
+      </div>
+
+      <button class="btn-primary" type="submit">Create Account →</button>
+    </form>
+
+    <a href="/login" class="btn-ghost">← Use a different number</a>
+
+    {# ═══════════════════════════════════════════════════════════════════
+        STEP 1 — Phone entry
+       ═══════════════════════════════════════════════════════════════════ #}
+    {% else %}
+    <div class="step-label">Step 1 of 3</div>
+    <h2 class="step-title">Enter your phone number</h2>
+
+    <form method="POST">
+      <input type="hidden" name="step" value="check">
+      <div class="field">
+        <label for="phone-input">Phone number</label>
+        <input id="phone-input" type="tel" name="phone" value="{{ phone or '' }}"
+               placeholder="e.g. 254712345678" required autofocus autocomplete="tel">
+        <div class="hint">
+          Already a member? We'll ask for your PIN.
+          New number? We'll walk you through registration.
+        </div>
+      </div>
+      <button class="btn-primary" type="submit">Continue →</button>
+    </form>
+
+    {% endif %}
+
+  </div>
+
+  <div class="card-footer">
+    {% if show_pin %}
+    <a href="{{ url_for('forgot_pin') }}">Forgot your PIN?</a>
+    {% else %}
+    <a href="{{ url_for('forgot_pin') }}">Forgot PIN?</a>
+    {% endif %}
+    <a href="{{ url_for('provider_login') }}">Healthcare provider login →</a>
   </div>
 </div>
 
 <script>
-/* Prevent accidental double-submit on slow connections */
+/* Prevent double-submit */
 document.querySelectorAll('form').forEach(function(form) {
   form.addEventListener('submit', function() {
-    var btn = form.querySelector('button[type=submit]');
-    if (btn && !btn.classList.contains('btn-back')) {
-      setTimeout(function() { btn.disabled = true; btn.textContent = 'Please wait…'; }, 50);
+    var btn = form.querySelector('.btn-primary');
+    if (btn) {
+      setTimeout(function() {
+        btn.disabled = true;
+        btn.textContent = 'Please wait…';
+      }, 80);
     }
   });
 });
+/* Auto-move focus to PIN field if it exists */
+var pinInput = document.getElementById('pin-input');
+if (pinInput) pinInput.focus();
 </script>
 
 </body>
