@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Access Denied – Admin</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: sans-serif; max-width: 500px; margin: 80px auto; padding: 0 20px; text-align: center; }
+  .icon { font-size: 3rem; margin-bottom: 12px; }
+  h1 { font-size: 1.4rem; margin-bottom: 8px; color: #333; }
+  .msg { color: #666; font-size: 0.95rem; line-height: 1.6; margin-bottom: 24px; }
+  .phone-box { background: #f8f9fa; border: 1px solid #ddd; border-radius: 8px;
+               padding: 12px 18px; margin-bottom: 24px; font-size: 0.88rem; color: #555; }
+  .phone-box strong { color: #dc3545; }
+  .btn { display: inline-block; padding: 11px 28px; border-radius: 6px; font-size: 0.95rem;
+         text-decoration: none; font-weight: bold; margin: 4px; }
+  .btn-primary { background: #2d7dd2; color: white; }
+  .btn-primary:hover { background: #2566b0; }
+  .btn-secondary { background: #6c757d; color: white; }
+  .btn-secondary:hover { background: #5a6268; }
+</style>
+</head>
+<body>
+
+<div class="icon">🔒</div>
+<h1>Admin Access Required</h1>
+
+{% if logged_in_phone %}
+<div class="phone-box">
+  You are logged in as <strong>{{ logged_in_phone }}</strong> which does not have admin privileges.
+</div>
+<p class="msg">
+  Log out and log back in with your admin phone number <strong>0769547988</strong>,
+  then try again.
+</p>
+<a class="btn btn-primary" href="/logout">Log out &amp; switch account</a>
+<a class="btn btn-secondary" href="/">Back to Dashboard</a>
+{% else %}
+<p class="msg">You need to log in with an admin account to access this page.</p>
+<a class="btn btn-primary" href="/login">Log in</a>
+{% endif %}
+
+</body>
+</html>

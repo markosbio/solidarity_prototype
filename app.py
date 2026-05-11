@@ -37,9 +37,10 @@ def admin_required(f):
     def decorated(*args, **kwargs):
         if 'user_id' not in session:
             return redirect(url_for('login'))
-        user = User.query.get(session['user_id'])
+        user = db.session.get(User, session['user_id'])
         if not user or not GlobalAdmin.query.filter_by(user_id=user.id).first():
-            return "Access denied — admin only.", 403
+            return render_template('admin_access_denied.html',
+                                   logged_in_phone=user.phone if user else None), 403
         session['admin_authed'] = True
         return f(*args, **kwargs)
     return decorated
@@ -894,6 +895,10 @@ def logout():
     session.pop('pin_verified', None)
     session.pop('admin_authed', None)
     return redirect(url_for('login'))
+
+@app.route('/admin')
+def admin_redirect():
+    return redirect(url_for('admin_care'))
 
 # ── PIN verification ───────────────────────────────────────────────────────────
 

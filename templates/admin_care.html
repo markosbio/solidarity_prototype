@@ -58,16 +58,13 @@
 </head>
 <body>
 
-<h1>Admin Panel</h1>
+{% include 'admin_nav.html' %}
 
+<h1>Care Queue</h1>
 <div style="margin-bottom: 20px; display:flex; gap:8px; flex-wrap:wrap;">
   <a class="btn btn-export" href="{{ url_for('export_payments_csv') }}">⬇ Export Payments CSV</a>
   <a class="btn btn-export" href="{{ url_for('export_trust_csv') }}">⬇ Export Trust History CSV</a>
   <a class="btn btn-export" href="{{ url_for('leaderboard') }}">🏆 Leaderboard</a>
-  <a class="btn btn-primary" href="{{ url_for('admin_verified_providers') }}">🏥 Provider Verification</a>
-  <a class="btn btn-primary" href="{{ url_for('admin_fraud_alerts') }}">🚨 Fraud Alerts{% if fraud_count %} ({{ fraud_count }}){% endif %}</a>
-  <a class="btn btn-primary" href="{{ url_for('admin_monitor') }}">📊 Platform Monitor</a>
-  <a class="btn btn-primary" href="{{ url_for('admin_global_admins') }}">🔑 Global Admins</a>
 </div>
 
 <!-- Solidarity percent config -->
