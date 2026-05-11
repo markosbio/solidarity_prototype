@@ -26,6 +26,7 @@ import csv
 from datetime import datetime, timedelta
 from notifications import notify_ceiling_increase, notify_pool_low, notify_fraud_flagged
 from dotenv import load_dotenv
+from loguru import logger
 load_dotenv()
 
 app = Flask(__name__)
