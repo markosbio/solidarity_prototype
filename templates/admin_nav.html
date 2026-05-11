@@ -37,30 +37,161 @@
   .admin-nav a.active { color: #fff; background: #2d3250; border-bottom: 3px solid #2d7dd2; margin-bottom: -3px; }
   .admin-nav .nav-spacer { flex: 1; }
   .admin-nav .nav-user {
-    padding: 12px 16px;
+    padding: 10px 14px;
     color: #aaa;
-    font-size: 0.78rem;
+    font-size: 0.75rem;
     white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
-  @media (max-width: 600px) {
+  .admin-nav .role-badge {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 8px;
+    font-size: 0.7rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .role-super_admin { background: #ffd700; color: #333; }
+  .role-support { background: #17a2b8; color: #fff; }
+  .role-operator { background: #6c757d; color: #fff; }
+  .session-timer {
+    padding: 10px 14px;
+    color: #888;
+    font-size: 0.72rem;
+    white-space: nowrap;
+    cursor: default;
+  }
+  .session-timer.warn { color: #ffc107; }
+  @media (max-width: 700px) {
     .admin-nav { flex-wrap: wrap; }
-    .admin-nav a { padding: 10px 10px; font-size: 0.78rem; }
+    .admin-nav a { padding: 10px 9px; font-size: 0.76rem; }
     .admin-nav .nav-brand { width: 100%; }
+    .session-timer { display: none; }
   }
+  /* Flash messages */
+  .flash-messages { margin: 0 0 16px; }
+  .flash-success { background: #d4edda; border: 1px solid #c3e6cb; color: #155724;
+                   padding: 10px 14px; border-radius: 6px; margin-bottom: 8px; font-size: 0.9rem; }
+  .flash-error   { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24;
+                   padding: 10px 14px; border-radius: 6px; margin-bottom: 8px; font-size: 0.9rem; }
+  .flash-info    { background: #cce5ff; border: 1px solid #b8daff; color: #004085;
+                   padding: 10px 14px; border-radius: 6px; margin-bottom: 8px; font-size: 0.9rem; }
+  /* Confirm modal */
+  .confirm-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+    z-index: 9999; align-items: center; justify-content: center;
+  }
+  .confirm-overlay.active { display: flex; }
+  .confirm-box {
+    background: #fff; border-radius: 10px; padding: 28px 32px; max-width: 400px; width: 90%;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+  }
+  .confirm-box h3 { margin: 0 0 12px; font-size: 1.05rem; color: #333; }
+  .confirm-box p  { margin: 0 0 20px; color: #555; font-size: 0.92rem; line-height: 1.5; }
+  .confirm-actions { display: flex; gap: 10px; justify-content: flex-end; }
+  .confirm-cancel { padding: 8px 18px; background: #e9ecef; border: none; border-radius: 4px;
+                    cursor: pointer; font-size: 0.9rem; }
+  .confirm-proceed { padding: 8px 18px; background: #dc3545; color: white; border: none;
+                     border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
 </style>
 
 <nav class="admin-nav">
-  <a class="nav-brand" href="/admin/care">⚙️ Admin Panel</a>
+  <a class="nav-brand" href="/admin/care">⚙️ Admin</a>
   <a href="/admin/care" {% if request.path == '/admin/care' %}class="active"{% endif %}>📋 Care Queue</a>
   <a href="/admin/monitor" {% if request.path == '/admin/monitor' %}class="active"{% endif %}>📊 Monitor</a>
+  <a href="/admin/users" {% if request.path.startswith('/admin/users') or request.path.startswith('/admin/user/') %}class="active"{% endif %}>👥 Users</a>
   <a href="/admin/verified-providers" {% if request.path == '/admin/verified-providers' %}class="active"{% endif %}>🏥 Providers</a>
   <a href="/admin/fraud-alerts" {% if request.path == '/admin/fraud-alerts' %}class="active"{% endif %}>🚨 Fraud</a>
-  <a href="/admin/view-user" {% if request.path == '/admin/view-user' %}class="active"{% endif %}>🔍 Users</a>
-  <a href="/admin/audit-log" {% if request.path == '/admin/audit-log' %}class="active"{% endif %}>📜 Audit Log</a>
+  <a href="/admin/view-user" {% if request.path == '/admin/view-user' %}class="active"{% endif %}>🔍 Lookup</a>
+  <a href="/admin/audit-log" {% if request.path == '/admin/audit-log' %}class="active"{% endif %}>📜 Audit</a>
+  <a href="/admin/bulk-sms" {% if request.path == '/admin/bulk-sms' %}class="active"{% endif %}>📱 SMS</a>
+  <a href="/admin/ussd-simulator" {% if request.path == '/admin/ussd-simulator' %}class="active"{% endif %}>🔧 USSD Sim</a>
   <a href="/admin/global-admins" {% if request.path == '/admin/global-admins' %}class="active"{% endif %}>🔑 Admins</a>
   <div class="nav-spacer"></div>
-  {% if user is defined %}
-  <span class="nav-user">{{ user.name }} ({{ user.phone }})</span>
+  {% if user is defined and user %}
+  <span class="nav-user">
+    {{ user.name }}
+    {% set _role = namespace(val='') %}
+    {% if user.global_admin_entry %}
+      {% set _role.val = user.global_admin_entry[0].role if user.global_admin_entry else 'super_admin' %}
+      <span class="role-badge role-{{ _role.val or 'super_admin' }}">{{ (_role.val or 'super_admin').replace('_', ' ') }}</span>
+    {% endif %}
+  </span>
   {% endif %}
-  <a href="/" style="color:#aaa;">← Dashboard</a>
+  <span class="session-timer" id="session-timer" title="Session timeout">⏱ 30:00</span>
+  <a href="/" style="color:#aaa; padding: 12px 12px;">← Dashboard</a>
 </nav>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="flash-messages">
+  {% for cat, msg in messages %}
+  <div class="flash-{{ cat }}">{{ msg }}</div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+
+<!-- Confirm Modal -->
+<div class="confirm-overlay" id="confirm-overlay">
+  <div class="confirm-box">
+    <h3 id="confirm-title">Confirm Action</h3>
+    <p id="confirm-message">Are you sure you want to proceed?</p>
+    <div class="confirm-actions">
+      <button class="confirm-cancel" onclick="closeConfirm()">Cancel</button>
+      <button class="confirm-proceed" id="confirm-proceed-btn" onclick="proceedConfirm()">Proceed</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Session timeout (30 min inactivity) ───────────────────────
+(function() {
+  const TIMEOUT_MS = 30 * 60 * 1000;
+  const WARN_MS = 5 * 60 * 1000;
+  let timer = null, lastActivity = Date.now();
+  const timerEl = document.getElementById('session-timer');
+  function resetTimer() { lastActivity = Date.now(); }
+  ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'].forEach(e =>
+    document.addEventListener(e, resetTimer, { passive: true }));
+  function tick() {
+    const elapsed = Date.now() - lastActivity;
+    const remaining = Math.max(0, TIMEOUT_MS - elapsed);
+    const mins = Math.floor(remaining / 60000);
+    const secs = Math.floor((remaining % 60000) / 1000);
+    if (timerEl) {
+      timerEl.textContent = `⏱ ${mins}:${String(secs).padStart(2,'0')}`;
+      timerEl.classList.toggle('warn', remaining <= WARN_MS);
+    }
+    if (remaining === 0) { window.location.href = '/logout?reason=timeout'; }
+  }
+  setInterval(tick, 1000);
+})();
+
+// ── Confirm modal ──────────────────────────────────────────────
+let _pendingForm = null;
+function confirmAction(formId, title, message, proceedLabel, danger) {
+  _pendingForm = document.getElementById(formId);
+  document.getElementById('confirm-title').textContent = title;
+  document.getElementById('confirm-message').textContent = message;
+  const btn = document.getElementById('confirm-proceed-btn');
+  btn.textContent = proceedLabel || 'Proceed';
+  btn.style.background = danger !== false ? '#dc3545' : '#2d7dd2';
+  document.getElementById('confirm-overlay').classList.add('active');
+  return false;
+}
+function closeConfirm() {
+  document.getElementById('confirm-overlay').classList.remove('active');
+  _pendingForm = null;
+}
+function proceedConfirm() {
+  if (_pendingForm) _pendingForm.submit();
+  closeConfirm();
+}
+document.getElementById('confirm-overlay').addEventListener('click', function(e) {
+  if (e.target === this) closeConfirm();
+});
+</script>

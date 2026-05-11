@@ -62,6 +62,9 @@
     {% else %}
     <span class="badge badge-member">Member</span>
     {% endif %}
+    &nbsp;<a href="{{ url_for('admin_user_detail', target_id=target.id) }}"
+       style="font-size:0.82rem; font-weight:normal; padding:3px 10px; background:#2d7dd2; color:#fff; border-radius:4px; text-decoration:none; margin-left:6px;">
+      Full Management Panel →</a>
   </h3>
   <div class="row"><span class="label">Phone</span><span class="val">{{ target.phone }}</span></div>
   <div class="row"><span class="label">User ID</span><span class="val">#{{ target.id }}</span></div>

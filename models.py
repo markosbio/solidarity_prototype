@@ -22,8 +22,16 @@ class User(db.Model):
     total_witness_calls = db.Column(db.Integer, default=0)
     correct_witness_calls = db.Column(db.Integer, default=0)
     is_global_admin = db.Column(db.Boolean, default=False)
+    # New columns (added via migration)
+    is_locked = db.Column(db.Boolean, default=False)
+    locked_reason = db.Column(db.String(200), nullable=True)
+    locked_by = db.Column(db.Integer, db.ForeignKey('member.id'), nullable=True)
+    last_login_at = db.Column(db.DateTime, nullable=True)
+    last_login_ip = db.Column(db.String(50), nullable=True)
+    failed_login_count = db.Column(db.Integer, default=0)
 
-    recruits = db.relationship('User', backref=db.backref('referrer', remote_side=[id]))
+    recruits = db.relationship('User', foreign_keys=[referred_by],
+                               backref=db.backref('referrer', remote_side=[id]))
 
 
 class Transaction(db.Model):
@@ -33,6 +41,11 @@ class Transaction(db.Model):
     type = db.Column(db.String(20))
     description = db.Column(db.String(200))
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    # Reversal fields (added via migration)
+    reversed = db.Column(db.Boolean, default=False)
+    reversed_by = db.Column(db.Integer, db.ForeignKey('member.id'), nullable=True)
+    reversed_reason = db.Column(db.String(200), nullable=True)
+    reversed_at = db.Column(db.DateTime, nullable=True)
 
 
 class Community(db.Model):
@@ -75,6 +88,21 @@ class Provider(db.Model):
     contact_name = db.Column(db.String(100), nullable=True)
     contact_phone = db.Column(db.String(20), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class ProviderCodeHistory(db.Model):
+    """Log of all provider code changes for audit purposes."""
+    __tablename__ = 'provider_code_history'
+    id = db.Column(db.Integer, primary_key=True)
+    provider_id = db.Column(db.Integer, db.ForeignKey('provider.id'), nullable=False)
+    old_code = db.Column(db.String(50), nullable=False)
+    new_code = db.Column(db.String(50), nullable=False)
+    changed_by = db.Column(db.Integer, db.ForeignKey('member.id'), nullable=True)
+    reason = db.Column(db.String(200))
+    changed_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    provider = db.relationship('Provider', backref='code_history')
+    admin = db.relationship('User', foreign_keys=[changed_by])
 
 
 class VerifiedProvider(db.Model):
@@ -259,6 +287,19 @@ class GlobalAdmin(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('member.id'), unique=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     created_by = db.Column(db.Integer, db.ForeignKey('member.id'), nullable=True)
+    role = db.Column(db.String(20), default='super_admin')
 
     user = db.relationship('User', foreign_keys=[user_id], backref='global_admin_entry')
     creator = db.relationship('User', foreign_keys=[created_by])
+
+
+class UserLoginHistory(db.Model):
+    """Track each login attempt for audit and security."""
+    __tablename__ = 'user_login_history'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('member.id'), nullable=False)
+    ip = db.Column(db.String(50))
+    success = db.Column(db.Boolean, default=True)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User', backref='login_history')

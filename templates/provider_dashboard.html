@@ -44,9 +44,40 @@
 
 <h1>Provider Dashboard</h1>
 <div class="provider-meta">
-  <strong>{{ provider.name }}</strong> · Code: <code>{{ provider.provider_code }}</code>
+  <strong>{{ provider.name }}</strong>
   · {{ provider.payment_type | upper if provider.payment_type else '—' }}: {{ provider.payment_details or '—' }}
   <a class="logout" href="{{ url_for('provider_logout') }}">Log out</a>
+</div>
+
+<!-- Prominent provider code display -->
+<div style="background: linear-gradient(135deg, #1a1a2e 0%, #2d3250 100%);
+            color: #fff; border-radius: 12px; padding: 20px 24px; margin-bottom: 28px;
+            display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+  <div>
+    <div style="font-size: 0.78rem; color: #aaa; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px;">
+      Your Provider Code
+    </div>
+    <div style="font-size: 2rem; font-weight: bold; font-family: monospace; letter-spacing: 0.12em; color: #fff;">
+      {{ provider.provider_code }}
+    </div>
+    <div style="font-size: 0.8rem; color: #aaa; margin-top: 4px;">
+      Share this code with patients so they can link their care request to your facility.
+    </div>
+  </div>
+  <div style="text-align: right;">
+    <div style="font-size: 0.75rem; color: #888; margin-bottom: 4px;">Verification status</div>
+    {% if provider.verified %}
+    <span style="background:#28a745; color:#fff; padding:4px 12px; border-radius:20px; font-size:0.82rem; font-weight:bold;">✓ Verified</span>
+    {% else %}
+    <span style="background:#ffc107; color:#333; padding:4px 12px; border-radius:20px; font-size:0.82rem; font-weight:bold;">⏳ Pending</span>
+    {% endif %}
+    <div style="margin-top: 10px;">
+      <button onclick="copyCode()" style="background:#2d7dd2; color:#fff; border:none; border-radius:4px;
+              padding:6px 14px; cursor:pointer; font-size:0.82rem;" id="copy-btn">
+        📋 Copy Code
+      </button>
+    </div>
+  </div>
 </div>
 
 <div class="section">
@@ -133,6 +164,17 @@
 <p style="margin-top:28px;"><a href="/" style="color:#2d7dd2;">← Back to main site</a></p>
 <script>
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/static/sw.js');
+function copyCode() {
+  const code = "{{ provider.provider_code }}";
+  navigator.clipboard.writeText(code).then(function() {
+    const btn = document.getElementById('copy-btn');
+    btn.textContent = '✓ Copied!';
+    btn.style.background = '#28a745';
+    setTimeout(() => { btn.textContent = '📋 Copy Code'; btn.style.background = '#2d7dd2'; }, 2000);
+  }).catch(function() {
+    prompt('Copy this code:', code);
+  });
+}
 </script>
 </body>
 </html>

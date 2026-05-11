@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Bulk SMS – Admin – SolidarityPool</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: sans-serif; max-width: 700px; margin: 40px auto; padding: 0 16px; }
+  h2 { margin-bottom: 4px; }
+  .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 24px; }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: 24px; background: #fafafa; margin-bottom: 20px; }
+  .card h3 { margin: 0 0 16px; font-size: 1rem; }
+  label { display: block; font-size: 0.85rem; font-weight: bold; color: #444; margin-top: 14px; margin-bottom: 3px; }
+  input[type=text], select, textarea {
+    width: 100%; padding: 9px 10px; border: 1px solid #ccc; border-radius: 4px;
+    font-size: 0.92rem; box-sizing: border-box;
+  }
+  textarea { min-height: 100px; resize: vertical; }
+  .char-count { font-size: 0.75rem; color: #888; margin-top: 3px; text-align: right; }
+  .hint { font-size: 0.78rem; color: #888; margin-top: 3px; }
+  .btn { padding: 10px 24px; background: #2d7dd2; color: #fff; border: none;
+         border-radius: 4px; cursor: pointer; font-size: 0.95rem; margin-top: 16px; }
+  .btn:hover { background: #2566b0; }
+  .warn { background: #fff3cd; border: 1px solid #ffc107; padding: 12px 16px;
+          border-radius: 6px; font-size: 0.87rem; margin-bottom: 20px; color: #856404; }
+  .success-box { background: #d4edda; border: 1px solid #c3e6cb; padding: 16px 20px;
+                 border-radius: 8px; margin-bottom: 20px; color: #155724; }
+  .success-box h4 { margin: 0 0 8px; }
+  .success-box .stat { font-size: 1.3rem; font-weight: bold; }
+  .stats-row { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px; }
+  .stat-box { text-align: center; background: rgba(0,0,0,0.05); border-radius: 6px; padding: 10px 20px; }
+  .stat-box .val { font-size: 1.6rem; font-weight: bold; display: block; }
+  .stat-box .lbl { font-size: 0.78rem; color: #555; }
+</style>
+</head>
+<body>
+
+{% include 'admin_nav.html' %}
+
+<h2>📱 Bulk SMS</h2>
+<p class="subtitle">Send a message to all members or a specific community.</p>
+
+{% if not at_configured %}
+<div class="warn">
+  <strong>Africa's Talking not configured.</strong> Messages will be logged but not actually sent.
+  Add <code>AT_USERNAME</code> and <code>AT_API_KEY</code> to secrets to enable real SMS.
+</div>
+{% endif %}
+
+{% if result %}
+<div class="success-box">
+  <h4>Send Complete</h4>
+  <div class="stats-row">
+    <div class="stat-box"><span class="val">{{ result.total }}</span><span class="lbl">Recipients</span></div>
+    <div class="stat-box"><span class="val" style="color:#155724;">{{ result.sent }}</span><span class="lbl">Sent</span></div>
+    <div class="stat-box"><span class="val" style="color:#856404;">{{ result.skipped }}</span><span class="lbl">Skipped/Failed</span></div>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <h3>Compose Message</h3>
+  <form method="POST" action="{{ url_for('admin_bulk_sms') }}" id="form-sms">
+    <label>Target audience</label>
+    <select name="community_id">
+      <option value="">All members (no community filter)</option>
+      {% for c in communities %}
+      <option value="{{ c.id }}">{{ c.name }}</option>
+      {% endfor %}
+    </select>
+    <div class="hint">Locked accounts are excluded automatically.</div>
+
+    <label>Message <span style="color:#dc3545;">*</span></label>
+    <textarea name="message" id="msg-textarea" maxlength="320" placeholder="Your message here…" required
+              oninput="updateCount()"></textarea>
+    <div class="char-count" id="char-count">0 / 320 chars</div>
+    <div class="hint">A [SolidarityPool] prefix is added automatically. Standard SMS = 160 chars.</div>
+
+    <label>Reason for sending <span style="color:#dc3545;">*</span></label>
+    <input type="text" name="reason" placeholder="e.g. Pool health update for March" required>
+
+    <button class="btn" type="button"
+      onclick="confirmAction('form-sms','Send Bulk SMS','This will send a message to all selected recipients. This action is logged and cannot be undone.','Send SMS')">
+      Send SMS
+    </button>
+  </form>
+</div>
+
+<script>
+function updateCount() {
+  const len = document.getElementById('msg-textarea').value.length;
+  document.getElementById('char-count').textContent = len + ' / 320 chars';
+}
+</script>
+</body>
+</html>

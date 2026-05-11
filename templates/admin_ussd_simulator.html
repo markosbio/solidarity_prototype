@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>USSD Simulator – Admin – SolidarityPool</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: sans-serif; max-width: 700px; margin: 40px auto; padding: 0 16px; }
+  h2 { margin-bottom: 4px; }
+  .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 24px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 580px) { .grid2 { grid-template-columns: 1fr; } }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: 20px; background: #fafafa; }
+  .card h3 { margin: 0 0 14px; font-size: 1rem; }
+  label { display: block; font-size: 0.82rem; font-weight: bold; color: #444; margin-top: 12px; margin-bottom: 3px; }
+  input[type=text], input[type=tel] {
+    width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px;
+    font-size: 0.92rem; box-sizing: border-box;
+  }
+  .hint { font-size: 0.75rem; color: #888; margin-top: 3px; }
+  .btn { display: inline-block; padding: 9px 22px; background: #2d7dd2; color: #fff; border: none;
+         border-radius: 4px; cursor: pointer; font-size: 0.92rem; margin-top: 14px; }
+  .btn-reset { background: #6c757d; margin-left: 8px; }
+  /* Phone UI */
+  .phone-ui {
+    background: #111; border-radius: 20px; padding: 28px 16px 20px;
+    display: flex; flex-direction: column; align-items: center;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.3); min-height: 340px;
+  }
+  .phone-screen {
+    background: #000; color: #0f0; font-family: monospace; font-size: 0.88rem;
+    border-radius: 8px; padding: 16px; width: 100%; min-height: 200px;
+    white-space: pre-wrap; word-break: break-word; box-sizing: border-box;
+    border: 1px solid #333; line-height: 1.5;
+  }
+  .phone-screen.empty { color: #555; font-style: italic; font-family: sans-serif; }
+  .phone-label { color: #555; font-size: 0.72rem; margin-bottom: 10px; text-align: center; }
+  .session-badge { background: #222; color: #888; font-size: 0.7rem; font-family: monospace;
+                   border-radius: 4px; padding: 3px 8px; margin-top: 10px; }
+  .warn { background: #fff3cd; border: 1px solid #ffc107; padding: 10px 14px;
+          border-radius: 6px; font-size: 0.85rem; margin-bottom: 16px; color: #856404; }
+  /* Navigation shortcuts */
+  .shortcuts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 14px; }
+  .shortcut { padding: 4px 10px; background: #e9ecef; border-radius: 4px; font-size: 0.78rem;
+              cursor: pointer; border: 1px solid #ddd; }
+  .shortcut:hover { background: #dee2e6; }
+</style>
+</head>
+<body>
+
+{% include 'admin_nav.html' %}
+
+<h2>🔧 USSD Simulator</h2>
+<p class="subtitle">Test the USSD menu flow without an Africa's Talking account.</p>
+
+<div class="warn">
+  This simulator sends requests directly to the USSD endpoint. Use a test phone number to avoid affecting real member data.
+</div>
+
+<div class="grid2">
+  <!-- Form -->
+  <div class="card">
+    <h3>Dial</h3>
+    <form method="POST" action="{{ url_for('admin_ussd_simulator') }}">
+      <input type="hidden" name="session_id" value="{{ session_id }}">
+
+      <label>Phone number (test)</label>
+      <input type="tel" name="phone" value="{{ phone }}" placeholder="256700000000">
+      <div class="hint">Simulated caller phone — can be any number.</div>
+
+      <label>USSD input text</label>
+      <input type="text" name="text" id="ussd-input" value="{{ text or '' }}" placeholder="e.g. 1 or 1*2 or empty for first screen">
+      <div class="hint">Blank for first menu. Use * to separate levels (e.g. <code>1*2*3</code>).</div>
+
+      <div class="shortcuts">
+        <span class="shortcut" onclick="appendInput('')">Main menu</span>
+        <span class="shortcut" onclick="appendInput('1')">1. Balance</span>
+        <span class="shortcut" onclick="appendInput('2')">2. Care request</span>
+        <span class="shortcut" onclick="appendInput('3')">3. Trust score</span>
+        <span class="shortcut" onclick="appendInput('4')">4. Communities</span>
+        <span class="shortcut" onclick="appendInput('5')">5. Witness tasks</span>
+        <span class="shortcut" onclick="appendInput('8')">8. Repay debt</span>
+      </div>
+
+      <div>
+        <button class="btn" type="submit">Send →</button>
+        <a href="{{ url_for('admin_ussd_simulator') }}" class="btn btn-reset" style="text-decoration:none;">New Session</a>
+      </div>
+    </form>
+  </div>
+
+  <!-- Phone screen -->
+  <div>
+    <div class="phone-ui">
+      <div class="phone-label">USSD Response</div>
+      {% if response_text %}
+      <div class="phone-screen">{{ response_text }}</div>
+      {% else %}
+      <div class="phone-screen empty">Dial *123# to start…</div>
+      {% endif %}
+      <div class="session-badge">Session: {{ session_id[:20] }}…</div>
+    </div>
+
+    {% if text %}
+    <div style="margin-top:12px; font-size:0.82rem; color:#666;">
+      <strong>Input sent:</strong> <code>{{ text }}</code><br>
+      <strong>Phone:</strong> {{ phone }}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+function appendInput(val) {
+  const inp = document.getElementById('ussd-input');
+  if (val === '') { inp.value = ''; return; }
+  const cur = inp.value.trim();
+  inp.value = cur ? cur + '*' + val : val;
+}
+</script>
+</body>
+</html>

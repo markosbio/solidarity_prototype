@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>User Management – Admin – SolidarityPool</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: sans-serif; max-width: 860px; margin: 40px auto; padding: 0 16px; }
+  h2 { margin-bottom: 2px; }
+  .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 20px; }
+  .breadcrumb { font-size: 0.85rem; color: #888; margin-bottom: 16px; }
+  .breadcrumb a { color: #2d7dd2; text-decoration: none; }
+  /* Layout */
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
+  /* Cards */
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: 18px; background: #fafafa; margin-bottom: 16px; }
+  .card.danger-card { border-color: #f5c6cb; background: #fff8f8; }
+  .card.green-card  { border-color: #c3e6cb; background: #f0fff4; }
+  .card.blue-card   { border-color: #b8daff; background: #f0f8ff; }
+  .card h3 { margin: 0 0 14px; font-size: 1rem; padding-bottom: 8px; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 8px; }
+  /* Profile row */
+  .row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 0.88rem; border-bottom: 1px solid #f0f0f0; }
+  .row:last-child { border-bottom: none; }
+  .row .lbl { color: #666; }
+  .row .val { font-weight: 600; }
+  /* Forms */
+  label { display: block; font-size: 0.82rem; font-weight: 600; color: #444; margin-top: 10px; margin-bottom: 2px; }
+  input[type=text], input[type=tel], input[type=number], input[type=password], select, textarea {
+    width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px;
+    font-size: 0.9rem; box-sizing: border-box;
+  }
+  input[readonly] { background: #f5f5f5; color: #888; }
+  .hint { font-size: 0.75rem; color: #888; margin-top: 2px; }
+  /* Buttons */
+  .btn { display: inline-block; padding: 8px 18px; border-radius: 4px; font-size: 0.9rem;
+         border: none; cursor: pointer; text-decoration: none; }
+  .btn-primary   { background: #2d7dd2; color: #fff; }
+  .btn-success   { background: #28a745; color: #fff; }
+  .btn-danger    { background: #dc3545; color: #fff; }
+  .btn-warning   { background: #fd7e14; color: #fff; }
+  .btn-secondary { background: #6c757d; color: #fff; }
+  .btn-sm { padding: 4px 10px; font-size: 0.8rem; }
+  .btn:hover { opacity: 0.88; }
+  .direction-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+  .direction-row input[type=number] { width: 140px; }
+  /* Badges */
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 0.75rem; font-weight: bold; }
+  .badge-locked  { background: #f8d7da; color: #721c24; }
+  .badge-active  { background: #d4edda; color: #155724; }
+  .badge-admin   { background: #cce5ff; color: #004085; }
+  .trust-h { color: #28a745; }
+  .trust-m { color: #ffc107; }
+  .trust-l { color: #dc3545; }
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; font-size: 0.83rem; margin-top: 6px; }
+  th { background: #f0f0f0; text-align: left; padding: 6px 8px; border-bottom: 2px solid #ddd;
+       font-size: 0.75rem; color: #555; white-space: nowrap; }
+  td { padding: 6px 8px; border-bottom: 1px solid #eee; vertical-align: middle; }
+  tr:hover td { background: #fafafa; }
+  .tab-nav { display: flex; gap: 0; border-bottom: 2px solid #ddd; margin-bottom: 16px; }
+  .tab-nav a { padding: 8px 16px; font-size: 0.88rem; text-decoration: none; color: #666;
+               border-bottom: 2px solid transparent; margin-bottom: -2px; }
+  .tab-nav a.active { color: #2d7dd2; border-bottom-color: #2d7dd2; font-weight: bold; }
+  .tab-nav a:hover { color: #2d7dd2; }
+  .section-title { font-size: 0.82rem; font-weight: bold; color: #555;
+                   text-transform: uppercase; letter-spacing: 0.05em; margin: 20px 0 8px; }
+  .reversed-tx { text-decoration: line-through; color: #999; }
+</style>
+</head>
+<body>
+
+{% include 'admin_nav.html' %}
+
+<div class="breadcrumb">
+  <a href="{{ url_for('admin_users') }}">← All Users</a>
+  &nbsp;/&nbsp; {{ target.name }}
+</div>
+
+<h2>
+  {{ target.name }}
+  {% if target.is_locked %}<span class="badge badge-locked">LOCKED</span>{% else %}<span class="badge badge-active">Active</span>{% endif %}
+  {% if target_is_global_admin %}<span class="badge badge-admin">ADMIN</span>{% endif %}
+</h2>
+<p class="subtitle">Member #{{ target.id }} · {{ target.phone }} · Trust: <span class="{% if target.trust_score >= 0.7 %}trust-h{% elif target.trust_score >= 0.4 %}trust-m{% else %}trust-l{% endif %}">{{ "%.4f"|format(target.trust_score) }}</span></p>
+
+<!-- Quick stats bar -->
+<div class="grid2" style="margin-bottom:16px;">
+  <div class="card" style="margin-bottom:0;">
+    <h3>💰 Wallet & Credit</h3>
+    <div class="row"><span class="lbl">Sub-wallet</span><span class="val">UGX {{ "{:,.0f}".format(target.sub_wallet_balance or 0) }}</span></div>
+    <div class="row"><span class="lbl">Social credit owed</span><span class="val">UGX {{ "{:,.0f}".format(target.total_social_credit or 0) }}</span></div>
+    <div class="row"><span class="lbl">Draw ceiling</span><span class="val">UGX {{ "{:,.0f}".format(ceiling) }}</span></div>
+    <div class="row"><span class="lbl">Round-up multiplier</span><span class="val">{{ "%.2f"|format(target.roundup_intensifier or 1) }}x</span></div>
+  </div>
+  <div class="card" style="margin-bottom:0;">
+    <h3>🔐 Account Info</h3>
+    <div class="row"><span class="lbl">Primary community</span><span class="val">{{ primary_comm.name if primary_comm else '—' }}</span></div>
+    <div class="row"><span class="lbl">Last login</span><span class="val">{{ target.last_login_at.strftime('%d/%m/%Y %H:%M') if target.last_login_at else '—' }}</span></div>
+    <div class="row"><span class="lbl">Last login IP</span><span class="val">{{ target.last_login_ip or '—' }}</span></div>
+    <div class="row"><span class="lbl">Failed logins</span><span class="val">{{ target.failed_login_count or 0 }}</span></div>
+    {% if target.is_locked %}
+    <div class="row"><span class="lbl">Lock reason</span><span class="val" style="color:#dc3545;">{{ target.locked_reason or '—' }}</span></div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Edit Profile ─────────────────────────────────────────────── -->
+<div class="card blue-card">
+  <h3>✏️ Edit Profile</h3>
+  <form method="POST" action="{{ url_for('admin_user_edit', target_id=target.id) }}" id="form-edit">
+    <div class="grid2">
+      <div>
+        <label>Full name</label>
+        <input type="text" name="name" value="{{ target.name }}">
+      </div>
+      <div>
+        <label>Phone number</label>
+        <input type="tel" name="phone" value="{{ target.phone }}">
+      </div>
+      <div>
+        <label>Primary community</label>
+        <select name="primary_community_id">
+          <option value="">— No change —</option>
+          {% for c in all_comms %}
+          <option value="{{ c.id }}" {% if primary_comm and primary_comm.id == c.id %}selected{% endif %}>{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>New PIN <span style="font-weight:normal; color:#888;">(leave blank to keep current)</span></label>
+        <input type="text" name="pin" maxlength="4" placeholder="e.g. 5678">
+        <div class="hint">Must be exactly 4 digits if changing.</div>
+      </div>
+    </div>
+    <label>Reason for change <span style="color:#dc3545;">*</span></label>
+    <input type="text" name="reason" placeholder="Brief reason for this edit" required>
+    <div style="margin-top:12px;">
+      <button class="btn btn-primary" type="button"
+        onclick="confirmAction('form-edit','Edit Profile','Save profile changes for {{ target.name }}?','Save Changes', false)">
+        Save Changes
+      </button>
+    </div>
+  </form>
+</div>
+
+<div class="grid2">
+<!-- ── Wallet Adjustment ────────────────────────────────────────── -->
+<div class="card green-card">
+  <h3>💳 Adjust Wallet Balance</h3>
+  <p style="font-size:0.85rem; color:#666; margin:0 0 10px;">Current: <strong>UGX {{ "{:,.0f}".format(target.sub_wallet_balance or 0) }}</strong></p>
+  <form method="POST" action="{{ url_for('admin_user_wallet', target_id=target.id) }}" id="form-wallet">
+    <label>Direction</label>
+    <select name="direction">
+      <option value="add">Add funds</option>
+      <option value="deduct">Deduct funds</option>
+    </select>
+    <label>Amount (UGX)</label>
+    <input type="number" name="amount" step="1" min="1" placeholder="0" required>
+    <label>Reason <span style="color:#dc3545;">*</span></label>
+    <input type="text" name="reason" placeholder="Reason for adjustment" required>
+    <div style="margin-top:12px;">
+      <button class="btn btn-success" type="button"
+        onclick="confirmAction('form-wallet','Adjust Wallet','Adjust wallet balance for {{ target.name }}?','Adjust', false)">
+        Adjust Balance
+      </button>
+    </div>
+  </form>
+</div>
+
+<!-- ── Social Credit Adjustment ────────────────────────────────── -->
+<div class="card">
+  <h3>📊 Adjust Social Credit</h3>
+  <p style="font-size:0.85rem; color:#666; margin:0 0 10px;">Current owed: <strong>UGX {{ "{:,.0f}".format(target.total_social_credit or 0) }}</strong></p>
+  <form method="POST" action="{{ url_for('admin_user_social_credit', target_id=target.id) }}" id="form-credit">
+    <label>Direction</label>
+    <select name="direction">
+      <option value="add">Increase debt</option>
+      <option value="deduct">Reduce debt</option>
+    </select>
+    <label>Amount (UGX)</label>
+    <input type="number" name="amount" step="1" min="1" placeholder="0" required>
+    <label>Reason <span style="color:#dc3545;">*</span></label>
+    <input type="text" name="reason" placeholder="Reason for adjustment" required>
+    <div style="margin-top:12px;">
+      <button class="btn btn-warning" type="button"
+        onclick="confirmAction('form-credit','Adjust Social Credit','Adjust social credit for {{ target.name }}?','Adjust')">
+        Adjust Credit
+      </button>
+    </div>
+  </form>
+</div>
+</div>
+
+<div class="grid2">
+<!-- ── Lock / Unlock ────────────────────────────────────────────── -->
+<div class="card danger-card">
+  <h3>🔒 {% if target.is_locked %}Unlock{% else %}Lock{% endif %} Account</h3>
+  {% if target.is_locked %}
+  <p style="font-size:0.85rem; color:#856404; background:#fff3cd; padding:8px 12px; border-radius:4px; margin:0 0 12px;">
+    Locked: {{ target.locked_reason or 'No reason given' }}
+  </p>
+  <form method="POST" action="{{ url_for('admin_user_lock', target_id=target.id) }}" id="form-unlock">
+    <input type="hidden" name="action" value="unlock">
+    <button class="btn btn-success" type="button"
+      onclick="confirmAction('form-unlock','Unlock Account','Unlock {{ target.name }}\'s account?','Unlock', false)">
+      Unlock Account
+    </button>
+  </form>
+  {% else %}
+  <form method="POST" action="{{ url_for('admin_user_lock', target_id=target.id) }}" id="form-lock">
+    <input type="hidden" name="action" value="lock">
+    <label>Reason for lock <span style="color:#dc3545;">*</span></label>
+    <input type="text" name="reason" placeholder="e.g. Suspected fraud" required>
+    <div style="margin-top:12px;">
+      <button class="btn btn-danger" type="button"
+        onclick="confirmAction('form-lock','Lock Account','This will prevent {{ target.name }} from logging in. Continue?','Lock Account')">
+        Lock Account
+      </button>
+    </div>
+  </form>
+  {% endif %}
+</div>
+
+<!-- ── PIN Reset ────────────────────────────────────────────────── -->
+<div class="card">
+  <h3>🔑 Reset PIN</h3>
+  <form method="POST" action="{{ url_for('admin_user_pin_reset', target_id=target.id) }}" id="form-pin">
+    <label>New PIN <span style="color:#dc3545;">*</span></label>
+    <input type="text" name="new_pin" maxlength="4" placeholder="4-digit PIN" required>
+    <label>Reason <span style="color:#dc3545;">*</span></label>
+    <input type="text" name="reason" placeholder="Reason for PIN reset" required>
+    <div style="margin-top:12px;">
+      <button class="btn btn-secondary" type="button"
+        onclick="confirmAction('form-pin','Reset PIN','Reset PIN for {{ target.name }}?','Reset PIN', false)">
+        Reset PIN
+      </button>
+    </div>
+  </form>
+</div>
+</div>
+
+<!-- ── Login History ────────────────────────────────────────────── -->
+{% if login_history %}
+<div class="section-title">🕐 Login History (last 10)</div>
+<div class="card" style="padding:12px;">
+  <table>
+    <thead><tr><th>Timestamp</th><th>IP Address</th><th>Result</th></tr></thead>
+    <tbody>
+    {% for h in login_history %}
+    <tr>
+      <td>{{ h.timestamp.strftime('%d/%m/%Y %H:%M:%S') }}</td>
+      <td>{{ h.ip or '—' }}</td>
+      <td>{% if h.success %}<span style="color:#28a745;">✓ Success</span>{% else %}<span style="color:#dc3545;">✗ Failed</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<!-- ── Transactions ─────────────────────────────────────────────── -->
+<div class="section-title">💸 Recent Transactions (last 30)</div>
+<div class="card" style="padding:12px;">
+{% if transactions %}
+  <table>
+    <thead><tr><th>#</th><th>Date</th><th>Type</th><th>Amount</th><th>Description</th><th>Action</th></tr></thead>
+    <tbody>
+    {% for tx in transactions %}
+    <tr class="{{ 'reversed-tx' if tx.reversed else '' }}">
+      <td style="color:#888;">{{ tx.id }}</td>
+      <td style="white-space:nowrap;">{{ tx.timestamp.strftime('%d/%m/%y %H:%M') }}</td>
+      <td>{{ tx.type }}</td>
+      <td style="font-weight:bold; color:{{ '#28a745' if tx.amount > 0 else '#dc3545' }};">
+        {{ "%+,.0f"|format(tx.amount) }}
+      </td>
+      <td style="max-width:220px; word-break:break-word; font-size:0.8rem;">
+        {{ tx.description or '—' }}
+        {% if tx.reversed %}<br><span style="color:#999; font-size:0.75rem;">Reversed: {{ tx.reversed_reason }}</span>{% endif %}
+      </td>
+      <td>
+        {% if not tx.reversed and tx.type not in ['admin_reversal', 'debt_repayment'] %}
+        <form method="POST" action="{{ url_for('admin_reverse_transaction', tx_id=tx.id) }}" id="form-rev-{{ tx.id }}" style="display:inline;">
+          <input type="hidden" name="target_id" value="{{ target.id }}">
+          <input type="hidden" name="reason" id="rev-reason-{{ tx.id }}" value="">
+          <button class="btn btn-sm btn-danger" type="button"
+            onclick="reverseWithReason({{ tx.id }}, {{ tx.amount }})">Reverse</button>
+        </form>
+        {% elif tx.reversed %}
+        <span style="color:#999; font-size:0.78rem;">Reversed</span>
+        {% else %}—{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p style="color:#888; font-style:italic; text-align:center; padding:20px 0;">No transactions found.</p>
+{% endif %}
+</div>
+
+<!-- ── Care Requests ────────────────────────────────────────────── -->
+{% if care_requests %}
+<div class="section-title">🏥 Care Requests (last 20)</div>
+<div class="card" style="padding:12px;">
+  <table>
+    <thead><tr><th>Date</th><th>Amount</th><th>Status</th><th>Emergency</th><th>Provider</th></tr></thead>
+    <tbody>
+    {% for cr in care_requests %}
+    <tr>
+      <td>{{ cr.created_at.strftime('%d/%m/%y') }}</td>
+      <td>UGX {{ "{:,.0f}".format(cr.amount_needed or 0) }}</td>
+      <td><code style="font-size:0.78rem;">{{ cr.status }}</code></td>
+      <td>{{ 'Yes' if cr.is_emergency else 'No' }}</td>
+      <td>{{ cr.provider.name if cr.provider else '—' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<!-- ── Trust Events ─────────────────────────────────────────────── -->
+{% if trust_events %}
+<div class="section-title">⭐ Trust Events (last 20)</div>
+<div class="card" style="padding:12px;">
+  <table>
+    <thead><tr><th>Date</th><th>Old</th><th>New</th><th>Delta</th><th>Reason</th></tr></thead>
+    <tbody>
+    {% for e in trust_events %}
+    <tr>
+      <td>{{ e.timestamp.strftime('%d/%m/%y %H:%M') }}</td>
+      <td>{{ "%.4f"|format(e.old_score) if e.old_score is not none else '—' }}</td>
+      <td>{{ "%.4f"|format(e.new_score) if e.new_score is not none else '—' }}</td>
+      <td style="color:{{ '#28a745' if (e.delta or 0) > 0 else '#dc3545' }}; font-weight:bold;">
+        {{ "%+.4f"|format(e.delta) if e.delta is not none else '—' }}
+      </td>
+      <td>{{ e.reason or '—' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<!-- ── Admin Audit Entries ──────────────────────────────────────── -->
+{% if audit_logs %}
+<div class="section-title">📜 Admin Activity on this User (last 15)</div>
+<div class="card" style="padding:12px;">
+  <table>
+    <thead><tr><th>Date</th><th>Admin</th><th>Action</th><th>Details</th></tr></thead>
+    <tbody>
+    {% for log in audit_logs %}
+    <tr>
+      <td style="white-space:nowrap;">{{ log.timestamp.strftime('%d/%m/%y %H:%M') }}</td>
+      <td>{{ log.admin.name if log.admin else '#'+log.admin_id|string }}</td>
+      <td><span style="background:#e8f4f8; padding:2px 7px; border-radius:6px; font-size:0.75rem; font-weight:bold;">{{ log.action }}</span></td>
+      <td style="font-size:0.8rem; max-width:300px; word-break:break-word;">{{ log.details or '—' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<p style="margin-top:20px; font-size:0.88rem;">
+  <a style="color:#2d7dd2;" href="{{ url_for('admin_users') }}">← Back to Users</a>
+  &nbsp;·&nbsp;
+  <a style="color:#2d7dd2;" href="{{ url_for('admin_audit_log') }}?target_phone={{ target.phone }}">Full audit log →</a>
+  &nbsp;·&nbsp;
+  <a style="color:#2d7dd2;" href="{{ url_for('admin_trust_page') }}">Trust override →</a>
+</p>
+
+<script>
+function reverseWithReason(txId, amount) {
+  const reason = prompt(`Enter reason for reversing transaction (amount: ${amount.toLocaleString('en-UG', {style:'currency', currency:'UGX', maximumFractionDigits:0})}):`);
+  if (!reason || !reason.trim()) return;
+  document.getElementById('rev-reason-' + txId).value = reason.trim();
+  const form = document.getElementById('form-rev-' + txId);
+  const title = 'Reverse Transaction';
+  const msg = `This will reverse transaction #${txId}. This action is logged. Continue?`;
+  _pendingForm = form;
+  document.getElementById('confirm-title').textContent = title;
+  document.getElementById('confirm-message').textContent = msg;
+  document.getElementById('confirm-proceed-btn').textContent = 'Reverse';
+  document.getElementById('confirm-proceed-btn').style.background = '#dc3545';
+  document.getElementById('confirm-overlay').classList.add('active');
+}
+</script>
+
+</body>
+</html>

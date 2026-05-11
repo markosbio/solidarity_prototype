@@ -3,12 +3,12 @@
 <head><title>Provider Verification – Admin</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  body { font-family: sans-serif; max-width: 860px; margin: 40px auto; padding: 0 16px; }
+  body { font-family: sans-serif; max-width: 900px; margin: 40px auto; padding: 0 16px; }
   h1 { margin-bottom: 4px; }
   .section-title { font-size: 0.85rem; font-weight: bold; color: #555;
                    text-transform: uppercase; letter-spacing: .05em; margin: 28px 0 10px; }
   .card { border: 1px solid #ddd; border-radius: 8px; padding: 18px; margin-bottom: 14px; background: #fafafa; }
-  .card h3 { margin: 0 0 8px 0; font-size: 1rem; }
+  .card h3 { margin: 0 0 8px 0; font-size: 1rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .meta { font-size: 0.87em; color: #444; line-height: 1.7; }
   .meta strong { color: #111; }
   .btn { display: inline-block; padding: 7px 18px; border-radius: 4px; font-size: 0.88rem;
@@ -18,12 +18,14 @@
   .btn-verify:hover { background: #218838; }
   .btn-reject:hover { background: #c82333; }
   .btn-back { background: #6c757d; color: white; }
+  .btn-code  { background: #2d7dd2; color: white; }
+  .btn-hist  { background: #17a2b8; color: white; font-size: 0.8rem; padding: 5px 12px; }
+  .btn:hover { opacity: 0.88; }
   .badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 0.78em; }
   .badge-pending  { background: #fff3cd; color: #856404; }
   .badge-verified { background: #d4edda; color: #155724; }
   .badge-rejected { background: #f8d7da; color: #721c24; }
   .empty { color: #888; font-style: italic; }
-  /* Application form */
   .apply-card { border: 1px solid #c3e6cb; border-radius: 8px; padding: 20px; background: #f0fff4; }
   .form-row { margin-bottom: 12px; }
   .form-row label { display: block; font-size: 0.85rem; font-weight: bold; color: #333; margin-bottom: 4px; }
@@ -32,8 +34,22 @@
     font-size: 0.9rem; box-sizing: border-box; }
   .btn-submit { background: #2d7dd2; color: white; padding: 9px 22px; border: none;
                 border-radius: 4px; cursor: pointer; font-size: 0.95rem; }
-  .notes-input { width: 240px; padding: 7px; border: 1px solid #ccc; border-radius: 4px;
+  .notes-input { width: 200px; padding: 7px; border: 1px solid #ccc; border-radius: 4px;
                  font-size: 0.87rem; }
+  /* Code management panel */
+  .code-panel { border: 1px solid #b8daff; border-radius: 6px; padding: 14px 16px;
+                background: #f0f8ff; margin-top: 12px; }
+  .code-panel summary { cursor: pointer; font-size: 0.85rem; font-weight: bold; color: #2d7dd2;
+                        user-select: none; list-style: none; display: flex; align-items: center; gap: 6px; }
+  .code-panel summary::before { content: '▸ '; }
+  details[open] > summary::before { content: '▾ '; }
+  .code-panel label { font-size: 0.8rem; font-weight: bold; color: #444; margin-top: 10px; display: block; margin-bottom: 3px; }
+  .code-panel input, .code-panel select { padding: 7px 9px; border: 1px solid #ccc; border-radius: 4px;
+                                          font-size: 0.88rem; }
+  .code-panel input[type=text] { width: 180px; }
+  .code-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; margin-top: 8px; }
+  code { background: #e9ecef; padding: 2px 7px; border-radius: 4px; font-size: 0.9em; }
+  .current-code { font-size: 0.85rem; color: #444; margin-bottom: 10px; }
 </style>
 </head>
 <body>
@@ -42,7 +58,7 @@
 
 <h1>Provider Verification</h1>
 <p style="color:#666; margin-bottom:20px;">
-  Review provider applications and approve those with valid business licenses.
+  Review provider applications and manage provider codes.
   Only verified providers can receive care fund payments.
 </p>
 
@@ -81,13 +97,63 @@
 {% if verified %}
   {% for app in verified %}
   <div class="card">
-    <h3>{{ app.provider_name }} <span class="badge badge-verified">Verified</span></h3>
+    <h3>
+      {{ app.provider_name }}
+      <span class="badge badge-verified">Verified</span>
+      {% if app.provider_ref %}
+      <a class="btn btn-hist" href="{{ url_for('admin_provider_code_history', provider_id=app.provider_ref.id) }}" style="margin-left:auto;">
+        Code history
+      </a>
+      {% endif %}
+    </h3>
     <div class="meta">
       <strong>Phone / Wallet:</strong> {{ app.phone }} · {{ app.provider_wallet_number or '—' }}<br>
       <strong>Location:</strong> {{ app.location or '—' }}<br>
       <strong>Verified:</strong> {{ app.reviewed_at.strftime('%Y-%m-%d') if app.reviewed_at else '—' }}
       {% if app.review_notes %}· Notes: {{ app.review_notes }}{% endif %}
     </div>
+
+    {% if app.provider_ref %}
+    <div class="current-code" style="margin-top:10px;">
+      Provider code: <code>{{ app.provider_ref.provider_code }}</code>
+    </div>
+
+    <details class="code-panel">
+      <summary>Change Provider Code</summary>
+      <form method="POST" action="{{ url_for('admin_provider_code', provider_id=app.provider_ref.id) }}" id="form-code-{{ app.provider_ref.id }}">
+        <label>Mode</label>
+        <select name="mode" id="mode-sel-{{ app.provider_ref.id }}"
+                onchange="toggleCodeMode({{ app.provider_ref.id }})">
+          <option value="manual">Manual (type new code)</option>
+          <option value="sequential">Sequential (prefix + auto-number)</option>
+        </select>
+
+        <div id="manual-block-{{ app.provider_ref.id }}">
+          <label>New code</label>
+          <div class="code-row">
+            <input type="text" name="new_code" placeholder="e.g. KAMPALA002" maxlength="20"
+                   style="text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()">
+          </div>
+        </div>
+        <div id="seq-block-{{ app.provider_ref.id }}" style="display:none;">
+          <label>Prefix (auto-numbered)</label>
+          <div class="code-row">
+            <input type="text" name="prefix" placeholder="e.g. KAMPALA" maxlength="12"
+                   oninput="this.value=this.value.toUpperCase()">
+          </div>
+        </div>
+
+        <label>Reason <span style="color:#dc3545;">*</span></label>
+        <div class="code-row">
+          <input type="text" name="reason" placeholder="Reason for code change" required style="width:260px;">
+          <button class="btn btn-code" type="button"
+            onclick="confirmAction('form-code-{{ app.provider_ref.id }}','Change Provider Code','Update provider code for {{ app.provider_name }}?','Change Code', false)">
+            Update Code
+          </button>
+        </div>
+      </form>
+    </details>
+    {% endif %}
   </div>
   {% endfor %}
 {% else %}
@@ -120,5 +186,13 @@
   <a href="{{ url_for('admin_care') }}" class="btn btn-back">← Admin Panel</a>
   <a href="{{ url_for('home') }}">← Dashboard</a>
 </p>
+
+<script>
+function toggleCodeMode(pid) {
+  const sel = document.getElementById('mode-sel-' + pid);
+  document.getElementById('manual-block-' + pid).style.display = sel.value === 'manual' ? '' : 'none';
+  document.getElementById('seq-block-' + pid).style.display   = sel.value === 'sequential' ? '' : 'none';
+}
+</script>
 </body>
 </html>

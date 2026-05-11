@@ -4,18 +4,39 @@
 <title>Audit Log – Admin – SolidarityPool</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  body { font-family: sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; }
+  body { font-family: sans-serif; max-width: 960px; margin: 40px auto; padding: 0 16px; }
   h2 { margin-bottom: 4px; }
-  .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 20px; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-  th { background: #f0f0f0; text-align: left; padding: 8px 10px; border-bottom: 2px solid #ddd;
-       font-size: 0.78rem; color: #555; white-space: nowrap; }
-  td { padding: 8px 10px; border-bottom: 1px solid #eee; vertical-align: top; }
+  .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 16px; }
+  .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;
+                background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 14px 16px; align-items: flex-end; }
+  .filter-bar label { display: block; font-size: 0.75rem; font-weight: bold; color: #555; margin-bottom: 3px; }
+  .filter-bar input, .filter-bar select { padding: 7px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.88rem; }
+  .filter-bar input[type=text] { width: 160px; }
+  .filter-bar button { padding: 7px 16px; background: #2d7dd2; color: #fff; border: none;
+                       border-radius: 4px; cursor: pointer; font-size: 0.88rem; }
+  .filter-bar a { padding: 7px 12px; color: #666; border: 1px solid #ccc; border-radius: 4px;
+                  text-decoration: none; font-size: 0.83rem; background: #fff; }
+  .actions-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+  .total-label { color: #666; font-size: 0.85rem; }
+  .export-btn { display: inline-block; padding: 6px 14px; background: #6c757d; color: #fff;
+                border-radius: 4px; font-size: 0.85rem; text-decoration: none; }
+  .export-btn:hover { background: #5a6268; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+  th { background: #f0f0f0; text-align: left; padding: 7px 9px; border-bottom: 2px solid #ddd;
+       font-size: 0.75rem; color: #555; white-space: nowrap; }
+  td { padding: 7px 9px; border-bottom: 1px solid #eee; vertical-align: top; }
   tr:hover td { background: #fafafa; }
-  .action-badge { display: inline-block; padding: 2px 8px; border-radius: 8px; font-size: 0.78rem;
+  .action-badge { display: inline-block; padding: 2px 8px; border-radius: 8px; font-size: 0.75rem;
                   background: #e8f4f8; color: #2c4a6e; font-weight: bold; }
   .empty { text-align: center; color: #888; padding: 40px; font-style: italic; }
-  .back { font-size: 0.88rem; color: #2d7dd2; }
+  .pagination { display: flex; gap: 6px; align-items: center; margin-top: 20px; flex-wrap: wrap; }
+  .pagination a, .pagination span {
+    padding: 6px 12px; border-radius: 4px; font-size: 0.85rem; text-decoration: none;
+    border: 1px solid #ddd; background: #fff; color: #333;
+  }
+  .pagination a:hover { background: #f0f0f0; }
+  .pagination .current { background: #2d7dd2; color: #fff; border-color: #2d7dd2; }
+  .pagination .disabled { color: #ccc; }
 </style>
 </head>
 <body>
@@ -23,7 +44,38 @@
 {% include 'admin_nav.html' %}
 
 <h2>Admin Audit Log</h2>
-<p class="subtitle">All recent admin actions are recorded here for accountability.</p>
+<p class="subtitle">All admin actions are recorded here for accountability and compliance.</p>
+
+<form method="GET">
+  <div class="filter-bar">
+    <div>
+      <label>Action type</label>
+      <select name="action">
+        <option value="">All actions</option>
+        {% for a in distinct_actions %}
+        <option value="{{ a }}" {% if action_filter == a %}selected{% endif %}>{{ a }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Admin phone</label>
+      <input type="text" name="admin_phone" value="{{ admin_filter or '' }}" placeholder="Admin phone…">
+    </div>
+    <div>
+      <label>Target phone</label>
+      <input type="text" name="target_phone" value="{{ target_filter or '' }}" placeholder="Target phone…">
+    </div>
+    <button type="submit">Filter</button>
+    {% if action_filter or admin_filter or target_filter %}
+    <a href="{{ url_for('admin_audit_log') }}">Clear</a>
+    {% endif %}
+  </div>
+</form>
+
+<div class="actions-row">
+  <span class="total-label">{{ total }} entr{{ 'ies' if total != 1 else 'y' }} (page {{ page }}/{{ total_pages }})</span>
+  <a class="export-btn" href="{{ url_for('export_audit_csv') }}">⬇ Export CSV</a>
+</div>
 
 {% if logs %}
 <table>
@@ -40,26 +92,50 @@
   <tbody>
   {% for log in logs %}
   <tr>
-    <td style="white-space:nowrap;">{{ log.timestamp.strftime('%d/%m/%Y %H:%M') }}</td>
-    <td>{{ log.admin.name if log.admin else '#' + log.admin_id|string }}<br>
-        <small style="color:#888;">{{ log.admin.phone if log.admin else '' }}</small></td>
+    <td style="white-space:nowrap; font-size:0.8rem;">{{ log.timestamp.strftime('%d/%m/%Y %H:%M') }}</td>
+    <td>
+      {% if log.admin %}
+      <a href="{{ url_for('admin_user_detail', target_id=log.admin.id) }}" style="color:#2d7dd2;">{{ log.admin.name }}</a><br>
+      <small style="color:#888;">{{ log.admin.phone }}</small>
+      {% else %}#{{ log.admin_id }}{% endif %}
+    </td>
     <td><span class="action-badge">{{ log.action }}</span></td>
-    <td>{% if log.target_user %}{{ log.target_user.name }}<br>
-        <small style="color:#888;">{{ log.target_user.phone }}</small>{% else %}—{% endif %}</td>
-    <td style="max-width:260px; word-break:break-word;">{{ log.details or '—' }}</td>
-    <td style="font-size:0.78rem; color:#888;">{{ log.ip or '—' }}</td>
+    <td>
+      {% if log.target_user %}
+      <a href="{{ url_for('admin_user_detail', target_id=log.target_user.id) }}" style="color:#2d7dd2;">{{ log.target_user.name }}</a><br>
+      <small style="color:#888;">{{ log.target_user.phone }}</small>
+      {% else %}—{% endif %}
+    </td>
+    <td style="max-width:280px; word-break:break-word; font-size:0.8rem;">{{ log.details or '—' }}</td>
+    <td style="font-size:0.75rem; color:#888;">{{ log.ip or '—' }}</td>
   </tr>
   {% endfor %}
   </tbody>
 </table>
+
+<div class="pagination">
+  {% if page > 1 %}
+    <a href="{{ url_for('admin_audit_log', page=page-1, action=action_filter, admin_phone=admin_filter, target_phone=target_filter) }}">← Prev</a>
+  {% else %}
+    <span class="disabled">← Prev</span>
+  {% endif %}
+  {% for p in range([1, page-2]|max, [total_pages+1, page+3]|min) %}
+    {% if p == page %}
+      <span class="current">{{ p }}</span>
+    {% else %}
+      <a href="{{ url_for('admin_audit_log', page=p, action=action_filter, admin_phone=admin_filter, target_phone=target_filter) }}">{{ p }}</a>
+    {% endif %}
+  {% endfor %}
+  {% if page < total_pages %}
+    <a href="{{ url_for('admin_audit_log', page=page+1, action=action_filter, admin_phone=admin_filter, target_phone=target_filter) }}">Next →</a>
+  {% else %}
+    <span class="disabled">Next →</span>
+  {% endif %}
+</div>
+
 {% else %}
-<div class="empty">No audit log entries yet.</div>
+<div class="empty">No audit log entries match your filters.</div>
 {% endif %}
 
-<p style="margin-top:20px;">
-  <a class="back" href="{{ url_for('admin_care') }}">← Admin Dashboard</a>
-  &nbsp;|&nbsp;
-  <a class="back" href="{{ url_for('admin_view_user') }}">View User →</a>
-</p>
 </body>
 </html>

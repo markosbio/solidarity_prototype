@@ -1,9 +1,9 @@
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, Response
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, Response, flash
 from functools import wraps
 from models import (db, User, Transaction, Community, CommunityMembership, Provider,
                     CareRequest, SystemState, PaymentRecord, MpesaTopup,
                     MobileMoneyTransaction, VerifiedProvider, FraudAlert, PlatformRevenue,
-                    TrustEvent, AdminAuditLog, GlobalAdmin)
+                    TrustEvent, AdminAuditLog, GlobalAdmin, UserLoginHistory, ProviderCodeHistory)
 from trust_graph import compute_draw_ceiling
 from witness import select_witnesses
 from recovery import update_recovery_parameters
@@ -85,6 +85,34 @@ app.register_blueprint(providers_bp)
 app.register_blueprint(ussd_bp)
 
 # Create tables and seed default data
+def _run_column_migrations():
+    """Add new columns to existing tables without Alembic."""
+    from loguru import logger
+    from sqlalchemy import text
+    migrations = [
+        "ALTER TABLE member ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE member ADD COLUMN IF NOT EXISTS locked_reason VARCHAR(200)",
+        "ALTER TABLE member ADD COLUMN IF NOT EXISTS locked_by INTEGER",
+        "ALTER TABLE member ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP",
+        "ALTER TABLE member ADD COLUMN IF NOT EXISTS last_login_ip VARCHAR(50)",
+        "ALTER TABLE member ADD COLUMN IF NOT EXISTS failed_login_count INTEGER DEFAULT 0",
+        "ALTER TABLE global_admin ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'super_admin'",
+        "ALTER TABLE transaction ADD COLUMN IF NOT EXISTS reversed BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE transaction ADD COLUMN IF NOT EXISTS reversed_by INTEGER",
+        "ALTER TABLE transaction ADD COLUMN IF NOT EXISTS reversed_reason VARCHAR(200)",
+        "ALTER TABLE transaction ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMP",
+    ]
+    try:
+        with db.engine.connect() as conn:
+            for sql in migrations:
+                try:
+                    conn.execute(text(sql))
+                except Exception as _col_e:
+                    logger.debug("Column migration skipped ({}): {}", sql[:60], _col_e)
+            conn.commit()
+    except Exception as _e:
+        logger.warning("Column migration outer error: {}", _e)
+
 with app.app_context():
     try:
         db.create_all()
@@ -92,6 +120,7 @@ with app.app_context():
         from loguru import logger
         logger.warning("db.create_all() raised an error (tables may already exist): {}", _e)
         db.session.rollback()
+    _run_column_migrations()
     try:
         if Community.query.count() == 0:
             default_comm = Community(name="Global Health Pool", invite_code="GLOBAL001", pool_balance=1_000_000.0, admin_user_id=None)
@@ -195,6 +224,24 @@ def home():
                                health_contributions=health_contributions)
     return redirect(url_for('register'))
 
+def _record_login(user, success=True):
+    """Record a login attempt in login history and update User fields."""
+    try:
+        ip = request.remote_addr
+        history = UserLoginHistory(user_id=user.id, ip=ip, success=success)
+        db.session.add(history)
+        if success:
+            user.last_login_at = datetime.utcnow()
+            user.last_login_ip = ip
+            user.failed_login_count = 0
+        else:
+            user.failed_login_count = (user.failed_login_count or 0) + 1
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+MAX_LOGIN_ATTEMPTS = 10
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -205,6 +252,16 @@ def login():
             # Phone-lookup step — decide whether to log in or show registration fields
             user = User.query.filter_by(phone=phone).first()
             if user:
+                # Check lock status
+                if getattr(user, 'is_locked', False):
+                    reason = getattr(user, 'locked_reason', '') or 'Account locked by admin.'
+                    return render_template('login.html', phone=phone,
+                                           error=f'Your account has been locked. {reason}')
+                # Check failed login count
+                if (getattr(user, 'failed_login_count', 0) or 0) >= MAX_LOGIN_ATTEMPTS:
+                    return render_template('login.html', phone=phone,
+                                           error='Too many failed login attempts. Contact support.')
+                _record_login(user, success=True)
                 session.permanent = True
                 session['user_id'] = user.id
                 return redirect(url_for('home'))
@@ -810,11 +867,19 @@ def mobile_money_callback():
 @admin_required
 def admin_verified_providers():
     applications = VerifiedProvider.query.order_by(VerifiedProvider.created_at.desc()).all()
+    # Build lookup maps for attaching Provider records
+    providers_by_name  = {p.name.strip().lower(): p for p in Provider.query.all()}
+    providers_by_phone = {p.contact_phone: p for p in Provider.query.all() if p.contact_phone}
     for app_ in applications:
         if app_.reviewed_by:
             app_.resolver = User.query.get(app_.reviewed_by)
         else:
             app_.resolver = None
+        # Try to link to a Provider record (for code management)
+        app_.provider_ref = (
+            providers_by_name.get(app_.provider_name.strip().lower()) or
+            providers_by_phone.get(app_.phone)
+        )
     return render_template('admin_verified_providers.html', applications=applications)
 
 
@@ -1986,46 +2051,6 @@ def export_trust_csv():
     )
 
 
-# ── Admin: View user profile ──────────────────────────────────────────────────
-
-@app.route('/admin/view-user')
-@admin_required
-def admin_view_user():
-    from trust_graph import compute_draw_ceiling
-    search_phone = request.args.get('phone', '').strip()
-    target = None
-    not_found = False
-    care_requests = []
-    trust_events = []
-    ceiling = 0.0
-    primary_comm = None
-    if search_phone:
-        target = User.query.filter_by(phone=search_phone).first()
-        if not target:
-            not_found = True
-        else:
-            care_requests = (CareRequest.query.filter_by(user_id=target.id)
-                             .order_by(CareRequest.created_at.desc()).limit(10).all())
-            trust_events = (TrustEvent.query.filter_by(user_id=target.id)
-                            .order_by(TrustEvent.timestamp.desc()).limit(10).all())
-            try:
-                ceiling = compute_draw_ceiling(target.id)
-            except Exception:
-                ceiling = 0.0
-            primary_comm = (Community.query.get(target.primary_community_id)
-                            if target.primary_community_id else None)
-            _log_admin_action(session['user_id'], 'view_user', target_user_id=target.id,
-                              details=f'Viewed profile of {target.name} ({target.phone})')
-    target_is_global_admin = bool(
-        target and GlobalAdmin.query.filter_by(user_id=target.id).first()
-    )
-    return render_template('admin_user_profile.html',
-                           target=target, search_phone=search_phone, not_found=not_found,
-                           care_requests=care_requests, trust_events=trust_events,
-                           ceiling=ceiling, primary_comm=primary_comm,
-                           target_is_global_admin=target_is_global_admin)
-
-
 # ── Admin: Global admin management ────────────────────────────────────────────
 
 @app.route('/admin/global-admins')
@@ -2071,18 +2096,6 @@ def admin_global_admins_remove(ga_id):
     return redirect(url_for('admin_global_admins', success='Global admin removed.'))
 
 
-# ── Admin: Audit log ──────────────────────────────────────────────────────────
-
-@app.route('/admin/audit-log')
-@admin_required
-def admin_audit_log():
-    logs = (AdminAuditLog.query.order_by(AdminAuditLog.timestamp.desc()).limit(200).all())
-    for log in logs:
-        log.admin = User.query.get(log.admin_id)
-        log.target_user = User.query.get(log.target_user_id) if log.target_user_id else None
-    return render_template('admin_audit_log.html', logs=logs)
-
-
 # ------------------ Leaderboard ------------------
 
 @app.route('/leaderboard')
@@ -2114,6 +2127,569 @@ def leaderboard():
     month_label = datetime.utcnow().strftime('%B %Y')
     return render_template('leaderboard.html', user=user, leaders=leaders,
                            user_rank=user_rank, user_total=user_total, month=month_label)
+
+
+# ── Admin: Role helpers ────────────────────────────────────────────────────────
+
+def _get_admin_role(user):
+    """Return role string for a global admin, or None if not admin."""
+    ga = GlobalAdmin.query.filter_by(user_id=user.id).first()
+    if ga:
+        return getattr(ga, 'role', None) or 'super_admin'
+    if user.phone in ADMIN_PHONES:
+        return 'super_admin'
+    return None
+
+
+def role_required(*roles):
+    """Decorator: require one of the listed roles in addition to admin_required."""
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            if 'user_id' not in session:
+                return redirect(url_for('login'))
+            user = db.session.get(User, session['user_id'])
+            if not user:
+                return redirect(url_for('login'))
+            role = _get_admin_role(user)
+            if not role:
+                return render_template('admin_access_denied.html', logged_in_phone=user.phone), 403
+            if role not in roles:
+                return render_template('admin_access_denied.html',
+                                       logged_in_phone=user.phone,
+                                       role_error=f'This action requires one of: {", ".join(roles)}. Your role: {role}'), 403
+            return f(*args, **kwargs)
+        return decorated
+    return decorator
+
+
+# ── Admin: Sequential provider code generator ─────────────────────────────────
+
+def _generate_sequential_code(prefix: str) -> str:
+    """Return next sequential code e.g. KAMPALA001, KAMPALA002."""
+    import re
+    prefix = re.sub(r'[^A-Z0-9]', '', prefix.upper())[:12]
+    existing = Provider.query.filter(
+        Provider.provider_code.like(f'{prefix}%')
+    ).all()
+    nums = []
+    for p in existing:
+        tail = p.provider_code[len(prefix):]
+        if tail.isdigit():
+            nums.append(int(tail))
+    next_num = (max(nums) + 1) if nums else 1
+    return f'{prefix}{next_num:03d}'
+
+
+# ── Admin: User list ───────────────────────────────────────────────────────────
+
+@app.route('/admin/users')
+@admin_required
+def admin_users():
+    admin_user = User.query.get(session['user_id'])
+    q = request.args.get('q', '').strip()
+    community_id = request.args.get('community_id', '')
+    locked = request.args.get('locked', '')
+    page = max(1, int(request.args.get('page', 1)))
+    per_page = 30
+
+    query = User.query
+    if q:
+        query = query.filter(
+            (User.name.ilike(f'%{q}%')) | (User.phone.ilike(f'%{q}%'))
+        )
+    if community_id:
+        member_ids = [m.user_id for m in CommunityMembership.query.filter_by(community_id=int(community_id)).all()]
+        query = query.filter(User.id.in_(member_ids))
+    if locked == '1':
+        query = query.filter(User.is_locked == True)
+    elif locked == '0':
+        query = query.filter((User.is_locked == False) | (User.is_locked == None))
+
+    total = query.count()
+    users = query.order_by(User.id.desc()).offset((page - 1) * per_page).limit(per_page).all()
+    communities = Community.query.order_by(Community.name).all()
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    return render_template('admin_users.html',
+                           user=admin_user, users=users, q=q,
+                           community_id=community_id, locked=locked,
+                           communities=communities, page=page,
+                           total_pages=total_pages, total=total)
+
+
+# ── Admin: Full user management panel ─────────────────────────────────────────
+
+@app.route('/admin/user/<int:target_id>')
+@admin_required
+def admin_user_detail(target_id):
+    admin_user = User.query.get(session['user_id'])
+    target = User.query.get_or_404(target_id)
+    care_requests = (CareRequest.query.filter_by(user_id=target.id)
+                     .order_by(CareRequest.created_at.desc()).limit(20).all())
+    trust_events = (TrustEvent.query.filter_by(user_id=target.id)
+                    .order_by(TrustEvent.timestamp.desc()).limit(20).all())
+    transactions = (Transaction.query.filter_by(user_id=target.id)
+                    .order_by(Transaction.timestamp.desc()).limit(30).all())
+    login_history = (UserLoginHistory.query.filter_by(user_id=target.id)
+                     .order_by(UserLoginHistory.timestamp.desc()).limit(10).all())
+    try:
+        ceiling = round(compute_draw_ceiling(target.id), 2)
+    except Exception:
+        ceiling = 0.0
+    primary_comm = Community.query.get(target.primary_community_id) if target.primary_community_id else None
+    all_comms = Community.query.order_by(Community.name).all()
+    target_is_global_admin = bool(GlobalAdmin.query.filter_by(user_id=target.id).first())
+    admin_role = _get_admin_role(admin_user)
+    audit_logs = (AdminAuditLog.query.filter_by(target_user_id=target.id)
+                  .order_by(AdminAuditLog.timestamp.desc()).limit(15).all())
+    _log_admin_action(session['user_id'], 'view_user_detail', target_user_id=target.id,
+                      details=f'Viewed detail panel for {target.name} ({target.phone})')
+    return render_template('admin_user_detail.html',
+                           user=admin_user, target=target,
+                           care_requests=care_requests, trust_events=trust_events,
+                           transactions=transactions, login_history=login_history,
+                           ceiling=ceiling, primary_comm=primary_comm,
+                           all_comms=all_comms, target_is_global_admin=target_is_global_admin,
+                           admin_role=admin_role, audit_logs=audit_logs)
+
+
+@app.route('/admin/user/<int:target_id>/edit', methods=['POST'])
+@admin_required
+def admin_user_edit(target_id):
+    admin_user = User.query.get(session['user_id'])
+    target = User.query.get_or_404(target_id)
+    reason = request.form.get('reason', '').strip()
+    if not reason:
+        flash('Reason is required for all edits.', 'error')
+        return redirect(url_for('admin_user_detail', target_id=target_id))
+
+    changes = []
+    new_name = request.form.get('name', '').strip()
+    new_phone = request.form.get('phone', '').strip()
+    new_pin = request.form.get('pin', '').strip()
+    new_comm_id = request.form.get('primary_community_id', '').strip()
+
+    if new_name and new_name != target.name:
+        changes.append(f'name: {target.name!r} → {new_name!r}')
+        target.name = new_name
+    if new_phone and new_phone != target.phone:
+        existing = User.query.filter_by(phone=new_phone).first()
+        if existing and existing.id != target.id:
+            flash('Phone number already in use by another member.', 'error')
+            return redirect(url_for('admin_user_detail', target_id=target_id))
+        changes.append(f'phone: {target.phone!r} → {new_phone!r}')
+        target.phone = new_phone
+    if new_pin:
+        if not new_pin.isdigit() or len(new_pin) != 4:
+            flash('PIN must be exactly 4 digits.', 'error')
+            return redirect(url_for('admin_user_detail', target_id=target_id))
+        changes.append('pin: [changed]')
+        target.pin = new_pin
+    if new_comm_id:
+        try:
+            cid = int(new_comm_id)
+            comm = Community.query.get(cid)
+            if comm and cid != target.primary_community_id:
+                changes.append(f'community: {target.primary_community_id} → {cid}')
+                target.primary_community_id = cid
+                if not CommunityMembership.query.filter_by(user_id=target.id, community_id=cid).first():
+                    db.session.add(CommunityMembership(user_id=target.id, community_id=cid, role='member'))
+        except ValueError:
+            pass
+
+    if not changes:
+        flash('No changes detected.', 'info')
+        return redirect(url_for('admin_user_detail', target_id=target_id))
+
+    db.session.commit()
+    detail = f'Profile edit — {", ".join(changes)}. Reason: {reason}'
+    _log_admin_action(session['user_id'], 'edit_user_profile', target_user_id=target.id, details=detail)
+    flash('Profile updated successfully.', 'success')
+    return redirect(url_for('admin_user_detail', target_id=target_id))
+
+
+@app.route('/admin/user/<int:target_id>/wallet', methods=['POST'])
+@admin_required
+def admin_user_wallet(target_id):
+    admin_user = User.query.get(session['user_id'])
+    target = User.query.get_or_404(target_id)
+    reason = request.form.get('reason', '').strip()
+    if not reason:
+        flash('Reason is required for balance adjustments.', 'error')
+        return redirect(url_for('admin_user_detail', target_id=target_id))
+    try:
+        amount = float(request.form.get('amount', 0))
+    except ValueError:
+        flash('Invalid amount.', 'error')
+        return redirect(url_for('admin_user_detail', target_id=target_id))
+    direction = request.form.get('direction', 'add')
+    if direction == 'deduct':
+        amount = -abs(amount)
+    else:
+        amount = abs(amount)
+
+    old_balance = target.sub_wallet_balance
+    target.sub_wallet_balance = max(0.0, (target.sub_wallet_balance or 0.0) + amount)
+    tx = Transaction(user_id=target.id, amount=amount, type='admin_adjustment',
+                     description=f'Admin wallet adjustment: {reason}')
+    db.session.add(tx)
+    db.session.commit()
+    detail = f'Wallet: UGX {old_balance:,.0f} → UGX {target.sub_wallet_balance:,.0f} ({"+" if amount>=0 else ""}{amount:,.0f}). Reason: {reason}'
+    _log_admin_action(session['user_id'], 'adjust_wallet', target_user_id=target.id, details=detail)
+    flash(f'Wallet adjusted by UGX {amount:+,.0f}. New balance: UGX {target.sub_wallet_balance:,.0f}', 'success')
+    return redirect(url_for('admin_user_detail', target_id=target_id))
+
+
+@app.route('/admin/user/<int:target_id>/social-credit', methods=['POST'])
+@admin_required
+def admin_user_social_credit(target_id):
+    admin_user = User.query.get(session['user_id'])
+    target = User.query.get_or_404(target_id)
+    reason = request.form.get('reason', '').strip()
+    if not reason:
+        flash('Reason is required for social credit adjustments.', 'error')
+        return redirect(url_for('admin_user_detail', target_id=target_id))
+    try:
+        amount = float(request.form.get('amount', 0))
+    except ValueError:
+        flash('Invalid amount.', 'error')
+        return redirect(url_for('admin_user_detail', target_id=target_id))
+    direction = request.form.get('direction', 'add')
+    if direction == 'deduct':
+        amount = -abs(amount)
+    else:
+        amount = abs(amount)
+
+    old_credit = target.total_social_credit
+    target.total_social_credit = max(0.0, (target.total_social_credit or 0.0) + amount)
+    db.session.commit()
+    detail = f'Social credit: UGX {old_credit:,.0f} → UGX {target.total_social_credit:,.0f}. Reason: {reason}'
+    _log_admin_action(session['user_id'], 'adjust_social_credit', target_user_id=target.id, details=detail)
+    flash(f'Social credit adjusted. New balance: UGX {target.total_social_credit:,.0f}', 'success')
+    return redirect(url_for('admin_user_detail', target_id=target_id))
+
+
+@app.route('/admin/user/<int:target_id>/lock', methods=['POST'])
+@admin_required
+def admin_user_lock(target_id):
+    admin_user = User.query.get(session['user_id'])
+    target = User.query.get_or_404(target_id)
+    reason = request.form.get('reason', '').strip()
+    action = request.form.get('action', 'lock')
+    if action == 'unlock':
+        old = 'locked' if getattr(target, 'is_locked', False) else 'unlocked'
+        target.is_locked = False
+        target.locked_reason = None
+        target.locked_by = None
+        db.session.commit()
+        _log_admin_action(session['user_id'], 'unlock_user', target_user_id=target.id,
+                          details=f'User unlocked. Was: {old}')
+        flash(f'{target.name} has been unlocked.', 'success')
+    else:
+        if not reason:
+            flash('Reason is required to lock an account.', 'error')
+            return redirect(url_for('admin_user_detail', target_id=target_id))
+        target.is_locked = True
+        target.locked_reason = reason
+        target.locked_by = admin_user.id
+        db.session.commit()
+        _log_admin_action(session['user_id'], 'lock_user', target_user_id=target.id,
+                          details=f'Account locked. Reason: {reason}')
+        flash(f'{target.name}\'s account has been locked.', 'success')
+    return redirect(url_for('admin_user_detail', target_id=target_id))
+
+
+@app.route('/admin/user/<int:target_id>/pin-reset', methods=['POST'])
+@admin_required
+def admin_user_pin_reset(target_id):
+    admin_user = User.query.get(session['user_id'])
+    target = User.query.get_or_404(target_id)
+    reason = request.form.get('reason', '').strip()
+    new_pin = request.form.get('new_pin', '').strip()
+    if not reason:
+        flash('Reason is required to reset a PIN.', 'error')
+        return redirect(url_for('admin_user_detail', target_id=target_id))
+    if not new_pin or not new_pin.isdigit() or len(new_pin) != 4:
+        flash('New PIN must be exactly 4 digits.', 'error')
+        return redirect(url_for('admin_user_detail', target_id=target_id))
+    target.pin = new_pin
+    db.session.commit()
+    _log_admin_action(session['user_id'], 'reset_pin', target_user_id=target.id,
+                      details=f'PIN reset by admin. Reason: {reason}')
+    flash(f'PIN for {target.name} has been reset.', 'success')
+    return redirect(url_for('admin_user_detail', target_id=target_id))
+
+
+@app.route('/admin/transaction/<int:tx_id>/reverse', methods=['POST'])
+@admin_required
+def admin_reverse_transaction(tx_id):
+    admin_user = User.query.get(session['user_id'])
+    tx = Transaction.query.get_or_404(tx_id)
+    reason = request.form.get('reason', '').strip()
+    if not reason:
+        flash('Reason is required to reverse a transaction.', 'error')
+        return redirect(request.referrer or url_for('admin_users'))
+    if getattr(tx, 'reversed', False):
+        flash('This transaction has already been reversed.', 'error')
+        return redirect(request.referrer or url_for('admin_users'))
+
+    user = User.query.get(tx.user_id)
+    if user:
+        user.sub_wallet_balance = max(0.0, (user.sub_wallet_balance or 0.0) - tx.amount)
+    tx.reversed = True
+    tx.reversed_by = admin_user.id
+    tx.reversed_reason = reason
+    tx.reversed_at = datetime.utcnow()
+    reversal_tx = Transaction(user_id=tx.user_id, amount=-tx.amount, type='admin_reversal',
+                              description=f'Reversal of tx#{tx.id}: {reason}')
+    db.session.add(reversal_tx)
+    db.session.commit()
+    _log_admin_action(session['user_id'], 'reverse_transaction', target_user_id=tx.user_id,
+                      details=f'Reversed tx#{tx.id} amt={tx.amount:,.0f}. Reason: {reason}')
+    flash(f'Transaction #{tx.id} reversed successfully.', 'success')
+    target_id = request.form.get('target_id')
+    if target_id:
+        return redirect(url_for('admin_user_detail', target_id=int(target_id)))
+    return redirect(url_for('admin_users'))
+
+
+# ── Admin: Provider code management ───────────────────────────────────────────
+
+@app.route('/admin/provider/<int:provider_id>/code', methods=['POST'])
+@admin_required
+def admin_provider_code(provider_id):
+    admin_user = User.query.get(session['user_id'])
+    provider = Provider.query.get_or_404(provider_id)
+    reason = request.form.get('reason', '').strip()
+    mode = request.form.get('mode', 'manual')
+
+    if mode == 'sequential':
+        prefix = request.form.get('prefix', '').strip().upper()
+        if not prefix:
+            flash('Prefix is required for sequential code generation.', 'error')
+            return redirect(request.referrer or url_for('admin_verified_providers'))
+        new_code = _generate_sequential_code(prefix)
+    else:
+        new_code = request.form.get('new_code', '').strip().upper()
+
+    import re
+    if not new_code or not re.match(r'^[A-Z0-9]{2,20}$', new_code):
+        flash('Provider code must be 2–20 alphanumeric characters.', 'error')
+        return redirect(request.referrer or url_for('admin_verified_providers'))
+    existing = Provider.query.filter_by(provider_code=new_code).first()
+    if existing and existing.id != provider.id:
+        flash(f'Code {new_code} is already taken by {existing.name}.', 'error')
+        return redirect(request.referrer or url_for('admin_verified_providers'))
+    if not reason:
+        flash('Reason is required to change a provider code.', 'error')
+        return redirect(request.referrer or url_for('admin_verified_providers'))
+
+    old_code = provider.provider_code
+    hist = ProviderCodeHistory(provider_id=provider.id, old_code=old_code, new_code=new_code,
+                               changed_by=admin_user.id, reason=reason)
+    db.session.add(hist)
+    provider.provider_code = new_code
+    db.session.commit()
+    _log_admin_action(session['user_id'], 'change_provider_code',
+                      details=f'Provider #{provider.id} {provider.name}: {old_code} → {new_code}. Reason: {reason}')
+    flash(f'Provider code changed from {old_code} to {new_code}.', 'success')
+    return redirect(url_for('admin_verified_providers'))
+
+
+@app.route('/admin/provider/<int:provider_id>/code-history')
+@admin_required
+def admin_provider_code_history(provider_id):
+    admin_user = User.query.get(session['user_id'])
+    provider = Provider.query.get_or_404(provider_id)
+    history = (ProviderCodeHistory.query.filter_by(provider_id=provider_id)
+               .order_by(ProviderCodeHistory.changed_at.desc()).all())
+    for h in history:
+        h.admin_user = User.query.get(h.changed_by) if h.changed_by else None
+    return render_template('admin_provider_code_history.html',
+                           user=admin_user, provider=provider, history=history)
+
+
+# ── Admin: Bulk SMS ────────────────────────────────────────────────────────────
+
+@app.route('/admin/bulk-sms', methods=['GET', 'POST'])
+@admin_required
+def admin_bulk_sms():
+    from loguru import logger
+    admin_user = User.query.get(session['user_id'])
+    communities = Community.query.order_by(Community.name).all()
+    at_configured = bool(os.getenv('AT_USERNAME') and os.getenv('AT_API_KEY'))
+    result = None
+
+    if request.method == 'POST':
+        message = request.form.get('message', '').strip()
+        community_id = request.form.get('community_id', '').strip()
+        reason = request.form.get('reason', '').strip()
+        if not message:
+            flash('Message is required.', 'error')
+        elif not reason:
+            flash('Reason is required for bulk SMS.', 'error')
+        else:
+            if community_id:
+                memberships = CommunityMembership.query.filter_by(community_id=int(community_id)).all()
+                recipients = [User.query.get(m.user_id) for m in memberships]
+                recipients = [u for u in recipients if u]
+                scope = f'community #{community_id}'
+            else:
+                recipients = User.query.filter(User.is_locked != True).all()
+                scope = 'all members'
+
+            sent = 0
+            skipped = 0
+            from notifications import _send_sms
+            for u in recipients:
+                try:
+                    _send_sms(u.phone, f'[SolidarityPool] {message}')
+                    sent += 1
+                except Exception as e:
+                    logger.error("Bulk SMS failed for {}: {}", u.phone, e)
+                    skipped += 1
+            result = {'sent': sent, 'skipped': skipped, 'total': len(recipients)}
+            _log_admin_action(session['user_id'], 'bulk_sms',
+                              details=f'Bulk SMS to {scope}: {sent}/{len(recipients)} sent. Reason: {reason}. Msg: {message[:80]}')
+
+    return render_template('admin_bulk_sms.html', user=admin_user,
+                           communities=communities, at_configured=at_configured, result=result)
+
+
+# ── Admin: USSD Simulator ─────────────────────────────────────────────────────
+
+@app.route('/admin/ussd-simulator', methods=['GET', 'POST'])
+@admin_required
+def admin_ussd_simulator():
+    admin_user = User.query.get(session['user_id'])
+    response_text = None
+    session_id = request.form.get('session_id') or f'SIM_{admin_user.id}_{int(datetime.utcnow().timestamp())}'
+    phone = request.form.get('phone', '').strip() or '256700000000'
+    text = request.form.get('text', '').strip()
+
+    if request.method == 'POST':
+        import requests as _requests
+        try:
+            base_url = request.host_url.rstrip('/')
+            resp = _requests.post(
+                f'{base_url}/ussd/callback',
+                data={'sessionId': session_id, 'phoneNumber': phone, 'text': text, 'serviceCode': '*123#'},
+                timeout=5
+            )
+            response_text = resp.text
+        except Exception as e:
+            response_text = f'[Simulator error: {e}]'
+
+    return render_template('admin_ussd_simulator.html', user=admin_user,
+                           session_id=session_id, phone=phone, text=text,
+                           response_text=response_text)
+
+
+# ── Admin: Enhanced audit log ──────────────────────────────────────────────────
+
+@app.route('/admin/audit-log')
+@admin_required
+def admin_audit_log():
+    admin_user = User.query.get(session['user_id'])
+    page = max(1, int(request.args.get('page', 1)))
+    per_page = 50
+    action_filter = request.args.get('action', '').strip()
+    admin_filter = request.args.get('admin_phone', '').strip()
+    target_filter = request.args.get('target_phone', '').strip()
+
+    query = AdminAuditLog.query
+    if action_filter:
+        query = query.filter(AdminAuditLog.action.ilike(f'%{action_filter}%'))
+    if admin_filter:
+        admin_match = User.query.filter_by(phone=admin_filter).first()
+        if admin_match:
+            query = query.filter(AdminAuditLog.admin_id == admin_match.id)
+        else:
+            query = query.filter(AdminAuditLog.admin_id == -1)
+    if target_filter:
+        target_match = User.query.filter_by(phone=target_filter).first()
+        if target_match:
+            query = query.filter(AdminAuditLog.target_user_id == target_match.id)
+        else:
+            query = query.filter(AdminAuditLog.target_user_id == -1)
+
+    total = query.count()
+    logs = query.order_by(AdminAuditLog.timestamp.desc()).offset((page - 1) * per_page).limit(per_page).all()
+    for log in logs:
+        log.admin = User.query.get(log.admin_id)
+        log.target_user = User.query.get(log.target_user_id) if log.target_user_id else None
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    distinct_actions = [r[0] for r in db.session.query(AdminAuditLog.action).distinct().order_by(AdminAuditLog.action).all()]
+    return render_template('admin_audit_log.html', user=admin_user, logs=logs,
+                           page=page, total_pages=total_pages, total=total,
+                           action_filter=action_filter, admin_filter=admin_filter,
+                           target_filter=target_filter, distinct_actions=distinct_actions)
+
+
+@app.route('/admin/export/audit.csv')
+@admin_required
+def export_audit_csv():
+    logs = AdminAuditLog.query.order_by(AdminAuditLog.timestamp.desc()).all()
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(['Timestamp', 'Admin', 'Admin Phone', 'Action', 'Target', 'Target Phone', 'Details', 'IP'])
+    for log in logs:
+        admin = User.query.get(log.admin_id)
+        target = User.query.get(log.target_user_id) if log.target_user_id else None
+        w.writerow([
+            log.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+            admin.name if admin else f'#{log.admin_id}',
+            admin.phone if admin else '',
+            log.action,
+            target.name if target else '',
+            target.phone if target else '',
+            log.details or '',
+            log.ip or '',
+        ])
+    return Response(buf.getvalue(), mimetype='text/csv',
+                    headers={'Content-Disposition': 'attachment; filename="audit_log.csv"'})
+
+
+# ── Updated admin_view_user with link to detail panel ─────────────────────────
+
+@app.route('/admin/view-user')
+@admin_required
+def admin_view_user():
+    from trust_graph import compute_draw_ceiling
+    admin_user = User.query.get(session['user_id'])
+    search_phone = request.args.get('phone', '').strip()
+    target = None
+    not_found = False
+    care_requests = []
+    trust_events = []
+    ceiling = 0.0
+    primary_comm = None
+    if search_phone:
+        target = User.query.filter_by(phone=search_phone).first()
+        if not target:
+            not_found = True
+        else:
+            care_requests = (CareRequest.query.filter_by(user_id=target.id)
+                             .order_by(CareRequest.created_at.desc()).limit(10).all())
+            trust_events = (TrustEvent.query.filter_by(user_id=target.id)
+                            .order_by(TrustEvent.timestamp.desc()).limit(10).all())
+            try:
+                ceiling = compute_draw_ceiling(target.id)
+            except Exception:
+                ceiling = 0.0
+            primary_comm = (Community.query.get(target.primary_community_id)
+                            if target.primary_community_id else None)
+            _log_admin_action(session['user_id'], 'view_user', target_user_id=target.id,
+                              details=f'Viewed profile of {target.name} ({target.phone})')
+    target_is_global_admin = bool(
+        target and GlobalAdmin.query.filter_by(user_id=target.id).first()
+    )
+    return render_template('admin_user_profile.html',
+                           user=admin_user, target=target, search_phone=search_phone,
+                           not_found=not_found, care_requests=care_requests,
+                           trust_events=trust_events, ceiling=ceiling,
+                           primary_comm=primary_comm,
+                           target_is_global_admin=target_is_global_admin)
 
 
 if __name__ == '__main__':

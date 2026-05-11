@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Provider Code History – Admin – SolidarityPool</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; }
+  h2 { margin-bottom: 4px; }
+  .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 24px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.87rem; }
+  th { background: #f0f0f0; text-align: left; padding: 8px 10px; border-bottom: 2px solid #ddd;
+       font-size: 0.78rem; color: #555; white-space: nowrap; }
+  td { padding: 8px 10px; border-bottom: 1px solid #eee; vertical-align: top; }
+  tr:hover td { background: #fafafa; }
+  code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+  .arrow { color: #888; }
+  .empty { text-align: center; color: #888; padding: 40px; font-style: italic; }
+  .back { font-size: 0.88rem; color: #2d7dd2; text-decoration: none; }
+</style>
+</head>
+<body>
+
+{% include 'admin_nav.html' %}
+
+<h2>Provider Code History</h2>
+<p class="subtitle">{{ provider.name }} · Current code: <code style="font-size:1em;">{{ provider.provider_code }}</code></p>
+
+{% if history %}
+<table>
+  <thead>
+    <tr>
+      <th>Date</th>
+      <th>Old code</th>
+      <th></th>
+      <th>New code</th>
+      <th>Changed by</th>
+      <th>Reason</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for h in history %}
+  <tr>
+    <td style="white-space:nowrap;">{{ h.changed_at.strftime('%d/%m/%Y %H:%M') }}</td>
+    <td><code>{{ h.old_code }}</code></td>
+    <td class="arrow">→</td>
+    <td><code>{{ h.new_code }}</code></td>
+    <td>{{ h.admin_user.name if h.admin_user else '—' }}</td>
+    <td style="max-width:240px; word-break:break-word;">{{ h.reason or '—' }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty">No code changes recorded for this provider.</div>
+{% endif %}
+
+<p style="margin-top:20px;">
+  <a class="back" href="{{ url_for('admin_verified_providers') }}">← Back to Providers</a>
+</p>
+
+</body>
+</html>

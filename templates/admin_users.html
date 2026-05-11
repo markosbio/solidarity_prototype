@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Users – Admin – SolidarityPool</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: sans-serif; max-width: 960px; margin: 40px auto; padding: 0 16px; }
+  h2 { margin-bottom: 4px; }
+  .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 16px; }
+  .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px;
+                background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 14px 16px; }
+  .filter-bar input, .filter-bar select { padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px;
+                                           font-size: 0.9rem; }
+  .filter-bar input[type=text] { flex: 1; min-width: 160px; }
+  .filter-bar button { padding: 8px 18px; background: #2d7dd2; color: #fff; border: none;
+                       border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
+  .filter-bar button:hover { background: #2566b0; }
+  .filter-bar a { padding: 8px 14px; color: #666; border: 1px solid #ccc; border-radius: 4px;
+                  text-decoration: none; font-size: 0.88rem; background: #fff; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.87rem; }
+  th { background: #f0f0f0; text-align: left; padding: 8px 10px; border-bottom: 2px solid #ddd;
+       font-size: 0.78rem; color: #555; white-space: nowrap; }
+  td { padding: 8px 10px; border-bottom: 1px solid #eee; vertical-align: middle; }
+  tr:hover td { background: #fafafa; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 8px; font-size: 0.75rem; font-weight: bold; }
+  .badge-locked  { background: #f8d7da; color: #721c24; }
+  .badge-active  { background: #d4edda; color: #155724; }
+  .badge-admin   { background: #cce5ff; color: #004085; }
+  .trust-h { color: #28a745; font-weight: bold; }
+  .trust-m { color: #ffc107; font-weight: bold; }
+  .trust-l { color: #dc3545; font-weight: bold; }
+  .btn-sm { display: inline-block; padding: 4px 12px; border-radius: 4px; font-size: 0.8rem;
+            text-decoration: none; background: #2d7dd2; color: #fff; border: none; cursor: pointer; }
+  .btn-sm:hover { background: #2566b0; }
+  .pagination { display: flex; gap: 6px; align-items: center; margin-top: 20px; flex-wrap: wrap; }
+  .pagination a, .pagination span {
+    padding: 6px 12px; border-radius: 4px; font-size: 0.85rem; text-decoration: none;
+    border: 1px solid #ddd; background: #fff; color: #333;
+  }
+  .pagination a:hover { background: #f0f0f0; }
+  .pagination .current { background: #2d7dd2; color: #fff; border-color: #2d7dd2; }
+  .pagination .disabled { color: #ccc; }
+  .total-label { color: #666; font-size: 0.85rem; margin-bottom: 8px; }
+  .empty { text-align: center; color: #888; padding: 40px; font-style: italic; }
+</style>
+</head>
+<body>
+
+{% include 'admin_nav.html' %}
+
+<h2>Member Directory</h2>
+<p class="subtitle">Search, filter, and manage all registered members.</p>
+
+<form method="GET">
+  <div class="filter-bar">
+    <input type="text" name="q" value="{{ q or '' }}" placeholder="Search name or phone…">
+    <select name="community_id">
+      <option value="">All communities</option>
+      {% for c in communities %}
+      <option value="{{ c.id }}" {% if community_id|string == c.id|string %}selected{% endif %}>{{ c.name }}</option>
+      {% endfor %}
+    </select>
+    <select name="locked">
+      <option value="">All statuses</option>
+      <option value="0" {% if locked == '0' %}selected{% endif %}>Active only</option>
+      <option value="1" {% if locked == '1' %}selected{% endif %}>Locked only</option>
+    </select>
+    <button type="submit">Search</button>
+    {% if q or community_id or locked %}<a href="{{ url_for('admin_users') }}">Clear</a>{% endif %}
+  </div>
+</form>
+
+<p class="total-label">{{ total }} member{{ 's' if total != 1 else '' }} found</p>
+
+{% if users %}
+<table>
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Name</th>
+      <th>Phone</th>
+      <th>Trust</th>
+      <th>Wallet (UGX)</th>
+      <th>Credit (UGX)</th>
+      <th>Status</th>
+      <th>Last Login</th>
+      <th>Action</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for u in users %}
+  <tr>
+    <td style="color:#888;">{{ u.id }}</td>
+    <td>
+      {{ u.name }}
+      {% if u.global_admin_entry %}<span class="badge badge-admin">ADMIN</span>{% endif %}
+    </td>
+    <td>{{ u.phone }}</td>
+    <td class="{% if u.trust_score >= 0.7 %}trust-h{% elif u.trust_score >= 0.4 %}trust-m{% else %}trust-l{% endif %}">
+      {{ "%.2f"|format(u.trust_score) }}
+    </td>
+    <td>{{ "{:,.0f}".format(u.sub_wallet_balance or 0) }}</td>
+    <td>{{ "{:,.0f}".format(u.total_social_credit or 0) }}</td>
+    <td>
+      {% if u.is_locked %}
+        <span class="badge badge-locked">Locked</span>
+      {% else %}
+        <span class="badge badge-active">Active</span>
+      {% endif %}
+    </td>
+    <td style="font-size:0.78rem; color:#888;">
+      {{ u.last_login_at.strftime('%d/%m/%y %H:%M') if u.last_login_at else '—' }}
+    </td>
+    <td>
+      <a class="btn-sm" href="{{ url_for('admin_user_detail', target_id=u.id) }}">Manage</a>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<div class="pagination">
+  {% if page > 1 %}
+    <a href="{{ url_for('admin_users', page=page-1, q=q, community_id=community_id, locked=locked) }}">← Prev</a>
+  {% else %}
+    <span class="disabled">← Prev</span>
+  {% endif %}
+  <span class="current">{{ page }} / {{ total_pages }}</span>
+  {% if page < total_pages %}
+    <a href="{{ url_for('admin_users', page=page+1, q=q, community_id=community_id, locked=locked) }}">Next →</a>
+  {% else %}
+    <span class="disabled">Next →</span>
+  {% endif %}
+</div>
+
+{% else %}
+<div class="empty">No members match your search.</div>
+{% endif %}
+
+</body>
+</html>
