@@ -32,6 +32,8 @@ class User(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     deactivated_at = db.Column(db.DateTime, nullable=True)
     tos_accepted_at = db.Column(db.DateTime, nullable=True)
+    locked_until = db.Column(db.DateTime, nullable=True)
+    session_version = db.Column(db.Integer, default=1)
 
     recruits = db.relationship('User', foreign_keys=[referred_by],
                                backref=db.backref('referrer', remote_side=[id]))
@@ -182,6 +184,16 @@ class PaymentRecord(db.Model):
     provider_confirmed_at = db.Column(db.DateTime, nullable=True)
     treatment_started_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    reversed = db.Column(db.Boolean, default=False)
+    reversed_by = db.Column(db.Integer, db.ForeignKey('member.id'), nullable=True)
+    reversed_reason = db.Column(db.String(300), nullable=True)
+    reversed_at = db.Column(db.DateTime, nullable=True)
+    on_hold = db.Column(db.Boolean, default=False)
+    on_hold_reason = db.Column(db.String(200), nullable=True)
+    dispute_status = db.Column(db.String(20), nullable=True)
+    dispute_note = db.Column(db.String(500), nullable=True)
+    dispute_by_user_id = db.Column(db.Integer, db.ForeignKey('member.id'), nullable=True)
+    dispute_at = db.Column(db.DateTime, nullable=True)
 
     care_request = db.relationship('CareRequest', backref='payments', foreign_keys=[care_request_id])
     user = db.relationship('User', backref='payments', foreign_keys=[user_id])
@@ -279,6 +291,8 @@ class AdminAuditLog(db.Model):
     details = db.Column(db.String(500))
     ip = db.Column(db.String(50))
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    old_value = db.Column(db.String(500), nullable=True)
+    new_value = db.Column(db.String(500), nullable=True)
 
     admin = db.relationship('User', foreign_keys=[admin_id], backref='audit_actions')
     target_user = db.relationship('User', foreign_keys=[target_user_id], backref='audit_logs')
@@ -304,6 +318,7 @@ class UserLoginHistory(db.Model):
     ip = db.Column(db.String(50))
     success = db.Column(db.Boolean, default=True)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    user_agent = db.Column(db.String(300), nullable=True)
 
     user = db.relationship('User', backref='login_history')
 

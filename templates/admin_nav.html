@@ -105,6 +105,7 @@
   <a href="/admin/users" {% if request.path.startswith('/admin/users') or request.path.startswith('/admin/user/') %}class="active"{% endif %}>👥 Users</a>
   <a href="/admin/verified-providers" {% if request.path == '/admin/verified-providers' %}class="active"{% endif %}>🏥 Providers</a>
   <a href="/admin/fraud-alerts" {% if request.path == '/admin/fraud-alerts' %}class="active"{% endif %}>🚨 Fraud</a>
+  <a href="/admin/disputes" {% if request.path == '/admin/disputes' %}class="active"{% endif %}>⚖️ Disputes</a>
   <a href="/admin/view-user" {% if request.path == '/admin/view-user' %}class="active"{% endif %}>🔍 Lookup</a>
   <a href="/admin/audit-log" {% if request.path == '/admin/audit-log' %}class="active"{% endif %}>📜 Audit</a>
   <a href="/admin/bulk-sms" {% if request.path == '/admin/bulk-sms' %}class="active"{% endif %}>📱 SMS</a>
@@ -151,7 +152,7 @@
 <script>
 // ── Session timeout (30 min inactivity) ───────────────────────
 (function() {
-  const TIMEOUT_MS = 30 * 60 * 1000;
+  const TIMEOUT_MS = 15 * 60 * 1000;
   const WARN_MS = 5 * 60 * 1000;
   let timer = null, lastActivity = Date.now();
   const timerEl = document.getElementById('session-timer');

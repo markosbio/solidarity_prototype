@@ -108,13 +108,16 @@ def super_admin_required(f):
         return f(*args, **kwargs)
     return decorated
 
-def _log_admin_action(admin_id, action, target_user_id=None, details=''):
+def _log_admin_action(admin_id, action, target_user_id=None, details='',
+                      old_value=None, new_value=None):
     log = AdminAuditLog(
         admin_id=admin_id,
         target_user_id=target_user_id,
         action=action,
         details=details[:500],
         ip=request.remote_addr,
+        old_value=old_value[:500] if old_value else None,
+        new_value=new_value[:500] if new_value else None,
     )
     db.session.add(log)
     db.session.commit()
@@ -123,6 +126,129 @@ db.init_app(app)
 app.register_blueprint(communities_bp)
 app.register_blueprint(providers_bp)
 app.register_blueprint(ussd_bp)
+
+# ── Security configuration ─────────────────────────────────────────────────────
+
+WEAK_PINS = {
+    '1234', '2345', '3456', '4567', '5678', '6789',
+    '9876', '8765', '7654', '6543', '5432', '4321', '3210',
+    '0000', '1111', '2222', '3333', '4444', '5555', '6666', '7777', '8888', '9999',
+    '1212', '2121', '1313', '3131', '1122', '2211', '1100', '0011',
+    '1010', '0101', '2020', '0202', '1230', '0123', '1357', '2468',
+}
+
+def _is_weak_pin(pin: str) -> bool:
+    """Return True if the PIN is too predictable."""
+    if pin in WEAK_PINS:
+        return True
+    if len(set(pin)) == 1:
+        return True
+    digits = [int(d) for d in pin]
+    diffs = [digits[i + 1] - digits[i] for i in range(len(digits) - 1)]
+    if all(d == 1 for d in diffs) or all(d == -1 for d in diffs):
+        return True
+    return False
+
+SESSION_IDLE_TIMEOUT = int(os.environ.get('SESSION_IDLE_TIMEOUT', 900))
+LOCKOUT_DURATION_MINUTES = int(os.environ.get('LOCKOUT_DURATION_MINUTES', 30))
+_ADMIN_IP_RAW = os.environ.get('ADMIN_IP_WHITELIST', '').strip()
+ADMIN_IP_WHITELIST = [ip.strip() for ip in _ADMIN_IP_RAW.split(',') if ip.strip()]
+
+_CSRF_EXEMPT_PREFIXES = ('/mpesa/', '/ussd/', '/api/', '/static/', '/mobile-money/')
+
+
+def _get_csrf_token():
+    """Return (and create if missing) the per-session CSRF token."""
+    if '_csrf_token' not in session:
+        session['_csrf_token'] = ''.join(
+            random.choices(string.ascii_letters + string.digits, k=40)
+        )
+    return session['_csrf_token']
+
+
+def _notify_lockout(user):
+    """Alert admin phones when an account gets locked."""
+    try:
+        from notifications import _send_sms
+        msg = (f'[SolidarityPool Alert] Account auto-locked: {user.phone} ({user.name}) '
+               f'after {MAX_LOGIN_ATTEMPTS} failed PIN attempts.')
+        for phone in ADMIN_PHONES:
+            try:
+                _send_sms(phone, msg)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+@app.before_request
+def _security_before_request():
+    from loguru import logger
+
+    # 1. Session inactivity timeout
+    if 'user_id' in session:
+        now_ts = datetime.utcnow().timestamp()
+        last_active = session.get('_last_active')
+        if last_active and (now_ts - last_active) > SESSION_IDLE_TIMEOUT:
+            uid = session.get('user_id')
+            session.clear()
+            logger.info("Session expired by inactivity: user_id={}", uid)
+            if request.path not in ('/login', '/logout'):
+                flash('Your session expired due to inactivity. Please log in again.', 'info')
+            return redirect(url_for('login'))
+        session['_last_active'] = now_ts
+
+    # 2. Session version check (logout-all-devices)
+    if 'user_id' in session and '_session_version' in session:
+        user = db.session.get(User, session['user_id'])
+        if user:
+            current_ver = user.session_version or 1
+            if session.get('_session_version', 1) != current_ver:
+                session.clear()
+                return redirect(url_for('login', msg='session_revoked'))
+
+    # 3. Admin IP whitelist
+    if ADMIN_IP_WHITELIST and request.path.startswith('/admin'):
+        remote_ip = request.remote_addr or ''
+        if remote_ip not in ADMIN_IP_WHITELIST:
+            logger.warning("Admin IP blocked: ip={} path={}", remote_ip, request.path)
+            return render_template('error.html', code=403,
+                                   message='Admin access denied: your IP address is not authorised.'), 403
+
+    # 4. CSRF protection on POST (exempt webhooks)
+    if request.method == 'POST':
+        if not any(request.path.startswith(p) for p in _CSRF_EXEMPT_PREFIXES):
+            token_in_form = request.form.get('csrf_token', '')
+            token_in_session = session.get('_csrf_token', '')
+            if token_in_session and token_in_form != token_in_session:
+                logger.warning("CSRF mismatch: path={} ip={}", request.path, request.remote_addr)
+                return render_template('error.html', code=403,
+                                       message='Security check failed. Please go back and try again.'), 403
+
+
+@app.after_request
+def _inject_csrf_meta(response):
+    """Auto-inject CSRF token meta tag + JS auto-fill into every HTML page."""
+    if response.content_type and response.content_type.startswith('text/html'):
+        token = _get_csrf_token()
+        snippet = (
+            f'<meta name="csrf-token" content="{token}">'
+            '<script>document.addEventListener("DOMContentLoaded",function(){'
+            'var m=document.querySelector(\'meta[name="csrf-token"]\');'
+            'if(!m)return;var v=m.content;'
+            'document.querySelectorAll("form").forEach(function(f){'
+            'if(f.method.toLowerCase()==="post"){'
+            'if(!f.querySelector(\'input[name="csrf_token"]\')){'
+            'var i=document.createElement("input");i.type="hidden";'
+            'i.name="csrf_token";i.value=v;f.appendChild(i);}}'
+            '});});</script>'
+        )
+        data = response.get_data(as_text=True)
+        if '</head>' in data:
+            data = data.replace('</head>', snippet + '</head>', 1)
+            response.set_data(data)
+    return response
+
 
 # Create tables and seed default data
 def _run_column_migrations():
@@ -145,6 +271,21 @@ def _run_column_migrations():
         "ALTER TABLE transaction ADD COLUMN IF NOT EXISTS reversed_by INTEGER",
         "ALTER TABLE transaction ADD COLUMN IF NOT EXISTS reversed_reason VARCHAR(200)",
         "ALTER TABLE transaction ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMP",
+        "ALTER TABLE member ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP",
+        "ALTER TABLE member ADD COLUMN IF NOT EXISTS session_version INTEGER DEFAULT 1",
+        "ALTER TABLE payment_record ADD COLUMN IF NOT EXISTS reversed BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE payment_record ADD COLUMN IF NOT EXISTS reversed_by INTEGER",
+        "ALTER TABLE payment_record ADD COLUMN IF NOT EXISTS reversed_reason VARCHAR(300)",
+        "ALTER TABLE payment_record ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMP",
+        "ALTER TABLE payment_record ADD COLUMN IF NOT EXISTS on_hold BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE payment_record ADD COLUMN IF NOT EXISTS on_hold_reason VARCHAR(200)",
+        "ALTER TABLE payment_record ADD COLUMN IF NOT EXISTS dispute_status VARCHAR(20)",
+        "ALTER TABLE payment_record ADD COLUMN IF NOT EXISTS dispute_note VARCHAR(500)",
+        "ALTER TABLE payment_record ADD COLUMN IF NOT EXISTS dispute_by_user_id INTEGER",
+        "ALTER TABLE payment_record ADD COLUMN IF NOT EXISTS dispute_at TIMESTAMP",
+        "ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS old_value VARCHAR(500)",
+        "ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS new_value VARCHAR(500)",
+        "ALTER TABLE user_login_history ADD COLUMN IF NOT EXISTS user_agent VARCHAR(300)",
     ]
     try:
         with db.engine.connect() as conn:
@@ -272,7 +413,8 @@ def _record_login(user, success=True):
     """Record a login attempt in login history and update User fields."""
     try:
         ip = request.remote_addr
-        history = UserLoginHistory(user_id=user.id, ip=ip, success=success)
+        ua = request.headers.get('User-Agent', '')[:300]
+        history = UserLoginHistory(user_id=user.id, ip=ip, success=success, user_agent=ua)
         db.session.add(history)
         if success:
             user.last_login_at = datetime.utcnow()
@@ -287,7 +429,7 @@ def _record_login(user, success=True):
 MAX_LOGIN_ATTEMPTS = 5   # lock account after this many consecutive wrong PINs
 
 @app.route('/login', methods=['GET', 'POST'])
-@limiter.limit("30 per minute")
+@limiter.limit("10 per minute")
 def login():
     if request.method == 'POST':
         phone = request.form.get('phone', '').strip()
@@ -297,17 +439,21 @@ def login():
         if step == 'check':
             user = User.query.filter_by(phone=phone).first()
             if user:
+                # Check permanent lock first
                 if getattr(user, 'is_locked', False):
                     reason = getattr(user, 'locked_reason', '') or 'Contact support.'
                     return render_template('login.html', phone=phone,
                                            error=f'Account locked. {reason}')
-                if (getattr(user, 'failed_login_count', 0) or 0) >= MAX_LOGIN_ATTEMPTS:
-                    if not getattr(user, 'is_locked', False):
-                        user.is_locked = True
-                        user.locked_reason = 'Locked after too many failed PIN attempts.'
-                        db.session.commit()
+                # Check timed lockout
+                locked_until = getattr(user, 'locked_until', None)
+                if locked_until and locked_until > datetime.utcnow():
+                    remaining = max(1, int((locked_until - datetime.utcnow()).total_seconds() / 60) + 1)
                     return render_template('login.html', phone=phone,
-                                           error='Account locked after too many failed attempts. Contact support.')
+                                           error=f'Account temporarily locked. Try again in {remaining} minute{"s" if remaining != 1 else ""}.')
+                elif locked_until and locked_until <= datetime.utcnow():
+                    user.locked_until = None
+                    user.failed_login_count = 0
+                    db.session.commit()
                 # Existing user — prompt for PIN
                 return render_template('login.html', phone=phone, show_pin=True)
             # New number — show registration form
@@ -324,29 +470,35 @@ def login():
                 reason = getattr(user, 'locked_reason', '') or 'Contact support.'
                 return render_template('login.html', phone=phone,
                                        error=f'Account locked. {reason}')
-            failed = getattr(user, 'failed_login_count', 0) or 0
-            if failed >= MAX_LOGIN_ATTEMPTS:
-                user.is_locked = True
-                user.locked_reason = 'Locked after too many failed PIN attempts.'
-                db.session.commit()
+            # Check timed lockout
+            locked_until = getattr(user, 'locked_until', None)
+            if locked_until and locked_until > datetime.utcnow():
+                remaining = max(1, int((locked_until - datetime.utcnow()).total_seconds() / 60) + 1)
                 return render_template('login.html', phone=phone,
-                                       error='Account locked after too many failed attempts. Contact support.')
+                                       error=f'Account temporarily locked. Try again in {remaining} minute{"s" if remaining != 1 else ""}.')
+            elif locked_until and locked_until <= datetime.utcnow():
+                user.locked_until = None
+                user.failed_login_count = 0
+                db.session.commit()
+            failed = getattr(user, 'failed_login_count', 0) or 0
             # Verify PIN
             if pin != (user.pin or ''):
                 _record_login(user, success=False)
-                remaining = max(0, MAX_LOGIN_ATTEMPTS - (failed + 1))
-                if remaining == 0:
-                    user.is_locked = True
-                    user.locked_reason = 'Locked after too many failed PIN attempts.'
+                remaining_attempts = max(0, MAX_LOGIN_ATTEMPTS - (failed + 1))
+                if remaining_attempts == 0:
+                    user.locked_until = datetime.utcnow() + timedelta(minutes=LOCKOUT_DURATION_MINUTES)
+                    user.failed_login_count = 0
                     db.session.commit()
+                    _notify_lockout(user)
                     return render_template('login.html', phone=phone,
-                                           error='Account locked after too many failed attempts. Contact support.')
+                                           error=f'Account locked for {LOCKOUT_DURATION_MINUTES} minutes after too many failed attempts.')
                 return render_template('login.html', phone=phone, show_pin=True,
-                                       error=f'Incorrect PIN. {remaining} attempt{"s" if remaining != 1 else ""} remaining before lockout.')
+                                       error=f'Incorrect PIN. {remaining_attempts} attempt{"s" if remaining_attempts != 1 else ""} remaining.')
             # Correct PIN — log in
             _record_login(user, success=True)
             session.permanent = True
             session['user_id'] = user.id
+            session['_session_version'] = user.session_version or 1
             next_url = request.args.get('next') or url_for('home')
             return redirect(next_url)
 
@@ -369,6 +521,9 @@ def login():
             if not pin.isdigit() or not (4 <= len(pin) <= 6):
                 return render_template('login.html', phone=phone, show_register=True,
                                        error='PIN must be 4–6 digits.')
+            if _is_weak_pin(pin):
+                return render_template('login.html', phone=phone, show_register=True,
+                                       error='That PIN is too easy to guess. Please choose a less predictable PIN.')
             if pin != confirm_pin:
                 return render_template('login.html', phone=phone, show_register=True,
                                        error='PINs do not match. Please try again.')
@@ -430,6 +585,8 @@ def register():
             return redirect(url_for('login', phone=phone))
         if not pin.isdigit() or not (4 <= len(pin) <= 6):
             return render_template('register.html', error='PIN must be 4–6 digits.')
+        if _is_weak_pin(pin):
+            return render_template('register.html', error='That PIN is too easy to guess. Please choose a less predictable one.')
         if pin != confirm_pin:
             return render_template('register.html', error='PINs do not match. Please try again.')
         tos_accept = request.form.get('tos_accept', '')
@@ -1183,9 +1340,22 @@ def admin_approve(request_id, action):
 
 @app.route('/logout')
 def logout():
-    session.pop('user_id', None)
-    session.pop('pin_verified', None)
-    session.pop('admin_authed', None)
+    session.clear()
+    return redirect(url_for('login'))
+
+
+@app.route('/logout-all', methods=['POST'])
+def logout_all_devices():
+    """Invalidate all active sessions for this user by bumping session_version."""
+    uid = session.get('user_id')
+    if not uid:
+        return redirect(url_for('login'))
+    user = db.session.get(User, uid)
+    if user:
+        user.session_version = (user.session_version or 1) + 1
+        db.session.commit()
+    session.clear()
+    flash('You have been logged out from all devices.', 'info')
     return redirect(url_for('login'))
 
 @app.route('/admin')
@@ -1223,6 +1393,8 @@ def change_pin():
             return render_template('change_pin.html', error='Current PIN is incorrect.', success=None)
         if not new_pin.isdigit() or len(new_pin) != 4:
             return render_template('change_pin.html', error='New PIN must be exactly 4 digits.', success=None)
+        if _is_weak_pin(new_pin):
+            return render_template('change_pin.html', error='That PIN is too easy to guess. Choose a less predictable PIN.', success=None)
         if new_pin != confirm_pin:
             return render_template('change_pin.html', error='New PINs do not match.', success=None)
         user.pin = new_pin
@@ -2130,6 +2302,7 @@ def admin_trust_page():
 
 @app.route('/admin/trust/override', methods=['POST'])
 @admin_required
+@super_admin_required
 def admin_trust_override_by_phone():
     admin = User.query.get(session['user_id'])
     phone = request.form.get('phone', '').strip()
@@ -2583,9 +2756,11 @@ def admin_user_lock(target_id):
         target.is_locked = False
         target.locked_reason = None
         target.locked_by = None
+        target.locked_until = None
+        target.failed_login_count = 0
         db.session.commit()
         _log_admin_action(session['user_id'], 'unlock_user', target_user_id=target.id,
-                          details=f'User unlocked. Was: {old}')
+                          details=f'User unlocked (permanent + timed). Was: {old}')
         flash(f'{target.name} has been unlocked.', 'success')
     else:
         if not reason:
@@ -2603,6 +2778,7 @@ def admin_user_lock(target_id):
 
 @app.route('/admin/user/<int:target_id>/pin-reset', methods=['POST'])
 @admin_required
+@super_admin_required
 def admin_user_pin_reset(target_id):
     admin_user = User.query.get(session['user_id'])
     target = User.query.get_or_404(target_id)
@@ -2624,6 +2800,7 @@ def admin_user_pin_reset(target_id):
 
 @app.route('/admin/transaction/<int:tx_id>/reverse', methods=['POST'])
 @admin_required
+@super_admin_required
 def admin_reverse_transaction(tx_id):
     admin_user = User.query.get(session['user_id'])
     tx = Transaction.query.get_or_404(tx_id)
@@ -2647,12 +2824,155 @@ def admin_reverse_transaction(tx_id):
     db.session.add(reversal_tx)
     db.session.commit()
     _log_admin_action(session['user_id'], 'reverse_transaction', target_user_id=tx.user_id,
+                      old_value=f'amount={tx.amount},type={tx.type}',
+                      new_value=f'reversed=True,reason={reason[:80]}',
                       details=f'Reversed tx#{tx.id} amt={tx.amount:,.0f}. Reason: {reason}')
     flash(f'Transaction #{tx.id} reversed successfully.', 'success')
     target_id = request.form.get('target_id')
     if target_id:
         return redirect(url_for('admin_user_detail', target_id=int(target_id)))
     return redirect(url_for('admin_users'))
+
+
+# ── Admin: PaymentRecord reversal, hold, and dispute management ────────────────
+
+@app.route('/admin/payment/<int:pr_id>/reverse', methods=['POST'])
+@admin_required
+@super_admin_required
+def admin_reverse_payment(pr_id):
+    admin_user = db.session.get(User, session['user_id'])
+    pr = PaymentRecord.query.get_or_404(pr_id)
+    reason = request.form.get('reason', '').strip()
+    if not reason:
+        flash('Reason is required to reverse a payment.', 'error')
+        return redirect(request.referrer or url_for('admin_disputes'))
+    if getattr(pr, 'reversed', False):
+        flash('This payment has already been reversed.', 'error')
+        return redirect(request.referrer or url_for('admin_disputes'))
+    # Compensating ledger entry: restore pool balance
+    if pr.community_id:
+        community = Community.query.get(pr.community_id)
+        if community:
+            community.pool_balance = (community.pool_balance or 0.0) + pr.amount
+    old_status = pr.status
+    pr.reversed = True
+    pr.reversed_by = admin_user.id
+    pr.reversed_reason = reason
+    pr.reversed_at = datetime.utcnow()
+    pr.status = 'reversed'
+    if getattr(pr, 'dispute_status', None) == 'open':
+        pr.dispute_status = 'resolved'
+    comp_tx = Transaction(
+        user_id=pr.user_id, amount=pr.amount, type='payment_reversal',
+        description=f'Reversal of payment #{pr.id} ref={pr.reference_code}: {reason}'
+    )
+    db.session.add(comp_tx)
+    db.session.commit()
+    _log_admin_action(session['user_id'], 'reverse_payment', target_user_id=pr.user_id,
+                      old_value=f'status={old_status},amount={pr.amount}',
+                      new_value=f'reversed=True,reason={reason[:80]}',
+                      details=f'Payment #{pr.id} ref={pr.reference_code} amt={pr.amount:,.0f} reversed. Pool restored. Reason: {reason}')
+    flash(f'Payment {pr.reference_code} reversed and pool balance restored.', 'success')
+    return redirect(request.referrer or url_for('admin_disputes'))
+
+
+@app.route('/admin/payment/<int:pr_id>/hold', methods=['POST'])
+@admin_required
+def admin_hold_payment(pr_id):
+    admin_user = db.session.get(User, session['user_id'])
+    pr = PaymentRecord.query.get_or_404(pr_id)
+    action = request.form.get('action', 'hold')
+    reason = request.form.get('reason', '').strip()
+    if action == 'release':
+        pr.on_hold = False
+        pr.on_hold_reason = None
+        db.session.commit()
+        _log_admin_action(session['user_id'], 'release_payment_hold', target_user_id=pr.user_id,
+                          details=f'Hold released on payment #{pr.id} ref={pr.reference_code}')
+        flash(f'Hold on payment {pr.reference_code} released.', 'success')
+    else:
+        if not reason:
+            flash('Reason is required to place a hold.', 'error')
+            return redirect(request.referrer or url_for('admin_disputes'))
+        pr.on_hold = True
+        pr.on_hold_reason = reason
+        db.session.commit()
+        _log_admin_action(session['user_id'], 'hold_payment', target_user_id=pr.user_id,
+                          details=f'Payment #{pr.id} ref={pr.reference_code} placed on hold. Reason: {reason}')
+        flash(f'Payment {pr.reference_code} placed on hold.', 'success')
+    return redirect(request.referrer or url_for('admin_disputes'))
+
+
+@app.route('/dispute/<ref>', methods=['GET', 'POST'])
+def file_dispute(ref):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id'])
+    pr = PaymentRecord.query.filter_by(reference_code=ref).first_or_404()
+    if pr.user_id != user.id:
+        flash('You can only file disputes on your own payments.', 'error')
+        return redirect(url_for('home'))
+    if getattr(pr, 'reversed', False):
+        flash('This payment has already been reversed.', 'info')
+        return redirect(url_for('home'))
+    if getattr(pr, 'dispute_status', None) == 'open':
+        flash('A dispute is already open for this payment.', 'info')
+        return redirect(url_for('home'))
+    if request.method == 'POST':
+        note = request.form.get('note', '').strip()
+        if not note or len(note) < 10:
+            return render_template('file_dispute.html', pr=pr, user=user,
+                                   error='Please describe your dispute in at least 10 characters.')
+        pr.dispute_status = 'open'
+        pr.dispute_note = note[:500]
+        pr.dispute_by_user_id = user.id
+        pr.dispute_at = datetime.utcnow()
+        db.session.commit()
+        try:
+            from notifications import _send_sms
+            for phone in ADMIN_PHONES:
+                try:
+                    _send_sms(phone,
+                              f'[SolidarityPool] Dispute filed on payment {ref} by {user.phone}. Note: {note[:80]}')
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        flash('Your dispute has been submitted. Admin will review it shortly.', 'success')
+        return redirect(url_for('home'))
+    return render_template('file_dispute.html', pr=pr, user=user, error=None)
+
+
+@app.route('/admin/disputes')
+@admin_required
+def admin_disputes():
+    admin_user = db.session.get(User, session['user_id'])
+    status_filter = request.args.get('status', 'open')
+    query = PaymentRecord.query.filter(PaymentRecord.dispute_status.isnot(None))
+    if status_filter in ('open', 'resolved', 'dismissed'):
+        query = query.filter(PaymentRecord.dispute_status == status_filter)
+    disputes = query.order_by(PaymentRecord.dispute_at.desc()).all()
+    for d in disputes:
+        d._user = db.session.get(User, d.user_id) if d.user_id else None
+        d._reporter = db.session.get(User, d.dispute_by_user_id) if d.dispute_by_user_id else None
+    return render_template('admin_disputes.html', user=admin_user, disputes=disputes,
+                           status_filter=status_filter)
+
+
+@app.route('/admin/dispute/<int:pr_id>/resolve', methods=['POST'])
+@admin_required
+def admin_dispute_resolve(pr_id):
+    pr = PaymentRecord.query.get_or_404(pr_id)
+    action = request.form.get('action', 'resolve')
+    note = request.form.get('note', '').strip()
+    pr.dispute_status = 'resolved' if action == 'resolve' else 'dismissed'
+    if note:
+        pr.dispute_note = (pr.dispute_note or '') + f'\n[Admin {action}]: {note}'
+    db.session.commit()
+    _log_admin_action(session['user_id'], f'dispute_{action}', target_user_id=pr.user_id,
+                      details=f'Dispute on payment {pr.reference_code} {action}d. Note: {note[:100]}')
+    flash(f'Dispute {action}d successfully.', 'success')
+    return redirect(url_for('admin_disputes'))
 
 
 # ── Admin: Provider code management ───────────────────────────────────────────
@@ -2957,6 +3277,9 @@ def forgot_pin():
             if not new_pin.isdigit() or len(new_pin) != 4:
                 return render_template('forgot_pin.html', step='set_pin', token=token,
                                        error='PIN must be exactly 4 digits.')
+            if _is_weak_pin(new_pin):
+                return render_template('forgot_pin.html', step='set_pin', token=token,
+                                       error='That PIN is too easy to guess. Please choose a less predictable PIN.')
             if new_pin != confirm_pin:
                 return render_template('forgot_pin.html', step='set_pin', token=token,
                                        error='PINs do not match.')

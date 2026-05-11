@@ -259,6 +259,12 @@
 <p style="margin-top:28px; display:flex; gap:20px; align-items:center; flex-wrap:wrap;">
   <a class="logout" href="{{ url_for('logout') }}">← Log out</a>
   <a href="{{ url_for('change_pin') }}" style="font-size:0.85rem; color:#555; text-decoration:none;">🔑 Change PIN</a>
+  <form method="post" action="{{ url_for('logout_all_devices') }}" style="margin:0;"
+        onsubmit="return confirm('This will log you out from all devices and browsers. Continue?')">
+    <button type="submit" style="background:none;border:none;cursor:pointer;font-size:0.85rem;color:#888;padding:0;">
+      🚪 Log out all devices
+    </button>
+  </form>
 </p>
 
 <script>

@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Disputes – Admin – SolidarityPool</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: sans-serif; max-width: 960px; margin: 40px auto; padding: 0 16px; }
+  h2 { margin-bottom: 4px; }
+  .breadcrumb { font-size: 0.85rem; color: #888; margin-bottom: 18px; }
+  .breadcrumb a { color: #2d7dd2; text-decoration: none; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+  .tab { padding: 6px 16px; border-radius: 4px; font-size: 0.88rem; text-decoration: none;
+         background: #f0f0f0; color: #444; border: 1px solid #ddd; }
+  .tab.active { background: #2d7dd2; color: #fff; border-color: #2d7dd2; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid #eee; }
+  th { background: #f8f8f8; font-weight: 600; color: #555; }
+  tr:hover td { background: #fafafa; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 700; }
+  .badge-open     { background: #fff3cd; color: #856404; }
+  .badge-resolved { background: #d4edda; color: #155724; }
+  .badge-dismissed{ background: #f8d7da; color: #721c24; }
+  .badge-held     { background: #cce5ff; color: #004085; }
+  .badge-reversed { background: #e2e3e5; color: #383d41; }
+  .btn { display: inline-block; padding: 5px 12px; border-radius: 4px; font-size: 0.82rem;
+         border: none; cursor: pointer; text-decoration: none; }
+  .btn-danger  { background: #dc3545; color: #fff; }
+  .btn-warning { background: #fd7e14; color: #fff; }
+  .btn-success { background: #28a745; color: #fff; }
+  .btn-secondary { background: #6c757d; color: #fff; }
+  .btn:hover { opacity: 0.88; }
+  .note-text { font-size: 0.8rem; color: #555; max-width: 220px; white-space: pre-wrap; }
+  .empty { text-align: center; color: #888; padding: 40px 0; }
+  .action-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .action-row input[type=text] { padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px;
+                                  font-size: 0.82rem; width: 160px; }
+  .flash { padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 0.9rem; }
+  .flash-success { background: #d4edda; color: #155724; }
+  .flash-error   { background: #f8d7da; color: #721c24; }
+</style>
+</head>
+<body>
+
+<div class="breadcrumb">
+  <a href="/admin">Admin</a> › Disputes &amp; Payment Holds
+</div>
+
+<h2>Disputes &amp; Payment Holds</h2>
+<p style="color:#666;font-size:0.9rem;margin-bottom:16px;">
+  Review member disputes on payments, apply holds, and reverse fraudulent payments.
+</p>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+    <div class="flash flash-{{ category }}">{{ message }}</div>
+  {% endfor %}
+{% endwith %}
+
+<div class="tabs">
+  <a href="?status=open"      class="tab {% if status_filter == 'open' %}active{% endif %}">Open</a>
+  <a href="?status=resolved"  class="tab {% if status_filter == 'resolved' %}active{% endif %}">Resolved</a>
+  <a href="?status=dismissed" class="tab {% if status_filter == 'dismissed' %}active{% endif %}">Dismissed</a>
+  <a href="?status=all"       class="tab {% if status_filter == 'all' %}active{% endif %}">All</a>
+</div>
+
+{% if disputes %}
+<table>
+  <thead>
+    <tr>
+      <th>Payment Ref</th>
+      <th>Member</th>
+      <th>Filed By</th>
+      <th>Amount</th>
+      <th>Status</th>
+      <th>Payment State</th>
+      <th>Note</th>
+      <th>Filed At</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for d in disputes %}
+    <tr>
+      <td><code>{{ d.reference_code }}</code></td>
+      <td>
+        {% if d._user %}
+          <a href="/admin/user/{{ d.user_id }}">{{ d._user.name }}</a><br>
+          <small style="color:#888">{{ d._user.phone }}</small>
+        {% else %}#{{ d.user_id }}{% endif %}
+      </td>
+      <td>
+        {% if d._reporter %}
+          {{ d._reporter.name }}<br>
+          <small style="color:#888">{{ d._reporter.phone }}</small>
+        {% else %}—{% endif %}
+      </td>
+      <td>UGX {{ '{:,.0f}'.format(d.amount) }}</td>
+      <td>
+        <span class="badge badge-{{ d.dispute_status }}">{{ d.dispute_status }}</span>
+      </td>
+      <td>
+        {{ d.status }}
+        {% if d.on_hold %}<br><span class="badge badge-held">ON HOLD</span>{% endif %}
+        {% if d.reversed %}<br><span class="badge badge-reversed">REVERSED</span>{% endif %}
+      </td>
+      <td><div class="note-text">{{ d.dispute_note or '—' }}</div></td>
+      <td>
+        {% if d.dispute_at %}{{ d.dispute_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}
+      </td>
+      <td>
+        {% if d.dispute_status == 'open' %}
+        <div class="action-row">
+          <form method="post" action="/admin/dispute/{{ d.id }}/resolve" style="display:flex;gap:4px;flex-wrap:wrap;">
+            <input type="text" name="note" placeholder="Resolution note (optional)">
+            <button type="submit" name="action" value="resolve" class="btn btn-success">Resolve</button>
+            <button type="submit" name="action" value="dismiss" class="btn btn-secondary">Dismiss</button>
+          </form>
+        </div>
+        {% endif %}
+
+        {% if not d.reversed %}
+        <div class="action-row" style="margin-top:6px;">
+          {% if d.on_hold %}
+          <form method="post" action="/admin/payment/{{ d.id }}/hold">
+            <button type="submit" name="action" value="release" class="btn btn-warning">Release Hold</button>
+          </form>
+          {% else %}
+          <form method="post" action="/admin/payment/{{ d.id }}/hold" style="display:flex;gap:4px;flex-wrap:wrap;">
+            <input type="text" name="reason" placeholder="Hold reason" required>
+            <button type="submit" name="action" value="hold" class="btn btn-warning">Place Hold</button>
+          </form>
+          {% endif %}
+        </div>
+        <div class="action-row" style="margin-top:6px;">
+          <form method="post" action="/admin/payment/{{ d.id }}/reverse"
+                style="display:flex;gap:4px;flex-wrap:wrap;"
+                onsubmit="return confirm('Reverse payment {{ d.reference_code }} and restore UGX {{ '{:,.0f}'.format(d.amount) }} to pool? This cannot be undone.')">
+            <input type="text" name="reason" placeholder="Reversal reason (required)" required>
+            <button type="submit" class="btn btn-danger">Reverse Payment</button>
+          </form>
+        </div>
+        {% else %}
+        <small style="color:#888">Payment reversed {{ d.reversed_at.strftime('%Y-%m-%d') if d.reversed_at else '' }}</small>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty">No {{ status_filter }} disputes found.</div>
+{% endif %}
+
+<p style="margin-top:30px;font-size:0.85rem;">
+  <a href="/admin">← Back to Admin</a>
+</p>
+
+</body>
+</html>
