@@ -83,20 +83,34 @@
   </summary>
   <div class="perms" style="margin-top:8px;">
     <table>
-      <thead><tr><th>Permission</th><th>Super Admin</th><th>Support</th><th>Operator</th></tr></thead>
+      <thead>
+        <tr>
+          <th>Permission</th>
+          <th title="Full platform access including financial controls and admin management">Super Admin</th>
+          <th title="Member-facing support: can view and edit user accounts, handle care queue">Support</th>
+          <th title="Operations: care queue, provider verification, platform fee management">Operator</th>
+        </tr>
+      </thead>
       <tbody>
-        <tr><td>View all admin panels</td>    <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
-        <tr><td>Edit user profile / balances</td><td class="yes">✓</td><td class="yes">✓</td><td class="no">—</td></tr>
-        <tr><td>Lock / unlock accounts</td>   <td class="yes">✓</td><td class="yes">✓</td><td class="no">—</td></tr>
-        <tr><td>Approve / reject care requests</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
-        <tr><td>Approve provider withdrawals</td><td class="yes">✓</td><td class="no">—</td><td class="yes">✓</td></tr>
-        <tr><td>Reverse transactions</td>     <td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
-        <tr><td>Add / remove global admins</td><td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
-        <tr><td>Override trust scores</td>    <td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
-        <tr><td>Send bulk SMS</td>            <td class="yes">✓</td><td class="yes">✓</td><td class="no">—</td></tr>
-        <tr><td>Export audit CSV</td>         <td class="yes">✓</td><td class="yes">✓</td><td class="no">—</td></tr>
+        <tr><td>View all admin panels</td>                <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+        <tr><td>Approve / reject care requests</td>       <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+        <tr><td>Verify / unverify providers</td>          <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+        <tr><td>View fraud alerts</td>                    <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+        <tr><td>Edit user profile / balances</td>         <td class="yes">✓</td><td class="yes">✓</td><td class="no">—</td></tr>
+        <tr><td>Lock / unlock accounts</td>               <td class="yes">✓</td><td class="yes">✓</td><td class="no">—</td></tr>
+        <tr><td>Send bulk SMS</td>                        <td class="yes">✓</td><td class="yes">✓</td><td class="no">—</td></tr>
+        <tr><td>Export audit CSV</td>                     <td class="yes">✓</td><td class="yes">✓</td><td class="no">—</td></tr>
+        <tr><td>Manage platform fee withdrawals</td>      <td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
+        <tr><td>Reverse transactions</td>                 <td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
+        <tr><td>Override trust scores</td>                <td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
+        <tr><td>Deactivate / anonymise accounts</td>      <td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
+        <tr><td>Add / remove global admins</td>           <td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
+        <tr><td>Change admin roles</td>                   <td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
       </tbody>
     </table>
+    <p style="font-size:0.78rem; color:#888; margin:8px 0 0;">
+      Role changes take effect immediately. Admins can only perform actions allowed by their own role.
+    </p>
   </div>
 </details>
 
@@ -178,7 +192,7 @@
         <label>Role</label>
         <select name="role">
           <option value="support">Support — view + edit users, care queue</option>
-          <option value="operator">Operator — care queue + provider withdrawals</option>
+          <option value="operator">Operator — care queue + provider verification</option>
           <option value="super_admin">Super Admin — full access</option>
         </select>
       </div>

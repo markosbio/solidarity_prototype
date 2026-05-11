@@ -356,6 +356,17 @@ def login():
     prefill_phone = request.args.get('phone', '')
     return render_template('login.html', phone=prefill_phone)
 
+
+@app.route('/terms')
+def terms():
+    return render_template('terms.html')
+
+
+@app.route('/privacy')
+def privacy():
+    return render_template('privacy.html')
+
+
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     """Legacy register route — redirects into the unified login flow."""
