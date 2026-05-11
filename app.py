@@ -243,6 +243,12 @@ def apply_provider():
         )
         db.session.add(vp)
         db.session.commit()
+        try:
+            from notifications import notify_new_provider_application
+            for admin_phone in ADMIN_PHONES:
+                notify_new_provider_application(admin_phone, provider_name, phone)
+        except Exception:
+            pass
         return render_template('apply_provider.html', submitted=True,
                                submitted_name=provider_name, submitted_phone=phone, form={})
 
@@ -599,6 +605,8 @@ def verify_care(request_id, response):
 def trust_history():
     if 'user_id' not in session:
         return redirect(url_for('register'))
+    if not session.get('pin_verified'):
+        return redirect(url_for('verify_pin', next=url_for('trust_history')))
     from models import TrustEvent
     user = User.query.get(session['user_id'])
     events = TrustEvent.query.filter_by(user_id=user.id).order_by(TrustEvent.timestamp.desc()).limit(50).all()
@@ -983,6 +991,15 @@ def confirm_payment(ref):
         payment.status = 'received'
         payment.provider_confirmed_at = datetime.utcnow()
         db.session.commit()
+        try:
+            from notifications import notify_payment_received
+            if payment.user_id:
+                member = User.query.get(payment.user_id)
+                provider = Provider.query.get(payment.provider_id)
+                if member and provider:
+                    notify_payment_received(member, provider.name, payment.amount)
+        except Exception as exc:
+            pass
     return redirect(url_for('provider_dashboard'))
 
 @app.route('/provider/start/<ref>')
@@ -992,6 +1009,15 @@ def start_treatment(ref):
         payment.status = 'treatment_started'
         payment.treatment_started_at = datetime.utcnow()
         db.session.commit()
+        try:
+            from notifications import notify_treatment_started
+            if payment.user_id:
+                member = User.query.get(payment.user_id)
+                provider = Provider.query.get(payment.provider_id)
+                if member and provider:
+                    notify_treatment_started(member, provider.name)
+        except Exception as exc:
+            pass
     return redirect(url_for('provider_dashboard'))
 
 @app.route('/provider/invoice', methods=['POST'])

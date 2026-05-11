@@ -100,6 +100,44 @@ def notify_provider_rejected(phone: str, provider_name: str, reason: str = '') -
     _send_sms(phone, msg)
 
 
+def notify_new_provider_application(admin_phone: str, provider_name: str,
+                                    applicant_phone: str) -> None:
+    """Alert admin when a new provider application is submitted via /apply-provider."""
+    msg = (
+        f"[SolidarityPool] New provider application received from '{provider_name}' "
+        f"(phone: {applicant_phone}). Log in to the admin panel to review and approve: "
+        f"/admin/verified-providers"
+    )
+    logger.info("New provider application notification: admin={} provider={} phone={}",
+                admin_phone, provider_name, applicant_phone)
+    _send_sms(admin_phone, msg)
+
+
+def notify_payment_received(user, provider_name: str, amount: float) -> None:
+    """SMS member when the health provider marks their payment as received."""
+    msg = (
+        f"[SolidarityPool] Good news {user.name.split()[0]}! "
+        f"{provider_name} has confirmed receipt of your care fund payment "
+        f"(UGX {amount:,.0f}). Your treatment can now begin. "
+        f"Get well soon!"
+    )
+    logger.info("Payment received notification: user_id={} provider={} amount={:.0f}",
+                user.id, provider_name, amount)
+    _send_sms(user.phone, msg)
+
+
+def notify_treatment_started(user, provider_name: str) -> None:
+    """SMS member when the health provider marks treatment as started."""
+    msg = (
+        f"[SolidarityPool] {provider_name} has marked your treatment as started. "
+        f"We wish you a speedy recovery, {user.name.split()[0]}! "
+        f"Contact the clinic if you have any questions."
+    )
+    logger.info("Treatment started notification: user_id={} provider={}",
+                user.id, provider_name)
+    _send_sms(user.phone, msg)
+
+
 def _send_sms(phone: str, message: str) -> None:
     at_username = os.getenv('AT_USERNAME')
     at_api_key = os.getenv('AT_API_KEY')

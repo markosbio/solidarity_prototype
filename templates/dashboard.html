@@ -15,10 +15,15 @@
   .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
   .stat-box { border: 1px solid #ddd; border-radius: 8px; padding: 14px 16px; background: #fafafa; }
   .stat-box .label { font-size: 0.78rem; color: #777; margin-bottom: 4px; }
-  .stat-box .value { font-size: 1.4rem; font-weight: bold; color: #2d7dd2; }
+  .stat-box .value { font-size: 1.2rem; font-weight: bold; color: #2d7dd2; }
   .stat-box .value.trust-high { color: #28a745; }
   .stat-box .value.trust-mid  { color: #ffc107; }
   .stat-box .value.trust-low  { color: #dc3545; }
+  .stat-box .value.trust-new  { color: #6c757d; }
+  .stat-box .masked { font-size: 0.82rem; color: #888; margin-top: 3px; }
+  .stat-box .masked a { color: #2d7dd2; text-decoration: none; }
+  .stat-box .masked a:hover { text-decoration: underline; }
+  .lock-icon { font-size: 1rem; margin-right: 3px; }
   .section-title { font-size: 0.85rem; font-weight: bold; color: #555;
                    text-transform: uppercase; letter-spacing: .05em; margin: 22px 0 8px; }
   .nav-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -50,7 +55,6 @@
                     margin-bottom: 14px; display: none; }
   #install-btn { padding: 4px 14px; background: #2d7dd2; color: white; border: none;
                  border-radius: 4px; cursor: pointer; margin-left: 8px; font-size: 0.83rem; }
-  /* Health contributions table */
   .contrib-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 6px; }
   .contrib-table th { background: #f0f0f0; text-align: left; padding: 6px 8px;
                       border-bottom: 2px solid #ddd; font-size: 0.78rem; color: #555; }
@@ -61,7 +65,10 @@
   .badge-send { background: #d4edda; color: #155724; }
   .badge-withdraw { background: #cce5ff; color: #004085; }
   .contrib-empty { color: #888; font-style: italic; font-size: 0.85rem; padding: 8px 0; }
-  .contrib-amount { color: #28a745; font-weight: bold; }
+  .pin-note { font-size: 0.78rem; color: #888; font-style: italic; text-align: center;
+              margin-top: 4px; }
+  .pin-note a { color: #2d7dd2; text-decoration: none; }
+  .pin-note a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -76,37 +83,56 @@
 
 {% if user.total_social_credit > 0 %}
 <div class="credit-warn">
-  You have <strong>UGX {{ "{:,.0f}".format(user.total_social_credit) }}</strong> in social credit outstanding.
-  Keep contributing to improve your trust score.
+  You have <strong>outstanding social credit</strong> to repay.
+  Use <a href="{{ url_for('balance') }}">Check Balance</a> (PIN required) to see the amount,
+  or go directly to <a href="{{ url_for('repay') }}">Repay Debt</a>.
 </div>
 {% endif %}
 
+<!-- Stats — all sensitive numbers masked; directed to PIN-gated Check Balance -->
 <div class="stats">
   <div class="stat-box">
     <div class="label">Sub-wallet balance</div>
-    <div class="value">UGX {{ "{:,.0f}".format(user.sub_wallet_balance) }}</div>
+    <div class="value">🔒 ••••</div>
+    <div class="masked"><a href="{{ url_for('balance') }}">Check Balance to view</a></div>
   </div>
   <div class="stat-box">
-    <div class="label">Trust score</div>
+    <div class="label">Trust standing</div>
     {% set ts = user.trust_score %}
-    <div class="value {% if ts >= 0.7 %}trust-high{% elif ts >= 0.4 %}trust-mid{% else %}trust-low{% endif %}">
-      {{ "%.4f"|format(ts) }}
-    </div>
+    {% if ts >= 0.7 %}
+      <div class="value trust-high">⭐ Strong</div>
+    {% elif ts >= 0.5 %}
+      <div class="value trust-mid">📈 Good</div>
+    {% elif ts >= 0.3 %}
+      <div class="value trust-mid">🔨 Building</div>
+    {% else %}
+      <div class="value trust-new">🌱 New</div>
+    {% endif %}
+    <div class="masked"><a href="{{ url_for('trust_history') }}">Full history (PIN)</a></div>
   </div>
   <div class="stat-box">
     <div class="label">Draw ceiling</div>
-    <div class="value trust-high">UGX {{ "{:,.0f}".format(ceiling) }}</div>
+    <div class="value">🔒 ••••</div>
+    <div class="masked"><a href="{{ url_for('balance') }}">Check Balance to view</a></div>
   </div>
   <div class="stat-box">
-    <div class="label">Witness accuracy</div>
-    <div class="value">{{ "%.0f"|format(user.witness_accuracy_score * 100) }}%</div>
+    <div class="label">Witness standing</div>
+    {% set wa = user.witness_accuracy_score %}
+    {% if wa >= 0.8 %}
+      <div class="value trust-high">⭐ Accurate</div>
+    {% elif wa >= 0.5 %}
+      <div class="value trust-mid">✓ Fair</div>
+    {% else %}
+      <div class="value trust-new">🌱 New</div>
+    {% endif %}
+    <div class="masked"><a href="{{ url_for('balance') }}">Exact % in Check Balance</a></div>
   </div>
 </div>
 
 {% if primary_comm %}
 <div class="community-box">
   <div class="comm-name">{{ primary_comm.name }}</div>
-  <div class="comm-pool">Pool: UGX {{ "{:,.0f}".format(primary_comm.pool_balance) }}</div>
+  <div class="comm-pool">Community pool: UGX {{ "{:,.0f}".format(primary_comm.pool_balance) }}</div>
   <div style="font-size:0.78rem; color:#555; margin-top:4px;">
     Invite code: <code>{{ primary_comm.invite_code }}</code>
   </div>
@@ -145,7 +171,7 @@
 <div class="nav-grid">
   <a class="nav-btn" href="{{ url_for('balance') }}" style="border-color:#2d7dd2;">
     <span class="icon">🔐</span>Check Balance
-    <span class="desc">PIN-verified wallet, ceiling & credit</span>
+    <span class="desc">PIN-verified: wallet, ceiling &amp; credit details</span>
   </a>
   <a class="nav-btn" href="{{ url_for('simulate_roundup') }}">
     <span class="icon">💰</span>Contribute
@@ -153,12 +179,12 @@
   </a>
   <a class="nav-btn" href="{{ url_for('request_care') }}">
     <span class="icon">🏥</span>Request Care
-    <span class="desc">Up to UGX {{ "{:,.0f}".format(ceiling) }} from pool</span>
+    <span class="desc">Draw from the community care pool (PIN)</span>
   </a>
   {% if user.total_social_credit > 0 %}
   <a class="nav-btn" href="{{ url_for('repay') }}" style="border-color:#ffc107;">
     <span class="icon">💳</span>Repay Debt
-    <span class="desc">Clear UGX {{ "{:,.0f}".format(user.total_social_credit) }} social credit</span>
+    <span class="desc">Clear outstanding social credit (PIN)</span>
   </a>
   {% endif %}
   <a class="nav-btn" href="{{ url_for('witness_dashboard') }}">
@@ -167,7 +193,7 @@
   </a>
   <a class="nav-btn" href="{{ url_for('trust_history') }}">
     <span class="icon">📊</span>Trust History
-    <span class="desc">View your reputation timeline</span>
+    <span class="desc">View your reputation timeline (PIN)</span>
   </a>
 </div>
 
@@ -205,7 +231,7 @@
   {% endif %}
 </div>
 
-<!-- Health Contributions section -->
+<!-- Health Contributions — dates and types only; amounts hidden behind PIN -->
 <div class="section-title">Health Contributions</div>
 {% if health_contributions %}
 <table class="contrib-table">
@@ -213,9 +239,8 @@
     <tr>
       <th>Date</th>
       <th>Type</th>
-      <th>Normal fee</th>
       <th>Contribution</th>
-      <th>Your wallet +</th>
+      <th>Wallet credit</th>
     </tr>
   </thead>
   <tbody>
@@ -227,13 +252,15 @@
         {{ tx.type }}
       </span>
     </td>
-    <td>UGX {{ "{:,.0f}".format(tx.normal_fee) }}</td>
-    <td class="contrib-amount">UGX {{ "{:,.0f}".format(tx.solidarity_amount) }}</td>
-    <td>UGX {{ "{:,.0f}".format(tx.to_wallet) }}</td>
+    <td>🔒 ••••</td>
+    <td>🔒 ••••</td>
   </tr>
   {% endfor %}
   </tbody>
 </table>
+<p class="pin-note">
+  Exact amounts visible in <a href="{{ url_for('balance') }}">Check Balance</a> (PIN required).
+</p>
 {% else %}
 <p class="contrib-empty">
   No health contributions yet. Contributions are logged automatically when
