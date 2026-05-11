@@ -3,43 +3,88 @@
 <head>
 <title>Platform Monitor – Admin</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="refresh" content="60">
 <style>
-  body { font-family: sans-serif; max-width: 900px; margin: 40px auto; padding: 0 16px; background: #f8f9fa; }
+  body { font-family: sans-serif; max-width: 960px; margin: 40px auto; padding: 0 16px; background: #f8f9fa; }
   h1 { font-size: 1.4rem; margin-bottom: 4px; }
   .subtitle { color: #666; font-size: 0.88rem; margin-bottom: 24px; }
-  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin-bottom: 28px; }
-  .kpi { background: white; border: 1px solid #ddd; border-radius: 8px; padding: 18px 16px; }
-  .kpi .label { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
-  .kpi .value { font-size: 1.6rem; font-weight: bold; color: #2d7dd2; }
-  .kpi .value.green { color: #28a745; }
-  .kpi .value.orange { color: #fd7e14; }
-  .kpi .value.red { color: #dc3545; }
-  .kpi .sub { font-size: 0.78rem; color: #888; margin-top: 4px; }
+
+  /* Alert banner */
+  .alert-banner { margin-bottom: 20px; }
+  .alert-card { display: flex; align-items: center; gap: 10px; padding: 11px 16px; border-radius: 7px;
+                font-size: 0.87rem; margin-bottom: 8px; }
+  .alert-card .icon { font-size: 1.1rem; flex-shrink: 0; }
+  .alert-critical { background: #f8d7da; border-left: 4px solid #dc3545; color: #721c24; }
+  .alert-warn     { background: #fff3cd; border-left: 4px solid #ffc107; color: #856404; }
+  .alert-info     { background: #cce5ff; border-left: 4px solid #2d7dd2; color: #004085; }
+  .no-alerts { background: #d4edda; border-left: 4px solid #28a745; color: #155724;
+               padding: 11px 16px; border-radius: 7px; font-size: 0.88rem; }
+
+  /* KPI grid */
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 12px; margin-bottom: 28px; }
+  .kpi { background: white; border: 1px solid #ddd; border-radius: 8px; padding: 16px; position: relative; overflow: hidden; }
+  .kpi::before { content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; background: #ddd; }
+  .kpi.blue::before   { background: #2d7dd2; }
+  .kpi.green::before  { background: #28a745; }
+  .kpi.amber::before  { background: #ffc107; }
+  .kpi.red::before    { background: #dc3545; }
+  .kpi .label { font-size: 0.72rem; color: #888; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+  .kpi .value { font-size: 1.55rem; font-weight: bold; color: #2d7dd2; }
+  .kpi .value.green  { color: #28a745; }
+  .kpi .value.amber  { color: #fd7e14; }
+  .kpi .value.red    { color: #dc3545; }
+  .kpi .sub { font-size: 0.75rem; color: #888; margin-top: 4px; }
+  .kpi .sub a { color: #2d7dd2; text-decoration: none; }
+
+  /* Section title */
   .section-title { font-size: 0.82rem; font-weight: bold; color: #555;
-                   text-transform: uppercase; letter-spacing: .05em; margin: 22px 0 10px;
+                   text-transform: uppercase; letter-spacing: .05em; margin: 24px 0 10px;
                    display: flex; align-items: center; gap: 8px; }
   .section-title::after { content: ''; flex: 1; border-top: 1px solid #ddd; }
+
+  /* Service status row */
+  .service-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .svc-badge { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px;
+               background: white; border: 1px solid #ddd; border-radius: 20px; font-size: 0.82rem; }
+  .svc-dot { width: 9px; height: 9px; border-radius: 50%; }
+  .svc-ok   .svc-dot { background: #28a745; }
+  .svc-warn .svc-dot { background: #ffc107; }
+  .svc-off  .svc-dot { background: #dc3545; }
+
+  /* Tables */
   .table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px;
            overflow: hidden; border: 1px solid #ddd; font-size: 0.87rem; }
   .table th { background: #f0f0f0; text-align: left; padding: 10px 12px;
               border-bottom: 2px solid #ddd; font-size: 0.78rem; color: #555; }
   .table td { padding: 9px 12px; border-bottom: 1px solid #eee; }
   .table tr:last-child td { border-bottom: none; }
+
+  /* Pool gauge */
   .gauge-bar { height: 8px; border-radius: 4px; background: #e9ecef; overflow: hidden; margin-top: 4px; }
   .gauge-fill { height: 100%; border-radius: 4px; }
   .fill-green { background: #28a745; }
   .fill-amber { background: #ffc107; }
   .fill-red   { background: #dc3545; }
+
   .badge { display: inline-block; padding: 2px 8px; border-radius: 8px; font-size: 0.74rem; }
   .badge-ok   { background: #d4edda; color: #155724; }
   .badge-warn { background: #fff3cd; color: #856404; }
   .badge-crit { background: #f8d7da; color: #721c24; }
+
   .action-links { margin-top: 28px; display: flex; gap: 10px; flex-wrap: wrap; }
   .btn { display: inline-block; padding: 8px 18px; border-radius: 4px; font-size: 0.88rem;
          text-decoration: none; }
   .btn-blue { background: #2d7dd2; color: white; }
   .btn-gray { background: #6c757d; color: white; }
+
+  /* Live pulse indicator */
+  .live-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 0.76rem;
+                color: #888; margin-left: 8px; }
+  .pulse { width: 8px; height: 8px; border-radius: 50%; background: #28a745;
+           animation: pulse-anim 2s infinite; }
+  @keyframes pulse-anim {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.85); }
+  }
   .refresh-note { font-size: 0.76rem; color: #aaa; margin-top: 6px; }
 </style>
 </head>
@@ -47,56 +92,99 @@
 
 {% include 'admin_nav.html' %}
 
-<h1>Platform Monitor</h1>
-<p class="subtitle">Live overview — auto-refreshes every 60 seconds.</p>
+<h1>Platform Monitor <span class="live-badge"><span class="pulse"></span> Live</span></h1>
+<p class="subtitle">
+  Auto-refreshes every 60 seconds · Last loaded: <span id="ts">{{ now }}</span>
+</p>
 
-<!-- KPI cards -->
-<div class="kpi-grid">
-  <div class="kpi">
-    <div class="label">Total solidarity contributions</div>
-    <div class="value green">UGX {{ "{:,.0f}".format(total_solidarity) }}</div>
-    <div class="sub">All time, all members</div>
+<!-- ── Alert Banner ──────────────────────────────────────────── -->
+{% if alerts %}
+<div class="alert-banner">
+  {% for a in alerts %}
+  <div class="alert-card alert-{{ a.level }}">
+    <span class="icon">
+      {% if a.level == 'critical' %}🚨{% elif a.level == 'warn' %}⚠️{% else %}ℹ️{% endif %}
+    </span>
+    {{ a.msg }}
   </div>
-  <div class="kpi">
+  {% endfor %}
+</div>
+{% else %}
+<div class="no-alerts" style="margin-bottom:20px;">✅ No active alerts — all systems look healthy.</div>
+{% endif %}
+
+<!-- ── Service Status ─────────────────────────────────────────── -->
+<div class="section-title">Service Status</div>
+<div class="service-row">
+  <div class="svc-badge svc-ok"><span class="svc-dot"></span> Web App</div>
+  <div class="svc-badge svc-ok"><span class="svc-dot"></span> PostgreSQL</div>
+  <div class="svc-badge {{ 'svc-ok' if at_configured else 'svc-off' }}">
+    <span class="svc-dot"></span> Africa's Talking SMS{{ '' if at_configured else ' — not configured' }}
+  </div>
+  <div class="svc-badge {{ 'svc-ok' if mpesa_configured else 'svc-off' }}">
+    <span class="svc-dot"></span> M-Pesa Daraja{{ '' if mpesa_configured else ' — not configured' }}
+  </div>
+</div>
+
+<!-- ── KPI Cards ─────────────────────────────────────────────── -->
+<div class="section-title">Key Metrics</div>
+<div class="kpi-grid" id="kpi-grid">
+  <div class="kpi green">
+    <div class="label">Solidarity pool total</div>
+    <div class="value green">UGX {{ "{:,.0f}".format(total_solidarity) }}</div>
+    <div class="sub">All-time contributions</div>
+  </div>
+  <div class="kpi green">
     <div class="label">Platform revenue</div>
     <div class="value green">UGX {{ "{:,.0f}".format(total_platform_revenue) }}</div>
     <div class="sub">{{ revenue_count }} fee events</div>
   </div>
-  <div class="kpi">
-    <div class="label">Active members</div>
-    <div class="value">{{ active_users }}</div>
-    <div class="sub">Contributed in last 30 days</div>
+  <div class="kpi blue">
+    <div class="label">Total members</div>
+    <div class="value" id="kpi-total-users">{{ total_users }}</div>
+    <div class="sub">{{ active_users }} active (30d)</div>
   </div>
-  <div class="kpi">
-    <div class="label">Pending fraud alerts</div>
-    <div class="value {% if fraud_count >= 5 %}red{% elif fraud_count >= 1 %}orange{% else %}green{% endif %}">
-      {{ fraud_count }}
-    </div>
+  <div class="kpi {{ 'red' if locked_users > 0 else 'green' }}">
+    <div class="label">Locked accounts</div>
+    <div class="value {{ 'red' if locked_users > 0 else 'green' }}" id="kpi-locked">{{ locked_users }}</div>
+    <div class="sub">{{ inactive_users }} deactivated</div>
+  </div>
+  <div class="kpi {{ 'red' if fraud_count >= 5 else 'amber' if fraud_count > 0 else 'green' }}">
+    <div class="label">Open fraud alerts</div>
+    <div class="value {{ 'red' if fraud_count >= 5 else 'amber' if fraud_count > 0 else 'green' }}" id="kpi-fraud">{{ fraud_count }}</div>
     <div class="sub"><a href="{{ url_for('admin_fraud_alerts') }}">Review →</a></div>
   </div>
-  <div class="kpi">
-    <div class="label">Provider verifications pending</div>
-    <div class="value {% if pending_verifications >= 5 %}orange{% elif pending_verifications >= 1 %}orange{% else %}green{% endif %}">
-      {{ pending_verifications }}
-    </div>
-    <div class="sub"><a href="{{ url_for('admin_verified_providers') }}">Review →</a></div>
+  <div class="kpi {{ 'amber' if pending_care > 0 else 'green' }}">
+    <div class="label">Pending care requests</div>
+    <div class="value {{ 'amber' if pending_care > 0 else 'green' }}" id="kpi-care">{{ pending_care }}</div>
+    <div class="sub"><a href="{{ url_for('admin_care') }}">Review →</a></div>
   </div>
-  <div class="kpi">
-    <div class="label">Total users</div>
-    <div class="value">{{ total_users }}</div>
-    <div class="sub">All registered members</div>
+  <div class="kpi {{ 'amber' if pending_withdrawals > 0 else 'green' }}">
+    <div class="label">Provider withdrawals</div>
+    <div class="value {{ 'amber' if pending_withdrawals > 0 else 'green' }}" id="kpi-withdraw">{{ pending_withdrawals }}</div>
+    <div class="sub"><a href="{{ url_for('admin_provider_withdrawals') }}">Review →</a></div>
+  </div>
+  <div class="kpi {{ 'red' if recent_failed_logins >= 20 else 'amber' if recent_failed_logins >= 5 else 'green' }}">
+    <div class="label">Failed logins (1h)</div>
+    <div class="value {{ 'red' if recent_failed_logins >= 20 else 'amber' if recent_failed_logins >= 5 else 'green' }}" id="kpi-failed">{{ recent_failed_logins }}</div>
+    <div class="sub">Brute-force indicator</div>
+  </div>
+  <div class="kpi {{ 'amber' if pending_verifications > 0 else 'green' }}">
+    <div class="label">Provider verifications</div>
+    <div class="value {{ 'amber' if pending_verifications > 0 else 'green' }}">{{ pending_verifications }}</div>
+    <div class="sub"><a href="{{ url_for('admin_verified_providers') }}">Review →</a></div>
   </div>
 </div>
 
-<!-- Community pool balances -->
+<!-- ── Community Pools ────────────────────────────────────────── -->
 <div class="section-title">Community Pools</div>
 {% if communities %}
 <table class="table">
   <thead>
     <tr>
       <th>Community</th>
-      <th>Pool balance</th>
-      <th>Pool health</th>
+      <th>Pool Balance</th>
+      <th>Health</th>
       <th>Members</th>
       <th>Ceiling×</th>
       <th>Status</th>
@@ -108,7 +196,7 @@
   <tr>
     <td><strong>{{ comm.name }}</strong></td>
     <td>UGX {{ "{:,.0f}".format(comm.pool_balance) }}</td>
-    <td>
+    <td style="min-width:120px;">
       <div class="gauge-bar">
         <div class="gauge-fill {% if pct >= 60 %}fill-green{% elif pct >= 30 %}fill-amber{% else %}fill-red{% endif %}"
              style="width:{{ pct }}%"></div>
@@ -136,7 +224,7 @@
 <p style="color:#888; font-style:italic;">No communities yet.</p>
 {% endif %}
 
-<!-- Recent platform revenue -->
+<!-- ── Recent Platform Revenue ───────────────────────────────── -->
 <div class="section-title">Recent Platform Revenue</div>
 {% if recent_revenue %}
 <table class="table">
@@ -157,15 +245,44 @@
 <p style="color:#888; font-style:italic;">No revenue records yet.</p>
 {% endif %}
 
-<p class="refresh-note">Page auto-refreshes every 60 s. Last loaded: {{ now }}.</p>
+<p class="refresh-note">Auto-refreshes every 60 s. KPIs also poll live every 30 s via JSON.</p>
 
 <div class="action-links">
   <a class="btn btn-blue" href="{{ url_for('admin_care') }}">← Admin Panel</a>
   <a class="btn btn-blue" href="{{ url_for('admin_fraud_alerts') }}">Fraud Alerts ({{ fraud_count }})</a>
+  <a class="btn btn-blue" href="{{ url_for('admin_provider_withdrawals') }}">Withdrawals ({{ pending_withdrawals }})</a>
   <a class="btn btn-blue" href="{{ url_for('admin_verified_providers') }}">Provider Verification</a>
   <a class="btn btn-gray" href="{{ url_for('export_payments_csv') }}">⬇ Export Payments CSV</a>
   <a class="btn btn-gray" href="{{ url_for('home') }}">← Dashboard</a>
 </div>
 
+<script>
+// ── Live KPI polling (every 30 s) ─────────────────────────────
+const KPI_MAP = {
+  'total_users':     'kpi-total-users',
+  'locked_users':    'kpi-locked',
+  'fraud_count':     'kpi-fraud',
+  'pending_care':    'kpi-care',
+  'pending_withdrawals': 'kpi-withdraw',
+  'failed_logins_1h': 'kpi-failed',
+};
+async function refreshKPIs() {
+  try {
+    const res = await fetch('/admin/monitor/data');
+    if (!res.ok) return;
+    const d = await res.json();
+    for (const [key, elId] of Object.entries(KPI_MAP)) {
+      const el = document.getElementById(elId);
+      if (el && d[key] !== undefined) el.textContent = d[key];
+    }
+    const ts = document.getElementById('ts');
+    if (ts && d.ts) ts.textContent = d.ts.replace('T', ' ').slice(0, 16) + ' UTC';
+  } catch (_) {}
+}
+setInterval(refreshKPIs, 30_000);
+
+// ── Full page meta-refresh every 60 s ─────────────────────────
+setTimeout(() => location.reload(), 60_000);
+</script>
 </body>
 </html>

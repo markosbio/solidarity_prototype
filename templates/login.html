@@ -83,6 +83,15 @@
              pattern="[0-9]{4}" placeholder="Re-enter PIN" required>
     </label>
 
+    <div style="display:flex; gap:10px; align-items:flex-start; margin-top:12px;">
+      <input type="checkbox" name="tos_accept" id="tos_accept_l" value="1" required
+             style="width:auto; margin-top:3px; flex-shrink:0;">
+      <label for="tos_accept_l" style="font-weight:normal; font-size:0.82rem; color:#666; margin:0; line-height:1.4;">
+        I agree to the <a href="/terms" target="_blank" style="color:#2d7dd2;">Terms of Service</a>
+        and <a href="/privacy" target="_blank" style="color:#2d7dd2;">Privacy Policy</a>.
+      </label>
+    </div>
+
     <button class="btn" type="submit">Join &amp; Enter Pool</button>
   </form>
 
@@ -112,6 +121,8 @@
   {% endif %}
 
   <div class="divider">
+    <a href="{{ url_for('forgot_pin') }}">Forgot your PIN?</a>
+    &nbsp;·&nbsp;
     Are you a healthcare provider?
     <a href="{{ url_for('provider_login') }}">Provider login →</a>
   </div>

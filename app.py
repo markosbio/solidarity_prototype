@@ -3,7 +3,8 @@ from functools import wraps
 from models import (db, User, Transaction, Community, CommunityMembership, Provider,
                     CareRequest, SystemState, PaymentRecord, MpesaTopup,
                     MobileMoneyTransaction, VerifiedProvider, FraudAlert, PlatformRevenue,
-                    TrustEvent, AdminAuditLog, GlobalAdmin, UserLoginHistory, ProviderCodeHistory)
+                    TrustEvent, AdminAuditLog, GlobalAdmin, UserLoginHistory, ProviderCodeHistory,
+                    PinResetOTP, ProviderWithdrawal)
 from trust_graph import compute_draw_ceiling
 from witness import select_witnesses
 from recovery import update_recovery_parameters
@@ -32,6 +33,16 @@ app.secret_key = os.environ.get('SESSION_SECRET', os.environ.get('SECRET_KEY', '
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///solidarity.db')
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
 
+# ── Rate limiting ───────────────────────────────────────────────────────────────
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=[],
+    storage_uri="memory://",
+)
+
 # ── Admin access control ───────────────────────────────────────────────────────
 # Phones always granted admin — auto-seeded into GlobalAdmin on first access
 ADMIN_PHONES = ['0769547988']
@@ -42,7 +53,7 @@ def _ensure_global_admin(user):
         if user.phone in ADMIN_PHONES:
             existing = GlobalAdmin.query.filter_by(user_id=user.id).first()
             if not existing:
-                ga = GlobalAdmin(user_id=user.id, created_by=user.id)
+                ga = GlobalAdmin(user_id=user.id, created_by=user.id, role='super_admin')
                 db.session.add(ga)
                 try:
                     db.session.commit()
@@ -52,8 +63,26 @@ def _ensure_global_admin(user):
         return GlobalAdmin.query.filter_by(user_id=user.id).first() is not None
     except Exception:
         db.session.rollback()
-        # Fallback: grant access by phone list only if DB check fails
         return user.phone in ADMIN_PHONES
+
+
+def _get_current_admin_role():
+    """Return role string for the logged-in admin, or None."""
+    uid = session.get('user_id')
+    if not uid:
+        return None
+    ga = GlobalAdmin.query.filter_by(user_id=uid).first()
+    if ga:
+        return ga.role or 'super_admin'
+    user = db.session.get(User, uid)
+    if user and user.phone in ADMIN_PHONES:
+        return 'super_admin'
+    return None
+
+
+def _is_super_admin():
+    return _get_current_admin_role() == 'super_admin'
+
 
 def admin_required(f):
     @wraps(f)
@@ -65,6 +94,17 @@ def admin_required(f):
             return render_template('admin_access_denied.html',
                                    logged_in_phone=user.phone if user else None), 403
         session['admin_authed'] = True
+        return f(*args, **kwargs)
+    return decorated
+
+
+def super_admin_required(f):
+    """Decorator: require super_admin role (on top of admin_required)."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not _is_super_admin():
+            flash('This action requires Super Admin role.', 'error')
+            return redirect(url_for('admin_global_admins'))
         return f(*args, **kwargs)
     return decorated
 
@@ -96,6 +136,9 @@ def _run_column_migrations():
         "ALTER TABLE member ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP",
         "ALTER TABLE member ADD COLUMN IF NOT EXISTS last_login_ip VARCHAR(50)",
         "ALTER TABLE member ADD COLUMN IF NOT EXISTS failed_login_count INTEGER DEFAULT 0",
+        "ALTER TABLE member ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE member ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMP",
+        "ALTER TABLE member ADD COLUMN IF NOT EXISTS tos_accepted_at TIMESTAMP",
         "ALTER TABLE global_admin ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'super_admin'",
         "ALTER TABLE transaction ADD COLUMN IF NOT EXISTS reversed BOOLEAN DEFAULT FALSE",
         "ALTER TABLE transaction ADD COLUMN IF NOT EXISTS reversed_by INTEGER",
@@ -243,6 +286,7 @@ def _record_login(user, success=True):
 MAX_LOGIN_ATTEMPTS = 10
 
 @app.route('/login', methods=['GET', 'POST'])
+@limiter.limit("20 per minute")
 def login():
     if request.method == 'POST':
         phone = request.form.get('phone', '').strip()
@@ -329,7 +373,11 @@ def register():
             return render_template('register.html', error='PIN must be exactly 4 digits.')
         if pin != confirm_pin:
             return render_template('register.html', error='PINs do not match. Please try again.')
-        user = User(phone=phone, name=name, pin=pin, sub_wallet_balance=0.0, trust_score=0.5)
+        tos_accept = request.form.get('tos_accept', '')
+        if not tos_accept:
+            return render_template('register.html', error='You must accept the Terms of Service to register.')
+        user = User(phone=phone, name=name, pin=pin, sub_wallet_balance=0.0, trust_score=0.5,
+                    tos_accepted_at=datetime.utcnow())
         if referred_by:
             referrer = User.query.filter_by(phone=referred_by).first()
             if referrer:
@@ -1907,34 +1955,68 @@ def ussd():
 def admin_monitor():
     from sqlalchemy import func
     thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    one_hour_ago = datetime.utcnow() - timedelta(hours=1)
 
-    # Total solidarity contributions (solidarity_wallet transactions)
     total_solidarity = db.session.query(
         func.coalesce(func.sum(Transaction.amount), 0.0)
     ).filter(Transaction.type.in_(['solidarity_wallet', 'solidarity_pool', 'solidarity_fee'])).scalar() or 0.0
 
-    # Platform revenue
     total_platform_revenue = db.session.query(
         func.coalesce(func.sum(PlatformRevenue.amount), 0.0)
     ).scalar() or 0.0
     revenue_count = PlatformRevenue.query.count()
     recent_revenue = PlatformRevenue.query.order_by(PlatformRevenue.timestamp.desc()).limit(20).all()
 
-    # Active users (any transaction in last 30 days)
     active_users = db.session.query(func.count(func.distinct(Transaction.user_id))).filter(
         Transaction.timestamp >= thirty_days_ago
     ).scalar() or 0
 
     total_users = User.query.count()
+    locked_users = User.query.filter(User.is_locked == True).count()
+    inactive_users = User.query.filter(User.is_active == False).count()
     fraud_count = FraudAlert.query.filter_by(resolved=False).count()
     pending_verifications = VerifiedProvider.query.filter_by(verification_status='pending').count()
+    pending_withdrawals = ProviderWithdrawal.query.filter_by(status='pending').count()
 
-    # Communities with member counts
+    # Recent failed logins (last 1 hr)
+    recent_failed_logins = UserLoginHistory.query.filter(
+        UserLoginHistory.success == False,
+        UserLoginHistory.timestamp >= one_hour_ago
+    ).count()
+
+    # Care queue stats
+    pending_care = CareRequest.query.filter(CareRequest.status.in_(['pending_witness', 'pending_admin'])).count()
+
+    # System service status
+    at_configured = bool(os.getenv('AT_USERNAME') and os.getenv('AT_API_KEY'))
+    mpesa_configured = bool(os.getenv('MPESA_CONSUMER_KEY') and os.getenv('MPESA_CONSUMER_SECRET'))
+
+    # Communities with member counts + pool health
     communities_raw = Community.query.order_by(Community.pool_balance.desc()).all()
     communities = []
+    alerts = []
     for comm in communities_raw:
         comm.member_count = CommunityMembership.query.filter_by(community_id=comm.id).count()
         communities.append(comm)
+        if comm.pool_target and comm.pool_balance / comm.pool_target < 0.2:
+            alerts.append({'level': 'critical', 'msg': f'Pool "{comm.name}" is critically low ({comm.pool_balance/comm.pool_target*100:.0f}% full)'})
+        elif comm.large_withdrawal_paused:
+            alerts.append({'level': 'warn', 'msg': f'Pool "{comm.name}" has large withdrawals paused'})
+
+    if fraud_count >= 5:
+        alerts.append({'level': 'critical', 'msg': f'{fraud_count} unresolved fraud alerts require review'})
+    elif fraud_count > 0:
+        alerts.append({'level': 'warn', 'msg': f'{fraud_count} unresolved fraud alert(s)'})
+    if recent_failed_logins >= 20:
+        alerts.append({'level': 'critical', 'msg': f'{recent_failed_logins} failed login attempts in the last hour — possible brute-force'})
+    if locked_users > 0:
+        alerts.append({'level': 'info', 'msg': f'{locked_users} account(s) currently locked'})
+    if pending_withdrawals > 0:
+        alerts.append({'level': 'info', 'msg': f'{pending_withdrawals} provider withdrawal request(s) awaiting review'})
+    if not at_configured:
+        alerts.append({'level': 'warn', 'msg': 'Africa\'s Talking SMS not configured — PIN reset and bulk SMS will not work'})
+    if not mpesa_configured:
+        alerts.append({'level': 'warn', 'msg': 'M-Pesa Daraja not configured — mobile money STK push disabled'})
 
     now_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
     return render_template('admin_monitor.html',
@@ -1944,9 +2026,17 @@ def admin_monitor():
                            recent_revenue=recent_revenue,
                            active_users=active_users,
                            total_users=total_users,
+                           locked_users=locked_users,
+                           inactive_users=inactive_users,
                            fraud_count=fraud_count,
                            pending_verifications=pending_verifications,
+                           pending_withdrawals=pending_withdrawals,
+                           pending_care=pending_care,
+                           recent_failed_logins=recent_failed_logins,
                            communities=communities,
+                           alerts=alerts,
+                           at_configured=at_configured,
+                           mpesa_configured=mpesa_configured,
                            now=now_str)
 
 
@@ -2057,9 +2147,12 @@ def export_trust_csv():
 @admin_required
 def admin_global_admins():
     global_admins = GlobalAdmin.query.order_by(GlobalAdmin.created_at).all()
+    current_role = _get_current_admin_role() or 'super_admin'
     return render_template('admin_global_admins.html',
                            global_admins=global_admins,
                            current_user_id=session['user_id'],
+                           is_super_admin=_is_super_admin(),
+                           current_role=current_role,
                            error=request.args.get('error'),
                            success=request.args.get('success'))
 
@@ -2067,23 +2160,53 @@ def admin_global_admins():
 @app.route('/admin/global-admins/add', methods=['POST'])
 @admin_required
 def admin_global_admins_add():
+    if not _is_super_admin():
+        flash('Only Super Admins can add global admins.', 'error')
+        return redirect(url_for('admin_global_admins'))
     phone = request.form.get('phone', '').strip()
+    role = request.form.get('role', 'support').strip()
+    if role not in ('super_admin', 'support', 'operator'):
+        role = 'support'
     target = User.query.filter_by(phone=phone).first()
     if not target:
         return redirect(url_for('admin_global_admins', error=f'No member found with phone {phone}.'))
     if GlobalAdmin.query.filter_by(user_id=target.id).first():
         return redirect(url_for('admin_global_admins', error=f'{target.name} is already a global admin.'))
-    ga = GlobalAdmin(user_id=target.id, created_by=session['user_id'])
+    ga = GlobalAdmin(user_id=target.id, created_by=session['user_id'], role=role)
     db.session.add(ga)
     db.session.commit()
     _log_admin_action(session['user_id'], 'add_global_admin', target_user_id=target.id,
-                      details=f'Granted global admin to {target.name} ({target.phone})')
-    return redirect(url_for('admin_global_admins', success=f'{target.name} granted global admin access.'))
+                      details=f'Granted {role} to {target.name} ({target.phone})')
+    return redirect(url_for('admin_global_admins', success=f'{target.name} granted {role.replace("_"," ")} access.'))
+
+
+@app.route('/admin/global-admins/role/<int:ga_id>', methods=['POST'])
+@admin_required
+def admin_global_admins_role(ga_id):
+    if not _is_super_admin():
+        flash('Only Super Admins can change roles.', 'error')
+        return redirect(url_for('admin_global_admins'))
+    ga = GlobalAdmin.query.get_or_404(ga_id)
+    if ga.user_id == session['user_id']:
+        return redirect(url_for('admin_global_admins', error='You cannot change your own role.'))
+    new_role = request.form.get('role', 'support').strip()
+    if new_role not in ('super_admin', 'support', 'operator'):
+        new_role = 'support'
+    old_role = ga.role
+    ga.role = new_role
+    db.session.commit()
+    target = User.query.get(ga.user_id)
+    _log_admin_action(session['user_id'], 'change_admin_role', target_user_id=ga.user_id,
+                      details=f'Role changed {old_role} → {new_role} for {target.name if target else ga.user_id}')
+    return redirect(url_for('admin_global_admins', success=f'Role updated to {new_role.replace("_"," ")}.'))
 
 
 @app.route('/admin/global-admins/remove/<int:ga_id>', methods=['POST'])
 @admin_required
 def admin_global_admins_remove(ga_id):
+    if not _is_super_admin():
+        flash('Only Super Admins can remove global admins.', 'error')
+        return redirect(url_for('admin_global_admins'))
     ga = GlobalAdmin.query.get_or_404(ga_id)
     if ga.user_id == session['user_id']:
         return redirect(url_for('admin_global_admins', error='You cannot remove yourself as global admin.'))
@@ -2690,6 +2813,238 @@ def admin_view_user():
                            trust_events=trust_events, ceiling=ceiling,
                            primary_comm=primary_comm,
                            target_is_global_admin=target_is_global_admin)
+
+
+# ── Forgot PIN (self-service OTP reset) ────────────────────────────────────────
+
+@app.route('/forgot-pin', methods=['GET', 'POST'])
+@limiter.limit("5 per minute")
+def forgot_pin():
+    from notifications import _send_sms
+    from loguru import logger
+
+    step = request.args.get('step') or request.form.get('step') or 'request'
+
+    if request.method == 'POST':
+        if step == 'request':
+            phone = request.form.get('phone', '').strip()
+            user = User.query.filter_by(phone=phone).first()
+            if not user:
+                return render_template('forgot_pin.html', step='request', phone=phone,
+                                       error='No account found with that phone number.')
+            if getattr(user, 'is_locked', False):
+                return render_template('forgot_pin.html', step='request', phone=phone,
+                                       error='This account is locked. Contact support.')
+            # Generate OTP
+            otp = ''.join([str(random.randint(0, 9)) for _ in range(6)])
+            expires = datetime.utcnow() + timedelta(minutes=10)
+            # Expire old OTPs
+            PinResetOTP.query.filter_by(user_id=user.id, used=False).update({'used': True})
+            otp_rec = PinResetOTP(user_id=user.id, otp=otp, expires_at=expires)
+            db.session.add(otp_rec)
+            db.session.commit()
+            try:
+                _send_sms(phone, f'[SolidarityPool] Your PIN reset code is: {otp}. Valid for 10 minutes. Do not share this.')
+            except Exception as e:
+                logger.warning("PIN reset SMS failed for {}: {}", phone, e)
+            return render_template('forgot_pin.html', step='verify', phone=phone)
+
+        elif step == 'verify':
+            phone = request.form.get('phone', '').strip()
+            otp_input = request.form.get('otp', '').strip()
+            user = User.query.filter_by(phone=phone).first()
+            if not user:
+                return render_template('forgot_pin.html', step='request',
+                                       error='Session expired. Please start again.')
+            otp_rec = PinResetOTP.query.filter_by(
+                user_id=user.id, otp=otp_input, used=False
+            ).order_by(PinResetOTP.created_at.desc()).first()
+            if not otp_rec or otp_rec.expires_at < datetime.utcnow():
+                return render_template('forgot_pin.html', step='verify', phone=phone,
+                                       error='Invalid or expired code. Please try again.')
+            # Mark OTP as used and issue a short-lived token
+            otp_rec.used = True
+            token = ''.join(random.choices(string.ascii_letters + string.digits, k=48))
+            otp_rec.token = token
+            db.session.commit()
+            return render_template('forgot_pin.html', step='set_pin', token=token, phone=phone)
+
+        elif step == 'set_pin':
+            token = request.form.get('token', '').strip()
+            new_pin = request.form.get('new_pin', '').strip()
+            confirm_pin = request.form.get('confirm_pin', '').strip()
+            otp_rec = PinResetOTP.query.filter_by(token=token).first()
+            if not otp_rec:
+                return render_template('forgot_pin.html', step='request',
+                                       error='Session expired. Please start again.')
+            if not new_pin.isdigit() or len(new_pin) != 4:
+                return render_template('forgot_pin.html', step='set_pin', token=token,
+                                       error='PIN must be exactly 4 digits.')
+            if new_pin != confirm_pin:
+                return render_template('forgot_pin.html', step='set_pin', token=token,
+                                       error='PINs do not match.')
+            user = User.query.get(otp_rec.user_id)
+            if not user:
+                return render_template('forgot_pin.html', step='request',
+                                       error='Account not found. Please start again.')
+            user.pin = new_pin
+            db.session.commit()
+            _log_admin_action(user.id, 'self_pin_reset', target_user_id=user.id,
+                              details=f'Self-service PIN reset via SMS OTP for {user.phone}')
+            return render_template('forgot_pin.html', step='done')
+
+    return render_template('forgot_pin.html', step='request')
+
+
+# ── Provider: Withdrawal request ───────────────────────────────────────────────
+
+@app.route('/provider/withdraw', methods=['GET', 'POST'])
+def provider_withdraw():
+    if 'provider_id' not in session:
+        return redirect(url_for('provider_login'))
+    provider = Provider.query.get(session['provider_id'])
+    if not provider:
+        return redirect(url_for('provider_login'))
+
+    past_withdrawals = ProviderWithdrawal.query.filter_by(provider_id=provider.id)\
+        .order_by(ProviderWithdrawal.requested_at.desc()).limit(20).all()
+
+    if request.method == 'POST':
+        try:
+            amount = float(request.form.get('amount', 0))
+        except ValueError:
+            flash('Invalid amount.', 'error')
+            return render_template('provider_withdrawal.html', provider=provider, past_withdrawals=past_withdrawals)
+        if amount < 1000:
+            flash('Minimum withdrawal amount is UGX 1,000.', 'error')
+            return render_template('provider_withdrawal.html', provider=provider, past_withdrawals=past_withdrawals)
+
+        method = request.form.get('payment_method', 'mpesa')
+        mobile = request.form.get('mobile_number', '').strip()
+        bank = request.form.get('bank_details', '').strip()
+        details = mobile if method == 'mpesa' else bank
+        notes = request.form.get('notes', '').strip()
+
+        w = ProviderWithdrawal(
+            provider_id=provider.id,
+            amount=amount,
+            payment_method=method,
+            payment_details=details,
+            notes=notes,
+        )
+        db.session.add(w)
+        db.session.commit()
+        flash(f'Withdrawal request for UGX {amount:,.0f} submitted. Our team will review within 1 business day.', 'success')
+        return redirect(url_for('provider_withdraw'))
+
+    return render_template('provider_withdrawal.html', provider=provider, past_withdrawals=past_withdrawals)
+
+
+# ── Admin: Provider withdrawal queue ──────────────────────────────────────────
+
+@app.route('/admin/provider-withdrawals')
+@admin_required
+def admin_provider_withdrawals():
+    admin_user = User.query.get(session['user_id'])
+    status_filter = request.args.get('status', 'pending')
+    query = ProviderWithdrawal.query
+    if status_filter != 'all':
+        query = query.filter_by(status=status_filter)
+    withdrawals = query.order_by(ProviderWithdrawal.requested_at.desc()).all()
+    pending_count = ProviderWithdrawal.query.filter_by(status='pending').count()
+    return render_template('admin_provider_withdrawals.html', user=admin_user,
+                           withdrawals=withdrawals, status_filter=status_filter,
+                           pending_count=pending_count)
+
+
+@app.route('/admin/provider-withdrawals/<int:w_id>/action', methods=['POST'])
+@admin_required
+def admin_withdrawal_action(w_id):
+    w = ProviderWithdrawal.query.get_or_404(w_id)
+    action = request.form.get('action', 'approve')
+    notes = request.form.get('notes', '').strip()
+    if action == 'approve':
+        w.status = 'approved'
+    else:
+        w.status = 'rejected'
+    w.processed_at = datetime.utcnow()
+    w.processed_by = session['user_id']
+    if notes:
+        w.notes = notes
+    db.session.commit()
+    _log_admin_action(session['user_id'], f'withdrawal_{action}',
+                      details=f'Provider #{w.provider_id} withdrawal #{w.id} UGX {w.amount:,.0f} — {action}. Notes: {notes}')
+    flash(f'Withdrawal #{w.id} {action}d.', 'success')
+    return redirect(url_for('admin_provider_withdrawals', status='pending'))
+
+
+# ── Admin: User deactivation (right to be forgotten) ──────────────────────────
+
+@app.route('/admin/user/<int:target_id>/deactivate', methods=['POST'])
+@admin_required
+def admin_user_deactivate(target_id):
+    if not _is_super_admin():
+        flash('Only Super Admins can deactivate accounts.', 'error')
+        return redirect(url_for('admin_user_detail', target_id=target_id))
+    admin_user = User.query.get(session['user_id'])
+    target = User.query.get_or_404(target_id)
+    reason = request.form.get('reason', '').strip()
+    mode = request.form.get('mode', 'deactivate')
+
+    if not reason:
+        flash('Reason is required for deactivation.', 'error')
+        return redirect(url_for('admin_user_detail', target_id=target_id))
+    if target.id == admin_user.id:
+        flash('You cannot deactivate your own account.', 'error')
+        return redirect(url_for('admin_user_detail', target_id=target_id))
+
+    if mode == 'anonymise':
+        # GDPR-style: anonymise PII but keep financial records
+        original_phone = target.phone
+        original_name = target.name
+        target.name = f'[Deleted User #{target.id}]'
+        target.phone = f'DELETED_{target.id}_{int(datetime.utcnow().timestamp())}'
+        target.pin = '0000'
+        target.is_active = False
+        target.is_locked = True
+        target.deactivated_at = datetime.utcnow()
+        target.locked_reason = f'Account anonymised per admin request. Reason: {reason}'
+        db.session.commit()
+        _log_admin_action(session['user_id'], 'anonymise_user', target_user_id=target.id,
+                          details=f'PII anonymised for {original_name} ({original_phone}). Reason: {reason}')
+        flash(f'Account #{target.id} has been anonymised. PII removed, financial records retained.', 'success')
+    else:
+        # Simple deactivation (keep data, just block login)
+        target.is_active = False
+        target.is_locked = True
+        target.deactivated_at = datetime.utcnow()
+        target.locked_reason = f'Account deactivated by admin. Reason: {reason}'
+        db.session.commit()
+        _log_admin_action(session['user_id'], 'deactivate_user', target_user_id=target.id,
+                          details=f'Account deactivated for {target.name} ({target.phone}). Reason: {reason}')
+        flash(f'{target.name}\'s account has been deactivated.', 'success')
+    return redirect(url_for('admin_users'))
+
+
+# ── Admin: Monitor live JSON feed ──────────────────────────────────────────────
+
+@app.route('/admin/monitor/data')
+@admin_required
+def admin_monitor_data():
+    from sqlalchemy import func
+    one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+    return jsonify({
+        'total_users': User.query.count(),
+        'locked_users': User.query.filter(User.is_locked == True).count(),
+        'pending_care': CareRequest.query.filter(CareRequest.status.in_(['pending_witness', 'pending_admin'])).count(),
+        'fraud_count': FraudAlert.query.filter_by(resolved=False).count(),
+        'pending_withdrawals': ProviderWithdrawal.query.filter_by(status='pending').count(),
+        'failed_logins_1h': UserLoginHistory.query.filter(
+            UserLoginHistory.success == False,
+            UserLoginHistory.timestamp >= one_hour_ago
+        ).count(),
+        'ts': datetime.utcnow().isoformat(),
+    })
 
 
 if __name__ == '__main__':

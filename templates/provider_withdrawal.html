@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Request Withdrawal – Provider Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 0 16px; }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 24px; }
+  .back { color: #2d7dd2; text-decoration: none; font-size: 0.88rem; display: inline-block; margin-bottom: 20px; }
+  .card { border: 1px solid #ddd; border-radius: 10px; padding: 24px; background: #fafafa; margin-bottom: 20px; }
+  .card h3 { margin: 0 0 16px; font-size: 1rem; padding-bottom: 10px; border-bottom: 1px solid #eee; }
+  label { display: block; font-weight: 600; margin-top: 14px; font-size: 0.88rem; color: #444; margin-bottom: 3px; }
+  input, select, textarea { width: 100%; padding: 9px 11px; border: 1.5px solid #ccc;
+                             border-radius: 6px; font-size: 0.95rem; }
+  input:focus, select:focus { outline: none; border-color: #2d7dd2; }
+  .hint { font-size: 0.75rem; color: #888; margin-top: 3px; }
+  .btn { margin-top: 20px; padding: 11px 24px; background: #2d7dd2; color: white; border: none;
+         border-radius: 6px; cursor: pointer; font-size: 0.95rem; font-weight: 600; }
+  .btn:hover { background: #2566b0; }
+  .balance-box { background: linear-gradient(135deg, #1a1a2e, #2d3250); color: #fff;
+                 border-radius: 10px; padding: 20px 24px; margin-bottom: 24px; }
+  .balance-box .lbl { font-size: 0.75rem; color: #aaa; text-transform: uppercase; letter-spacing: 0.07em; }
+  .balance-box .amt { font-size: 1.8rem; font-weight: bold; margin-top: 4px; }
+  .balance-box .note { font-size: 0.8rem; color: #888; margin-top: 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.86rem; margin-top: 6px; }
+  th { background: #f0f0f0; text-align: left; padding: 7px 9px; border-bottom: 2px solid #ddd;
+       font-size: 0.77rem; color: #555; }
+  td { padding: 7px 9px; border-bottom: 1px solid #eee; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 8px; font-size: 0.75rem; font-weight: bold; }
+  .badge-pending  { background: #fff3cd; color: #856404; }
+  .badge-approved { background: #d4edda; color: #155724; }
+  .badge-rejected { background: #f8d7da; color: #721c24; }
+  .info { background: #cce5ff; border: 1px solid #b8daff; padding: 10px 14px;
+          border-radius: 6px; font-size: 0.87rem; margin-bottom: 16px; color: #004085; }
+  .error { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24;
+           padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; }
+  .success { background: #d4edda; border: 1px solid #c3e6cb; color: #155724;
+             padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; }
+</style>
+</head>
+<body>
+
+<a class="back" href="{{ url_for('provider_dashboard') }}">← Back to Dashboard</a>
+
+<h1>Withdraw Funds</h1>
+<p class="subtitle">Request a transfer of your available balance to your mobile wallet or bank.</p>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% for cat, msg in messages %}
+<div class="{% if cat == 'error' %}error{% elif cat == 'success' %}success{% else %}info{% endif %}">{{ msg }}</div>
+{% endfor %}
+{% endwith %}
+
+<div class="balance-box">
+  <div class="lbl">Your Provider Code</div>
+  <div style="font-size:1.3rem; font-weight:bold; font-family:monospace; letter-spacing:0.1em;">
+    {{ provider.provider_code }}
+  </div>
+  <div class="note" style="margin-top:12px;">Submit a withdrawal request below. Our team reviews within 1 business day.</div>
+</div>
+
+<div class="info">
+  Withdrawal requests are manually reviewed by our admin team before processing.
+  You'll receive an SMS notification once your request is approved or rejected.
+</div>
+
+<div class="card">
+  <h3>New Withdrawal Request</h3>
+  <form method="POST" action="{{ url_for('provider_withdraw') }}">
+    <label>Amount (UGX)
+      <input type="number" name="amount" step="1000" min="1000" placeholder="e.g. 50000" required>
+    </label>
+
+    <label>Withdrawal method</label>
+    <select name="payment_method" id="method-sel" onchange="toggleMethodFields()">
+      <option value="mpesa">M-Pesa / Mobile Money</option>
+      <option value="bank">Bank transfer</option>
+    </select>
+
+    <div id="mobile-fields">
+      <label>Mobile wallet number
+        <input type="tel" name="mobile_number" placeholder="e.g. 256712345678">
+        <span class="hint">The number to receive mobile money.</span>
+      </label>
+    </div>
+
+    <div id="bank-fields" style="display:none;">
+      <label>Bank name & account number
+        <input type="text" name="bank_details" placeholder="e.g. Stanbic — 9030001234">
+      </label>
+    </div>
+
+    <label>Notes (optional)
+      <input type="text" name="notes" placeholder="Any additional info for the admin team">
+    </label>
+
+    <button class="btn" type="submit">Submit Withdrawal Request</button>
+  </form>
+</div>
+
+{% if past_withdrawals %}
+<div class="card">
+  <h3>Past Withdrawal Requests</h3>
+  <table>
+    <thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Status</th><th>Notes</th></tr></thead>
+    <tbody>
+    {% for w in past_withdrawals %}
+    <tr>
+      <td>{{ w.requested_at.strftime('%d/%m/%Y') }}</td>
+      <td>UGX {{ "{:,.0f}".format(w.amount) }}</td>
+      <td>{{ w.payment_method | upper }}</td>
+      <td><span class="badge badge-{{ w.status }}">{{ w.status | capitalize }}</span></td>
+      <td style="font-size:0.8rem;">{{ w.notes or '—' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<script>
+function toggleMethodFields() {
+  const v = document.getElementById('method-sel').value;
+  document.getElementById('mobile-fields').style.display = v === 'mpesa' ? '' : 'none';
+  document.getElementById('bank-fields').style.display  = v === 'bank'  ? '' : 'none';
+}
+</script>
+</body>
+</html>

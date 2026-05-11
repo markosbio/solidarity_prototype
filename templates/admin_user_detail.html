@@ -362,6 +362,42 @@
 </div>
 {% endif %}
 
+<!-- ── Account Deactivation (Super Admin only) ──────────────── -->
+<div class="section-title" style="margin-top:32px;">⚠️ Danger Zone</div>
+<div class="card" style="border-color:#f5c6cb; background:#fff8f8; padding:20px;">
+  <p style="margin:0 0 12px; font-size:0.9rem; color:#555;">
+    <strong>Deactivate account</strong> — blocks login and marks the account inactive.<br>
+    <strong>Anonymise</strong> — additionally wipes PII (name, phone) while keeping financial records for audit.
+    Both actions are logged and irreversible without direct database access.
+  </p>
+  <form method="POST" action="{{ url_for('admin_user_deactivate', target_id=target.id) }}" id="form-deactivate">
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-bottom:10px;">
+      <div style="flex:1; min-width:200px;">
+        <label style="font-size:0.82rem; font-weight:bold; display:block; margin-bottom:3px;">Reason (required)</label>
+        <input type="text" name="reason" placeholder="e.g. User requested account closure"
+               style="width:100%; padding:8px 10px; border:1.5px solid #f5c6cb; border-radius:5px; font-size:0.9rem;">
+      </div>
+      <div>
+        <label style="font-size:0.82rem; font-weight:bold; display:block; margin-bottom:3px;">Mode</label>
+        <select name="mode" style="padding:8px 10px; border:1.5px solid #f5c6cb; border-radius:5px; font-size:0.9rem;">
+          <option value="deactivate">Deactivate only (keep PII)</option>
+          <option value="anonymise">Anonymise (remove PII)</option>
+        </select>
+      </div>
+    </div>
+    <button type="button" style="padding:9px 20px; background:#dc3545; color:white; border:none; border-radius:5px; cursor:pointer; font-size:0.88rem;"
+      onclick="confirmAction('form-deactivate','Deactivate Account',
+        'This will lock {{ target.name }}\'s account immediately. Continue?', 'Deactivate', true)">
+      Deactivate Account
+    </button>
+    {% if target.is_active == False %}
+    <span style="margin-left:12px; background:#f8d7da; color:#721c24; padding:4px 12px; border-radius:6px; font-size:0.82rem; font-weight:bold;">
+      Already deactivated {{ target.deactivated_at.strftime('%d/%m/%Y') if target.deactivated_at else '' }}
+    </span>
+    {% endif %}
+  </form>
+</div>
+
 <p style="margin-top:20px; font-size:0.88rem;">
   <a style="color:#2d7dd2;" href="{{ url_for('admin_users') }}">← Back to Users</a>
   &nbsp;·&nbsp;

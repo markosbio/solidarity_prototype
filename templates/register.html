@@ -53,6 +53,17 @@
       <input type="password" name="confirm_pin" maxlength="4" inputmode="numeric" pattern="[0-9]{4}"
              placeholder="Re-enter PIN" required>
     </label>
+    <div style="margin-top:14px; display:flex; gap:10px; align-items:flex-start;">
+      <input type="checkbox" name="tos_accept" id="tos_accept" value="1" required
+             style="width:auto; margin-top:3px; flex-shrink:0;">
+      <label for="tos_accept" style="font-weight:normal; font-size:0.87rem; color:#555; margin:0;">
+        I agree to the
+        <a href="/terms" target="_blank" style="color:#2d7dd2;">Terms of Service</a>
+        and
+        <a href="/privacy" target="_blank" style="color:#2d7dd2;">Privacy Policy</a>.
+        I understand that SolidarityPool handles financial data and I consent to its use for mutual-aid fund management.
+      </label>
+    </div>
     <button type="submit">Register &amp; Join Pool</button>
   </form>
   {% if error %}

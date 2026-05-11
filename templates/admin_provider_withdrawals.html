@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Provider Withdrawals – Admin</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: sans-serif; max-width: 900px; margin: 40px auto; padding: 0 16px; }
+  h2 { margin-bottom: 4px; }
+  .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 20px; }
+  .tab-row { display: flex; gap: 0; border-bottom: 2px solid #ddd; margin-bottom: 20px; }
+  .tab-row a { padding: 9px 20px; font-size: 0.88rem; text-decoration: none; color: #666;
+               border-bottom: 2px solid transparent; margin-bottom: -2px; }
+  .tab-row a.active { color: #2d7dd2; border-bottom-color: #2d7dd2; font-weight: bold; }
+  .tab-row a:hover { color: #2d7dd2; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+  th { background: #f0f0f0; text-align: left; padding: 8px 10px; border-bottom: 2px solid #ddd;
+       font-size: 0.77rem; color: #555; white-space: nowrap; }
+  td { padding: 8px 10px; border-bottom: 1px solid #eee; vertical-align: top; }
+  tr:hover td { background: #fafafa; }
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 0.76rem; font-weight: bold; }
+  .badge-pending  { background: #fff3cd; color: #856404; }
+  .badge-approved { background: #d4edda; color: #155724; }
+  .badge-rejected { background: #f8d7da; color: #721c24; }
+  .btn { display: inline-block; padding: 5px 12px; border-radius: 4px; font-size: 0.82rem;
+         border: none; cursor: pointer; text-decoration: none; }
+  .btn-approve { background: #28a745; color: #fff; }
+  .btn-reject  { background: #dc3545; color: #fff; }
+  .btn:hover { opacity: 0.88; }
+  .empty { text-align: center; color: #888; padding: 40px; font-style: italic; }
+  .action-form { display: inline; }
+  .reason-input { width: 180px; padding: 4px 7px; border: 1px solid #ccc; border-radius: 4px;
+                  font-size: 0.82rem; }
+</style>
+</head>
+<body>
+
+{% include 'admin_nav.html' %}
+
+<h2>💸 Provider Withdrawal Requests</h2>
+<p class="subtitle">Review and process provider payout requests.</p>
+
+<div class="tab-row">
+  <a href="{{ url_for('admin_provider_withdrawals', status='pending') }}"
+     class="{{ 'active' if status_filter == 'pending' else '' }}">Pending ({{ pending_count }})</a>
+  <a href="{{ url_for('admin_provider_withdrawals', status='approved') }}"
+     class="{{ 'active' if status_filter == 'approved' else '' }}">Approved</a>
+  <a href="{{ url_for('admin_provider_withdrawals', status='rejected') }}"
+     class="{{ 'active' if status_filter == 'rejected' else '' }}">Rejected</a>
+  <a href="{{ url_for('admin_provider_withdrawals', status='all') }}"
+     class="{{ 'active' if status_filter == 'all' else '' }}">All</a>
+</div>
+
+{% if withdrawals %}
+<table>
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Date</th>
+      <th>Provider</th>
+      <th>Code</th>
+      <th>Amount</th>
+      <th>Method</th>
+      <th>Details</th>
+      <th>Status</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for w in withdrawals %}
+  <tr>
+    <td style="color:#888;">{{ w.id }}</td>
+    <td style="white-space:nowrap; font-size:0.8rem;">{{ w.requested_at.strftime('%d/%m/%Y %H:%M') }}</td>
+    <td>{{ w.provider.name }}</td>
+    <td><code style="font-size:0.85em;">{{ w.provider.provider_code }}</code></td>
+    <td><strong>UGX {{ "{:,.0f}".format(w.amount) }}</strong></td>
+    <td>{{ w.payment_method | upper }}</td>
+    <td style="font-size:0.8rem; max-width:160px; word-break:break-word;">{{ w.payment_details or '—' }}</td>
+    <td><span class="badge badge-{{ w.status }}">{{ w.status | capitalize }}</span></td>
+    <td>
+      {% if w.status == 'pending' %}
+      <div style="display:flex; gap:5px; flex-wrap:wrap; align-items:center;">
+        <form class="action-form" method="POST" action="{{ url_for('admin_withdrawal_action', w_id=w.id) }}">
+          <input type="hidden" name="action" value="approve">
+          <input class="reason-input" type="text" name="notes" placeholder="Notes (optional)">
+          <button class="btn btn-approve" type="submit">✓ Approve</button>
+        </form>
+        <form class="action-form" method="POST" action="{{ url_for('admin_withdrawal_action', w_id=w.id) }}" style="margin-top:4px;">
+          <input type="hidden" name="action" value="reject">
+          <input class="reason-input" type="text" name="notes" placeholder="Rejection reason">
+          <button class="btn btn-reject" type="submit">✗ Reject</button>
+        </form>
+      </div>
+      {% elif w.processed_at %}
+      <span style="font-size:0.78rem; color:#888;">
+        Processed {{ w.processed_at.strftime('%d/%m/%y') }}
+        {% if w.processor %}by {{ w.processor.name }}{% endif %}
+      </span>
+      {% if w.notes %}<br><span style="font-size:0.77rem; color:#666;">{{ w.notes }}</span>{% endif %}
+      {% else %}—{% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty">No {{ status_filter }} withdrawal requests.</div>
+{% endif %}
+
+</body>
+</html>

@@ -29,6 +29,9 @@ class User(db.Model):
     last_login_at = db.Column(db.DateTime, nullable=True)
     last_login_ip = db.Column(db.String(50), nullable=True)
     failed_login_count = db.Column(db.Integer, default=0)
+    is_active = db.Column(db.Boolean, default=True)
+    deactivated_at = db.Column(db.DateTime, nullable=True)
+    tos_accepted_at = db.Column(db.DateTime, nullable=True)
 
     recruits = db.relationship('User', foreign_keys=[referred_by],
                                backref=db.backref('referrer', remote_side=[id]))
@@ -303,3 +306,35 @@ class UserLoginHistory(db.Model):
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
     user = db.relationship('User', backref='login_history')
+
+
+class PinResetOTP(db.Model):
+    """One-time codes for self-service PIN reset."""
+    __tablename__ = 'pin_reset_otp'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('member.id'), nullable=False)
+    otp = db.Column(db.String(6), nullable=False)
+    token = db.Column(db.String(64), nullable=True)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    used = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User', backref='pin_reset_otps')
+
+
+class ProviderWithdrawal(db.Model):
+    """Provider payout / withdrawal requests."""
+    __tablename__ = 'provider_withdrawal'
+    id = db.Column(db.Integer, primary_key=True)
+    provider_id = db.Column(db.Integer, db.ForeignKey('provider.id'), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    payment_method = db.Column(db.String(50), default='mpesa')
+    payment_details = db.Column(db.String(300))
+    status = db.Column(db.String(20), default='pending')
+    notes = db.Column(db.String(300))
+    requested_at = db.Column(db.DateTime, default=datetime.utcnow)
+    processed_at = db.Column(db.DateTime, nullable=True)
+    processed_by = db.Column(db.Integer, db.ForeignKey('member.id'), nullable=True)
+
+    provider = db.relationship('Provider', backref='withdrawals')
+    processor = db.relationship('User', foreign_keys=[processed_by])

@@ -4,39 +4,55 @@
 <title>Global Admins – SolidarityPool</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  body { font-family: sans-serif; max-width: 720px; margin: 40px auto; padding: 0 16px; }
+  body { font-family: sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; }
   h1 { margin-bottom: 4px; }
   .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 24px; }
   .section-title { font-size: 0.85rem; font-weight: bold; color: #555;
                    text-transform: uppercase; letter-spacing: .05em; margin: 28px 0 10px; }
   table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
   th { background: #f0f0f0; text-align: left; padding: 8px 10px; border-bottom: 2px solid #ccc; font-size: 0.82rem; color: #555; }
-  td { padding: 8px 10px; border-bottom: 1px solid #eee; }
+  td { padding: 8px 10px; border-bottom: 1px solid #eee; vertical-align: middle; }
   tr:hover td { background: #f9f9f9; }
   .btn { display: inline-block; padding: 6px 14px; border-radius: 4px; font-size: 0.85rem;
          border: none; cursor: pointer; text-decoration: none; }
-  .btn-danger { background: #dc3545; color: white; }
-  .btn-danger:hover { background: #c82333; }
-  .btn-primary { background: #2d7dd2; color: white; }
+  .btn-danger   { background: #dc3545; color: white; }
+  .btn-danger:hover  { background: #c82333; }
+  .btn-primary  { background: #2d7dd2; color: white; }
   .btn-primary:hover { background: #2566b0; }
-  .btn-back { background: #6c757d; color: white; }
-  .btn-back:hover { background: #5a6268; }
-  .add-card { border: 1px solid #c3e6cb; border-radius: 8px; padding: 20px; background: #f0fff4; }
-  .add-card h3 { margin: 0 0 12px; font-size: 1rem; color: #155724; }
-  .form-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-top: 6px; }
-  .form-row label { display: block; font-size: 0.82rem; font-weight: bold; color: #555; margin-bottom: 3px; }
-  .form-row input { padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.95rem; width: 210px; }
-  .form-row button { padding: 8px 18px; background: #28a745; color: white; border: none;
-                     border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
-  .form-row button:hover { background: #218838; }
-  .warn { background: #fff3cd; border: 1px solid #ffc107; padding: 10px 14px;
-          border-radius: 6px; font-size: 0.87rem; margin-bottom: 18px; color: #856404; }
-  .error { background: #f8d7da; border: 1px solid #f5c6cb; padding: 10px 14px;
-           border-radius: 6px; font-size: 0.87rem; margin-bottom: 14px; color: #721c24; }
-  .success { background: #d4edda; border: 1px solid #c3e6cb; padding: 10px 14px;
-             border-radius: 6px; font-size: 0.87rem; margin-bottom: 14px; color: #155724; }
+  .btn-back     { background: #6c757d; color: white; }
+  .btn-back:hover    { background: #5a6268; }
+  .add-card { border: 1px solid #c3e6cb; border-radius: 8px; padding: 20px 22px; background: #f0fff4; }
+  .add-card h3 { margin: 0 0 8px; font-size: 1rem; color: #155724; }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-top: 12px; }
+  @media (max-width: 600px) { .form-grid { grid-template-columns: 1fr; } }
+  .form-grid label { display: block; font-size: 0.82rem; font-weight: bold; color: #555; margin-bottom: 3px; }
+  .form-grid input, .form-grid select { padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px;
+                                        font-size: 0.92rem; width: 100%; box-sizing: border-box; }
+  .form-grid button { padding: 9px 18px; background: #28a745; color: white; border: none;
+                      border-radius: 4px; cursor: pointer; font-size: 0.9rem; white-space: nowrap; }
+  .form-grid button:hover { background: #218838; }
+  .warn    { background: #fff3cd; border: 1px solid #ffc107; padding: 10px 14px; border-radius: 6px; font-size: 0.87rem; margin-bottom: 18px; color: #856404; }
+  .error   { background: #f8d7da; border: 1px solid #f5c6cb; padding: 10px 14px; border-radius: 6px; font-size: 0.87rem; margin-bottom: 14px; color: #721c24; }
+  .success { background: #d4edda; border: 1px solid #c3e6cb; padding: 10px 14px; border-radius: 6px; font-size: 0.87rem; margin-bottom: 14px; color: #155724; }
   .self-badge { display: inline-block; font-size: 0.72rem; background: #cce5ff; color: #004085;
                 padding: 1px 6px; border-radius: 8px; margin-left: 4px; }
+  /* Role badges */
+  .role-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.74rem; font-weight: bold; }
+  .role-super_admin { background: #ffd700; color: #333; }
+  .role-support     { background: #17a2b8; color: #fff; }
+  .role-operator    { background: #6c757d; color: #fff; }
+  /* Role permissions table */
+  .perms { border: 1px solid #ddd; border-radius: 8px; overflow: hidden; margin-top: 8px; font-size: 0.82rem; }
+  .perms table { margin: 0; }
+  .perms th { padding: 7px 10px; font-size: 0.75rem; }
+  .perms td { padding: 6px 10px; }
+  .yes { color: #28a745; font-weight: bold; }
+  .no  { color: #ccc; }
+  /* Role select inline editing */
+  .role-form { display: inline; }
+  .role-sel  { padding: 3px 6px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.82rem; cursor: pointer; }
+  .role-save { padding: 3px 8px; background: #2d7dd2; color: #fff; border: none; border-radius: 4px;
+               font-size: 0.8rem; cursor: pointer; margin-left: 4px; }
 </style>
 </head>
 <body>
@@ -44,21 +60,45 @@
 {% include 'admin_nav.html' %}
 
 <h1>Global Admin Management</h1>
-<p class="subtitle">
-  These users have full platform admin access. Changes are audit-logged.
-</p>
+<p class="subtitle">These users have platform admin access. Role controls what each admin can do.</p>
 
+{% if not is_super_admin %}
 <div class="warn">
-  Removing a global admin is immediate and irreversible unless you re-add them.
-  Always ensure at least one global admin remains.
+  <strong>View-only.</strong> Only Super Admins can add or remove global admins.
+  Your role: <strong>{{ current_role }}</strong>.
 </div>
+{% else %}
+<div class="warn">
+  Removing a global admin is immediate. Always ensure at least one Super Admin remains.
+</div>
+{% endif %}
 
-{% if error %}
-<div class="error">{{ error }}</div>
-{% endif %}
-{% if success %}
-<div class="success">{{ success }}</div>
-{% endif %}
+{% if error %}   <div class="error">{{ error }}</div>{% endif %}
+{% if success %} <div class="success">{{ success }}</div>{% endif %}
+
+<!-- Role permissions reference -->
+<details style="margin-bottom:20px;">
+  <summary style="cursor:pointer; font-size:0.85rem; color:#2d7dd2; font-weight:bold;">
+    ▸ Role permissions reference
+  </summary>
+  <div class="perms" style="margin-top:8px;">
+    <table>
+      <thead><tr><th>Permission</th><th>Super Admin</th><th>Support</th><th>Operator</th></tr></thead>
+      <tbody>
+        <tr><td>View all admin panels</td>    <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+        <tr><td>Edit user profile / balances</td><td class="yes">✓</td><td class="yes">✓</td><td class="no">—</td></tr>
+        <tr><td>Lock / unlock accounts</td>   <td class="yes">✓</td><td class="yes">✓</td><td class="no">—</td></tr>
+        <tr><td>Approve / reject care requests</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+        <tr><td>Approve provider withdrawals</td><td class="yes">✓</td><td class="no">—</td><td class="yes">✓</td></tr>
+        <tr><td>Reverse transactions</td>     <td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
+        <tr><td>Add / remove global admins</td><td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
+        <tr><td>Override trust scores</td>    <td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
+        <tr><td>Send bulk SMS</td>            <td class="yes">✓</td><td class="yes">✓</td><td class="no">—</td></tr>
+        <tr><td>Export audit CSV</td>         <td class="yes">✓</td><td class="yes">✓</td><td class="no">—</td></tr>
+      </tbody>
+    </table>
+  </div>
+</details>
 
 <div class="section-title">Current Global Admins ({{ global_admins|length }})</div>
 {% if global_admins %}
@@ -67,6 +107,7 @@
     <tr>
       <th>Name</th>
       <th>Phone</th>
+      <th>Role</th>
       <th>Added</th>
       <th>Added by</th>
       <th>Action</th>
@@ -77,21 +118,39 @@
   <tr>
     <td>
       {{ ga.user.name }}
-      {% if ga.user_id == current_user_id %}
-        <span class="self-badge">you</span>
-      {% endif %}
+      {% if ga.user_id == current_user_id %}<span class="self-badge">you</span>{% endif %}
     </td>
     <td>{{ ga.user.phone }}</td>
+    <td>
+      {% if is_super_admin and ga.user_id != current_user_id %}
+      <form class="role-form" method="POST" action="{{ url_for('admin_global_admins_role', ga_id=ga.id) }}">
+        <select name="role" class="role-sel" onchange="this.form.submit()">
+          <option value="super_admin" {% if (ga.role or 'super_admin') == 'super_admin' %}selected{% endif %}>Super Admin</option>
+          <option value="support"     {% if (ga.role or '') == 'support'     %}selected{% endif %}>Support</option>
+          <option value="operator"    {% if (ga.role or '') == 'operator'    %}selected{% endif %}>Operator</option>
+        </select>
+      </form>
+      {% else %}
+        <span class="role-badge role-{{ ga.role or 'super_admin' }}">
+          {{ (ga.role or 'super_admin').replace('_', ' ').title() }}
+        </span>
+      {% endif %}
+    </td>
     <td>{{ ga.created_at.strftime('%Y-%m-%d') }}</td>
     <td>{{ ga.creator.name if ga.creator else '—' }}</td>
     <td>
-      {% if ga.user_id != current_user_id %}
+      {% if is_super_admin and ga.user_id != current_user_id %}
       <form method="POST" action="{{ url_for('admin_global_admins_remove', ga_id=ga.id) }}"
-            onsubmit="return confirm('Remove {{ ga.user.name }} as global admin?')">
-        <button class="btn btn-danger" type="submit">Remove</button>
+            id="form-remove-{{ ga.id }}">
+        <button class="btn btn-danger" type="button"
+          onclick="confirmAction('form-remove-{{ ga.id }}','Remove Admin','Remove {{ ga.user.name }} as global admin? They will lose all admin access immediately.','Remove')">
+          Remove
+        </button>
       </form>
-      {% else %}
+      {% elif ga.user_id == current_user_id %}
         <span style="color:#888; font-size:0.82rem;">Cannot remove yourself</span>
+      {% else %}
+        <span style="color:#ccc; font-size:0.82rem;">No permission</span>
       {% endif %}
     </td>
   </tr>
@@ -102,22 +161,37 @@
 <p style="color:#888; font-style:italic;">No global admins found — add one below immediately.</p>
 {% endif %}
 
+{% if is_super_admin %}
 <div class="section-title">Add a New Global Admin</div>
 <div class="add-card">
-  <h3>Grant global admin access</h3>
-  <p style="margin:0 0 12px; font-size:0.87rem; color:#444;">
-    Enter the phone number of a registered member. They will immediately gain full admin access.
+  <h3>Grant admin access to a member</h3>
+  <p style="margin:0 0 4px; font-size:0.87rem; color:#444;">
+    Enter the phone number and choose a role. They gain access immediately.
   </p>
-  <form method="POST" action="{{ url_for('admin_global_admins_add') }}">
-    <div class="form-row">
+  <form method="POST" action="{{ url_for('admin_global_admins_add') }}" id="form-add-admin">
+    <div class="form-grid">
       <div>
         <label>Member phone number</label>
         <input type="tel" name="phone" placeholder="e.g. 256712345678" required>
       </div>
-      <button type="submit">Grant Admin Access</button>
+      <div>
+        <label>Role</label>
+        <select name="role">
+          <option value="support">Support — view + edit users, care queue</option>
+          <option value="operator">Operator — care queue + provider withdrawals</option>
+          <option value="super_admin">Super Admin — full access</option>
+        </select>
+      </div>
+      <div>
+        <button type="button"
+          onclick="confirmAction('form-add-admin','Grant Admin Access','This will immediately grant admin access to the entered phone number. Continue?','Grant Access', false)">
+          Grant Access
+        </button>
+      </div>
     </div>
   </form>
 </div>
+{% endif %}
 
 <p style="margin-top:28px;">
   <a class="btn btn-back" href="{{ url_for('admin_care') }}">← Admin Panel</a>
