@@ -54,7 +54,7 @@
 {% if target %}
 <div class="card">
   <h3>{{ target.name }}
-    {% if target.phone in admin_phones %}
+    {% if target_is_global_admin %}
     <span class="badge badge-admin">ADMIN</span>
     {% else %}
     <span class="badge badge-member">Member</span>

@@ -3,7 +3,7 @@ from functools import wraps
 from models import (db, User, Transaction, Community, CommunityMembership, Provider,
                     CareRequest, SystemState, PaymentRecord, MpesaTopup,
                     MobileMoneyTransaction, VerifiedProvider, FraudAlert, PlatformRevenue,
-                    TrustEvent, AdminAuditLog)
+                    TrustEvent, AdminAuditLog, GlobalAdmin)
 from trust_graph import compute_draw_ceiling
 from witness import select_witnesses
 from recovery import update_recovery_parameters
@@ -32,15 +32,13 @@ app.secret_key = os.environ.get('SESSION_SECRET', os.environ.get('SECRET_KEY', '
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///solidarity.db')
 
 # ── Admin access control ───────────────────────────────────────────────────────
-ADMIN_PHONES = ['0769547988']
-
 def admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if 'user_id' not in session:
             return redirect(url_for('login'))
         user = User.query.get(session['user_id'])
-        if not user or user.phone not in ADMIN_PHONES:
+        if not user or not GlobalAdmin.query.filter_by(user_id=user.id).first():
             return "Access denied — admin only.", 403
         admin_secret = os.environ.get('ADMIN_SECRET', '')
         token = request.args.get('token') or request.form.get('token')
@@ -245,8 +243,10 @@ def apply_provider():
         db.session.commit()
         try:
             from notifications import notify_new_provider_application
-            for admin_phone in ADMIN_PHONES:
-                notify_new_provider_application(admin_phone, provider_name, phone)
+            for ga in GlobalAdmin.query.all():
+                ga_user = User.query.get(ga.user_id)
+                if ga_user:
+                    notify_new_provider_application(ga_user.phone, provider_name, phone)
         except Exception:
             pass
         return render_template('apply_provider.html', submitted=True,
@@ -320,6 +320,47 @@ def community_dashboard(comm_id):
     for m in members:
         m.user = User.query.get(m.user_id)
     return render_template('community_dashboard.html', community=community, members=members, user_role=membership.role)
+
+
+@app.route('/community/<int:comm_id>/promote/<int:member_id>', methods=['POST'])
+def community_promote(comm_id, member_id):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    admin_ms = CommunityMembership.query.filter_by(
+        user_id=session['user_id'], community_id=comm_id).first()
+    if not admin_ms or admin_ms.role != 'admin':
+        return "Access denied — community admin only.", 403
+    target_ms = CommunityMembership.query.filter_by(
+        user_id=member_id, community_id=comm_id).first()
+    if not target_ms:
+        return "Member not found in this community.", 404
+    target_ms.role = 'coadmin'
+    db.session.commit()
+    _log_admin_action(session['user_id'], 'promote_coadmin', target_user_id=member_id,
+                      details=f'Promoted user {member_id} to coadmin in community {comm_id}')
+    return redirect(url_for('community_dashboard', comm_id=comm_id))
+
+
+@app.route('/community/<int:comm_id>/demote/<int:member_id>', methods=['POST'])
+def community_demote(comm_id, member_id):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    admin_ms = CommunityMembership.query.filter_by(
+        user_id=session['user_id'], community_id=comm_id).first()
+    if not admin_ms or admin_ms.role != 'admin':
+        return "Access denied — community admin only.", 403
+    target_ms = CommunityMembership.query.filter_by(
+        user_id=member_id, community_id=comm_id).first()
+    if not target_ms:
+        return "Member not found in this community.", 404
+    if target_ms.role == 'admin':
+        return "Cannot demote the community owner.", 403
+    target_ms.role = 'member'
+    db.session.commit()
+    _log_admin_action(session['user_id'], 'demote_coadmin', target_user_id=member_id,
+                      details=f'Demoted user {member_id} to member in community {comm_id}')
+    return redirect(url_for('community_dashboard', comm_id=comm_id))
+
 
 @app.route('/simulate_roundup', methods=['GET', 'POST'])
 def simulate_roundup():
@@ -1425,7 +1466,10 @@ def ussd():
         if role not in ['admin', 'coadmin'] or not primary_comm:
             return r("Not authorised.", end=True)
         if step == 1:
-            return r("Admin panel\n1. Approve requests\n2. Invite code\n3. Members\n0. Back")
+            menu = "Admin panel\n1. Approve requests\n2. Invite code\n3. Members\n0. Back"
+            if role == 'admin':
+                menu = "Admin panel\n1. Approve requests\n2. Invite code\n3. Members\n4. Manage co-admins\n0. Back"
+            return r(menu)
         sub = inputs[1] if step > 1 else ''
         if sub == "1":
             if step == 2:
@@ -1493,6 +1537,65 @@ def ussd():
             if len(members) > 5:
                 msg += f"\n+{len(members) - 5} more"
             return r(msg, end=True)
+        elif sub == "4":
+            if role != 'admin':
+                return r("Only the community admin can manage co-admins.", end=True)
+            all_ms = CommunityMembership.query.filter_by(community_id=primary_comm.id).all()
+            manageable = [m for m in all_ms if m.role in ('member', 'coadmin')]
+            if step == 2:
+                if not manageable:
+                    return r("No members to manage.", end=True)
+                lines = []
+                for i, m in enumerate(manageable[:8], 1):
+                    u = User.query.get(m.user_id)
+                    lines.append(f"{i}. {u.name if u else '?'} ({m.role})")
+                ussd_sessions[phone] = {'coadmin_list': [m.user_id for m in manageable[:8]]}
+                return r("Manage co-admins\n" + "\n".join(lines) + "\n\nEnter member number:")
+            if step == 3:
+                data = ussd_sessions.get(phone, {})
+                coadmin_list = data.get('coadmin_list', [])
+                try:
+                    idx = int(inputs[2]) - 1
+                    if idx < 0 or idx >= len(coadmin_list):
+                        return r("Invalid number. Dial again.", end=True)
+                except (ValueError, IndexError):
+                    return r("Invalid input. Dial again.", end=True)
+                selected_user_id = coadmin_list[idx]
+                sel_ms = CommunityMembership.query.filter_by(
+                    user_id=selected_user_id, community_id=primary_comm.id).first()
+                sel_user = User.query.get(selected_user_id)
+                data['coadmin_selected'] = selected_user_id
+                ussd_sessions[phone] = data
+                return r(
+                    f"Selected: {sel_user.name if sel_user else '?'} ({sel_ms.role if sel_ms else '?'})\n"
+                    "1. Promote to co-admin\n2. Demote to member\n0. Cancel"
+                )
+            if step == 4:
+                data = ussd_sessions.get(phone, {})
+                selected_user_id = data.get('coadmin_selected')
+                if not selected_user_id:
+                    return r("Session expired. Dial again.", end=True)
+                action = inputs[3].strip()
+                sel_ms = CommunityMembership.query.filter_by(
+                    user_id=selected_user_id, community_id=primary_comm.id).first()
+                sel_user = User.query.get(selected_user_id)
+                if action == "1":
+                    if not sel_ms or sel_ms.role == 'admin':
+                        return r("Cannot promote this member.", end=True)
+                    sel_ms.role = 'coadmin'
+                    db.session.commit()
+                    ussd_sessions.pop(phone, None)
+                    return r(f"{sel_user.name if sel_user else 'Member'} promoted to co-admin.", end=True)
+                elif action == "2":
+                    if not sel_ms or sel_ms.role == 'admin':
+                        return r("Cannot demote this member.", end=True)
+                    sel_ms.role = 'member'
+                    db.session.commit()
+                    ussd_sessions.pop(phone, None)
+                    return r(f"{sel_user.name if sel_user else 'Member'} demoted to member.", end=True)
+                else:
+                    ussd_sessions.pop(phone, None)
+                    return r("Cancelled.", end=True)
         return r("Invalid.\n0. Back")
 
     # ── 7. Help / FAQ ─────────────────────────────────────────────────────────
@@ -1807,11 +1910,59 @@ def admin_view_user():
                             if target.primary_community_id else None)
             _log_admin_action(session['user_id'], 'view_user', target_user_id=target.id,
                               details=f'Viewed profile of {target.name} ({target.phone})')
+    target_is_global_admin = bool(
+        target and GlobalAdmin.query.filter_by(user_id=target.id).first()
+    )
     return render_template('admin_user_profile.html',
                            target=target, search_phone=search_phone, not_found=not_found,
                            care_requests=care_requests, trust_events=trust_events,
                            ceiling=ceiling, primary_comm=primary_comm,
-                           admin_phones=ADMIN_PHONES)
+                           target_is_global_admin=target_is_global_admin)
+
+
+# ── Admin: Global admin management ────────────────────────────────────────────
+
+@app.route('/admin/global-admins')
+@admin_required
+def admin_global_admins():
+    global_admins = GlobalAdmin.query.order_by(GlobalAdmin.created_at).all()
+    return render_template('admin_global_admins.html',
+                           global_admins=global_admins,
+                           current_user_id=session['user_id'],
+                           error=request.args.get('error'),
+                           success=request.args.get('success'))
+
+
+@app.route('/admin/global-admins/add', methods=['POST'])
+@admin_required
+def admin_global_admins_add():
+    phone = request.form.get('phone', '').strip()
+    target = User.query.filter_by(phone=phone).first()
+    if not target:
+        return redirect(url_for('admin_global_admins', error=f'No member found with phone {phone}.'))
+    if GlobalAdmin.query.filter_by(user_id=target.id).first():
+        return redirect(url_for('admin_global_admins', error=f'{target.name} is already a global admin.'))
+    ga = GlobalAdmin(user_id=target.id, created_by=session['user_id'])
+    db.session.add(ga)
+    db.session.commit()
+    _log_admin_action(session['user_id'], 'add_global_admin', target_user_id=target.id,
+                      details=f'Granted global admin to {target.name} ({target.phone})')
+    return redirect(url_for('admin_global_admins', success=f'{target.name} granted global admin access.'))
+
+
+@app.route('/admin/global-admins/remove/<int:ga_id>', methods=['POST'])
+@admin_required
+def admin_global_admins_remove(ga_id):
+    ga = GlobalAdmin.query.get_or_404(ga_id)
+    if ga.user_id == session['user_id']:
+        return redirect(url_for('admin_global_admins', error='You cannot remove yourself as global admin.'))
+    target = User.query.get(ga.user_id)
+    db.session.delete(ga)
+    db.session.commit()
+    _log_admin_action(session['user_id'], 'remove_global_admin',
+                      target_user_id=ga.user_id,
+                      details=f'Removed global admin from {target.name if target else ga.user_id}')
+    return redirect(url_for('admin_global_admins', success='Global admin removed.'))
 
 
 # ── Admin: Audit log ──────────────────────────────────────────────────────────

@@ -6,36 +6,87 @@
     <meta name="theme-color" content="#2d7dd2">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        body { font-family: sans-serif; margin: 2em; }
+        body { font-family: sans-serif; margin: 2em; max-width: 760px; }
+        h1 { margin-bottom: 4px; }
+        .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 20px; }
         .card { border: 1px solid #ccc; border-radius: 12px; padding: 1.5em; margin-bottom: 1.5em; }
         .badge { background: #2c7da0; color: white; padding: 4px 8px; border-radius: 20px; font-size: 0.8em; }
-        table { border-collapse: collapse; width: 100%; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+        th, td { border: 1px solid #ddd; padding: 9px 10px; text-align: left; }
+        th { background: #f0f0f0; font-size: 0.8rem; color: #555; }
+        .role-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.78rem; }
+        .role-admin   { background: #f8d7da; color: #721c24; }
+        .role-coadmin { background: #cce5ff; color: #004085; }
+        .role-member  { background: #e2e3e5; color: #383d41; }
+        .btn { display: inline-block; padding: 5px 12px; border: none; border-radius: 4px;
+               font-size: 0.82rem; cursor: pointer; text-decoration: none; }
+        .btn-promote { background: #28a745; color: white; }
+        .btn-promote:hover { background: #218838; }
+        .btn-demote  { background: #ffc107; color: #333; }
+        .btn-demote:hover  { background: #e0a800; }
+        .empty { color: #888; font-style: italic; }
     </style>
 </head>
 <body>
     <h1>{{ community.name }}</h1>
-    <p><strong>Invite code:</strong> <code>{{ community.invite_code }}</code></p>
-    <p><strong>Pool balance:</strong> UGX {{ "{:,.0f}".format(community.pool_balance) }}</p>
-    <p><strong>Your role:</strong> {{ user_role }}</p>
+    <p class="subtitle">
+        <strong>Invite code:</strong> <code>{{ community.invite_code }}</code>
+        &nbsp;·&nbsp;
+        <strong>Pool balance:</strong> UGX {{ "{:,.0f}".format(community.pool_balance) }}
+        &nbsp;·&nbsp;
+        <strong>Your role:</strong>
+        <span class="role-badge role-{{ user_role }}">{{ user_role }}</span>
+    </p>
 
     <div class="card">
         <h2>Members ({{ members|length }})</h2>
         <table>
-            <tr><th>Name</th><th>Role</th><th>Joined</th></tr>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Role</th>
+                    <th>Joined</th>
+                    {% if user_role == 'admin' %}<th>Actions</th>{% endif %}
+                </tr>
+            </thead>
+            <tbody>
             {% for m in members %}
             <tr>
                 <td>{{ m.user.name }}</td>
-                <td>{{ m.role }}</td>
+                <td>
+                    <span class="role-badge role-{{ m.role }}">{{ m.role }}</span>
+                </td>
                 <td>{{ m.joined_at.strftime('%Y-%m-%d') }}</td>
+                {% if user_role == 'admin' %}
+                <td>
+                    {% if m.role == 'member' %}
+                    <form method="POST"
+                          action="{{ url_for('community_promote', comm_id=community.id, member_id=m.user_id) }}"
+                          style="display:inline;">
+                        <button class="btn btn-promote" type="submit"
+                                title="Promote {{ m.user.name }} to co-admin">▲ Promote</button>
+                    </form>
+                    {% elif m.role == 'coadmin' %}
+                    <form method="POST"
+                          action="{{ url_for('community_demote', comm_id=community.id, member_id=m.user_id) }}"
+                          style="display:inline;">
+                        <button class="btn btn-demote" type="submit"
+                                title="Demote {{ m.user.name }} to member">▼ Demote</button>
+                    </form>
+                    {% else %}
+                        <span style="color:#888; font-size:0.8rem;">—</span>
+                    {% endif %}
+                </td>
+                {% endif %}
             </tr>
             {% endfor %}
+            </tbody>
         </table>
     </div>
 
     {% if user_role in ['admin', 'coadmin'] %}
     <div class="card">
-        <h2>Pending Major Requests (need admin approval)</h2>
+        <h2>Pending Major Requests</h2>
         {% set pending = namespace(list=[]) %}
         {% for req in community.care_requests %}
             {% if req.status == 'pending_admin' and not req.admin_approved %}
@@ -46,14 +97,15 @@
             <ul>
             {% for req in pending.list %}
                 <li>
-                    Request #{{ req.id }} – UGX {{ "{:,.0f}".format(req.amount_needed) }} from {{ req.user.name }} ({{ req.user.phone }})
+                    Request #{{ req.id }} – UGX {{ "{:,.0f}".format(req.amount_needed) }}
+                    from {{ req.user.name }} ({{ req.user.phone }})
                     <a href="{{ url_for('admin_approve', request_id=req.id, action='approve') }}">Approve</a> |
                     <a href="{{ url_for('admin_approve', request_id=req.id, action='reject') }}">Reject</a>
                 </li>
             {% endfor %}
             </ul>
         {% else %}
-            <p>No pending major requests.</p>
+            <p class="empty">No pending major requests.</p>
         {% endif %}
     </div>
     {% endif %}

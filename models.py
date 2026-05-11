@@ -252,3 +252,14 @@ class AdminAuditLog(db.Model):
 
     admin = db.relationship('User', foreign_keys=[admin_id], backref='audit_actions')
     target_user = db.relationship('User', foreign_keys=[target_user_id], backref='audit_logs')
+
+
+class GlobalAdmin(db.Model):
+    """Platform-level global admins — replaces hardcoded ADMIN_PHONES list."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), unique=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+
+    user = db.relationship('User', foreign_keys=[user_id], backref='global_admin_entry')
+    creator = db.relationship('User', foreign_keys=[created_by])
