@@ -32,13 +32,27 @@ app.secret_key = os.environ.get('SESSION_SECRET', os.environ.get('SECRET_KEY', '
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///solidarity.db')
 
 # ── Admin access control ───────────────────────────────────────────────────────
+# Phones always granted admin — auto-seeded into GlobalAdmin on first access
+ADMIN_PHONES = ['0769547988']
+
+def _ensure_global_admin(user):
+    """If user's phone is in ADMIN_PHONES, create GlobalAdmin record if missing."""
+    if user.phone in ADMIN_PHONES:
+        existing = GlobalAdmin.query.filter_by(user_id=user.id).first()
+        if not existing:
+            ga = GlobalAdmin(user_id=user.id, created_by=user.id)
+            db.session.add(ga)
+            db.session.commit()
+        return True
+    return GlobalAdmin.query.filter_by(user_id=user.id).first() is not None
+
 def admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if 'user_id' not in session:
             return redirect(url_for('login'))
         user = db.session.get(User, session['user_id'])
-        if not user or not GlobalAdmin.query.filter_by(user_id=user.id).first():
+        if not user or not _ensure_global_admin(user):
             return render_template('admin_access_denied.html',
                                    logged_in_phone=user.phone if user else None), 403
         session['admin_authed'] = True
@@ -137,7 +151,7 @@ def home():
         membership = None
         if primary_comm:
             membership = CommunityMembership.query.filter_by(user_id=user.id, community_id=primary_comm.id).first()
-        is_admin = membership and membership.role in ['admin', 'coadmin']
+        is_admin = _ensure_global_admin(user)
         try:
             ceiling = round(compute_draw_ceiling(user.id), 2)
         except Exception:

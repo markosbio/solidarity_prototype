@@ -212,21 +212,9 @@
     <span class="desc">Top pool contributors this month</span>
   </a>
   {% if is_admin %}
-  <a class="nav-btn" href="{{ url_for('admin_care') }}">
-    <span class="icon">✅</span>Admin Approvals
-    <span class="desc">Approve large/emergency requests</span>
-  </a>
-  <a class="nav-btn" href="{{ url_for('admin_trust_page') }}">
-    <span class="icon">🔧</span>Trust Override
-    <span class="desc">Manually adjust member trust scores</span>
-  </a>
-  <a class="nav-btn" href="{{ url_for('admin_verified_providers') }}">
-    <span class="icon">🏥</span>Provider Verification
-    <span class="desc">Review provider applications</span>
-  </a>
-  <a class="nav-btn" href="{{ url_for('admin_fraud_alerts') }}">
-    <span class="icon">🚨</span>Fraud Alerts
-    <span class="desc">Review flagged care requests</span>
+  <a class="nav-btn" href="/admin" style="border-color:#dc3545; background:linear-gradient(135deg,#fff5f5,#fff);">
+    <span class="icon">🛡</span>Admin Panel
+    <span class="desc">Care queue, fraud alerts, trust, providers &amp; more</span>
   </a>
   {% endif %}
 </div>
