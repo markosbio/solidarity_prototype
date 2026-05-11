@@ -4,7 +4,7 @@ from models import (db, User, Transaction, Community, CommunityMembership, Provi
                     CareRequest, SystemState, PaymentRecord, MpesaTopup,
                     MobileMoneyTransaction, VerifiedProvider, FraudAlert, PlatformRevenue,
                     TrustEvent, AdminAuditLog, GlobalAdmin, UserLoginHistory, ProviderCodeHistory,
-                    PinResetOTP, ProviderWithdrawal)
+                    PinResetOTP, AdminSetting, PlatformWithdrawal)
 from trust_graph import compute_draw_ceiling
 from witness import select_witnesses
 from recovery import update_recovery_parameters
@@ -139,6 +139,7 @@ def _run_column_migrations():
         "ALTER TABLE member ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
         "ALTER TABLE member ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMP",
         "ALTER TABLE member ADD COLUMN IF NOT EXISTS tos_accepted_at TIMESTAMP",
+        "ALTER TABLE member ADD COLUMN IF NOT EXISTS preferred_language VARCHAR(5) DEFAULT 'en'",
         "ALTER TABLE global_admin ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'super_admin'",
         "ALTER TABLE transaction ADD COLUMN IF NOT EXISTS reversed BOOLEAN DEFAULT FALSE",
         "ALTER TABLE transaction ADD COLUMN IF NOT EXISTS reversed_by INTEGER",
@@ -417,6 +418,12 @@ def apply_provider():
             form = request.form
             return render_template('apply_provider.html', submitted=False,
                                    error='All required fields must be filled in.', form=form)
+
+        tos_accept = request.form.get('tos_accept', '')
+        if not tos_accept:
+            form = request.form
+            return render_template('apply_provider.html', submitted=False,
+                                   error='You must accept the Terms of Service to apply.', form=form)
 
         vp = VerifiedProvider(
             provider_name=provider_name,
@@ -1976,7 +1983,12 @@ def admin_monitor():
     inactive_users = User.query.filter(User.is_active == False).count()
     fraud_count = FraudAlert.query.filter_by(resolved=False).count()
     pending_verifications = VerifiedProvider.query.filter_by(verification_status='pending').count()
-    pending_withdrawals = ProviderWithdrawal.query.filter_by(status='pending').count()
+    # Platform fee available balance
+    from sqlalchemy import func as sqlfunc
+    total_platform_withdrawn = db.session.query(
+        sqlfunc.coalesce(sqlfunc.sum(PlatformWithdrawal.amount), 0.0)
+    ).scalar() or 0.0
+    available_fee_balance = max(0.0, total_platform_revenue - total_platform_withdrawn)
 
     # Recent failed logins (last 1 hr)
     recent_failed_logins = UserLoginHistory.query.filter(
@@ -2011,8 +2023,6 @@ def admin_monitor():
         alerts.append({'level': 'critical', 'msg': f'{recent_failed_logins} failed login attempts in the last hour — possible brute-force'})
     if locked_users > 0:
         alerts.append({'level': 'info', 'msg': f'{locked_users} account(s) currently locked'})
-    if pending_withdrawals > 0:
-        alerts.append({'level': 'info', 'msg': f'{pending_withdrawals} provider withdrawal request(s) awaiting review'})
     if not at_configured:
         alerts.append({'level': 'warn', 'msg': 'Africa\'s Talking SMS not configured — PIN reset and bulk SMS will not work'})
     if not mpesa_configured:
@@ -2030,7 +2040,8 @@ def admin_monitor():
                            inactive_users=inactive_users,
                            fraud_count=fraud_count,
                            pending_verifications=pending_verifications,
-                           pending_withdrawals=pending_withdrawals,
+                           available_fee_balance=available_fee_balance,
+                           total_platform_withdrawn=total_platform_withdrawn,
                            pending_care=pending_care,
                            recent_failed_logins=recent_failed_logins,
                            communities=communities,
@@ -2896,86 +2907,100 @@ def forgot_pin():
     return render_template('forgot_pin.html', step='request')
 
 
-# ── Provider: Withdrawal request ───────────────────────────────────────────────
+# ── Admin: Settings & Platform Fee Withdrawal ──────────────────────────────────
 
-@app.route('/provider/withdraw', methods=['GET', 'POST'])
-def provider_withdraw():
-    if 'provider_id' not in session:
-        return redirect(url_for('provider_login'))
-    provider = Provider.query.get(session['provider_id'])
-    if not provider:
-        return redirect(url_for('provider_login'))
+def _get_setting(key, default=''):
+    s = AdminSetting.query.filter_by(key=key).first()
+    return s.value if s else default
 
-    past_withdrawals = ProviderWithdrawal.query.filter_by(provider_id=provider.id)\
-        .order_by(ProviderWithdrawal.requested_at.desc()).limit(20).all()
+def _set_setting(key, value, admin_id):
+    s = AdminSetting.query.filter_by(key=key).first()
+    if s:
+        s.value = value
+        s.updated_by = admin_id
+        s.updated_at = datetime.utcnow()
+    else:
+        s = AdminSetting(key=key, value=value, updated_by=admin_id)
+        db.session.add(s)
+    db.session.commit()
+
+
+@app.route('/admin/settings', methods=['GET', 'POST'])
+@admin_required
+@super_admin_required
+def admin_settings():
+    from sqlalchemy import func as sqlfunc
+    admin_user = User.query.get(session['user_id'])
+
+    total_revenue = db.session.query(
+        sqlfunc.coalesce(sqlfunc.sum(PlatformRevenue.amount), 0.0)
+    ).scalar() or 0.0
+    total_withdrawn = db.session.query(
+        sqlfunc.coalesce(sqlfunc.sum(PlatformWithdrawal.amount), 0.0)
+    ).scalar() or 0.0
+    available_balance = max(0.0, total_revenue - total_withdrawn)
+
+    recent_withdrawals = PlatformWithdrawal.query\
+        .order_by(PlatformWithdrawal.withdrawn_at.desc()).limit(20).all()
 
     if request.method == 'POST':
-        try:
-            amount = float(request.form.get('amount', 0))
-        except ValueError:
-            flash('Invalid amount.', 'error')
-            return render_template('provider_withdrawal.html', provider=provider, past_withdrawals=past_withdrawals)
-        if amount < 1000:
-            flash('Minimum withdrawal amount is UGX 1,000.', 'error')
-            return render_template('provider_withdrawal.html', provider=provider, past_withdrawals=past_withdrawals)
+        action = request.form.get('action', '')
 
-        method = request.form.get('payment_method', 'mpesa')
-        mobile = request.form.get('mobile_number', '').strip()
-        bank = request.form.get('bank_details', '').strip()
-        details = mobile if method == 'mpesa' else bank
-        notes = request.form.get('notes', '').strip()
+        if action == 'save_payout':
+            payout_method = request.form.get('payout_method', '').strip()
+            payout_details = request.form.get('payout_details', '').strip()
+            if not payout_method or not payout_details:
+                flash('Both payout method and details are required.', 'error')
+            else:
+                _set_setting('payout_method', payout_method, admin_user.id)
+                _set_setting('payout_details', payout_details, admin_user.id)
+                _log_admin_action(admin_user.id, 'update_payout_settings',
+                                  details=f'Payout method set to {payout_method}: {payout_details[:50]}')
+                flash('Payout settings saved.', 'success')
+            return redirect(url_for('admin_settings'))
 
-        w = ProviderWithdrawal(
-            provider_id=provider.id,
-            amount=amount,
-            payment_method=method,
-            payment_details=details,
-            notes=notes,
-        )
-        db.session.add(w)
-        db.session.commit()
-        flash(f'Withdrawal request for UGX {amount:,.0f} submitted. Our team will review within 1 business day.', 'success')
-        return redirect(url_for('provider_withdraw'))
+        elif action == 'withdraw':
+            try:
+                amount = float(request.form.get('amount', 0))
+                if amount <= 0:
+                    raise ValueError
+            except (ValueError, TypeError):
+                flash('Please enter a valid withdrawal amount.', 'error')
+                return redirect(url_for('admin_settings'))
 
-    return render_template('provider_withdrawal.html', provider=provider, past_withdrawals=past_withdrawals)
+            if amount > available_balance:
+                flash(f'Amount exceeds available balance of UGX {available_balance:,.0f}.', 'error')
+                return redirect(url_for('admin_settings'))
 
+            payout_method = _get_setting('payout_method')
+            payout_details = _get_setting('payout_details')
+            if not payout_method or not payout_details:
+                flash('Set payout details before withdrawing.', 'error')
+                return redirect(url_for('admin_settings'))
 
-# ── Admin: Provider withdrawal queue ──────────────────────────────────────────
+            notes = request.form.get('notes', '').strip()
+            pw = PlatformWithdrawal(
+                amount=amount,
+                payout_method=payout_method,
+                payout_details=payout_details,
+                notes=notes,
+                withdrawn_by=admin_user.id,
+            )
+            db.session.add(pw)
+            db.session.commit()
+            _log_admin_action(admin_user.id, 'platform_fee_withdrawal',
+                              details=f'Withdrew UGX {amount:,.0f} via {payout_method} to {payout_details[:50]}. Notes: {notes}')
+            flash(f'Withdrawal of UGX {amount:,.0f} recorded successfully.', 'success')
+            return redirect(url_for('admin_settings'))
 
-@app.route('/admin/provider-withdrawals')
-@admin_required
-def admin_provider_withdrawals():
-    admin_user = User.query.get(session['user_id'])
-    status_filter = request.args.get('status', 'pending')
-    query = ProviderWithdrawal.query
-    if status_filter != 'all':
-        query = query.filter_by(status=status_filter)
-    withdrawals = query.order_by(ProviderWithdrawal.requested_at.desc()).all()
-    pending_count = ProviderWithdrawal.query.filter_by(status='pending').count()
-    return render_template('admin_provider_withdrawals.html', user=admin_user,
-                           withdrawals=withdrawals, status_filter=status_filter,
-                           pending_count=pending_count)
-
-
-@app.route('/admin/provider-withdrawals/<int:w_id>/action', methods=['POST'])
-@admin_required
-def admin_withdrawal_action(w_id):
-    w = ProviderWithdrawal.query.get_or_404(w_id)
-    action = request.form.get('action', 'approve')
-    notes = request.form.get('notes', '').strip()
-    if action == 'approve':
-        w.status = 'approved'
-    else:
-        w.status = 'rejected'
-    w.processed_at = datetime.utcnow()
-    w.processed_by = session['user_id']
-    if notes:
-        w.notes = notes
-    db.session.commit()
-    _log_admin_action(session['user_id'], f'withdrawal_{action}',
-                      details=f'Provider #{w.provider_id} withdrawal #{w.id} UGX {w.amount:,.0f} — {action}. Notes: {notes}')
-    flash(f'Withdrawal #{w.id} {action}d.', 'success')
-    return redirect(url_for('admin_provider_withdrawals', status='pending'))
+    return render_template('admin_settings.html',
+                           user=admin_user,
+                           total_revenue=total_revenue,
+                           total_withdrawn=total_withdrawn,
+                           available_balance=available_balance,
+                           recent_withdrawals=recent_withdrawals,
+                           payout_method=_get_setting('payout_method'),
+                           payout_details=_get_setting('payout_details'))
 
 
 # ── Admin: User deactivation (right to be forgotten) ──────────────────────────
@@ -3038,7 +3063,6 @@ def admin_monitor_data():
         'locked_users': User.query.filter(User.is_locked == True).count(),
         'pending_care': CareRequest.query.filter(CareRequest.status.in_(['pending_witness', 'pending_admin'])).count(),
         'fraud_count': FraudAlert.query.filter_by(resolved=False).count(),
-        'pending_withdrawals': ProviderWithdrawal.query.filter_by(status='pending').count(),
         'failed_logins_1h': UserLoginHistory.query.filter(
             UserLoginHistory.success == False,
             UserLoginHistory.timestamp >= one_hour_ago

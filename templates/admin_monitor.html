@@ -159,10 +159,10 @@
     <div class="value {{ 'amber' if pending_care > 0 else 'green' }}" id="kpi-care">{{ pending_care }}</div>
     <div class="sub"><a href="{{ url_for('admin_care') }}">Review →</a></div>
   </div>
-  <div class="kpi {{ 'amber' if pending_withdrawals > 0 else 'green' }}">
-    <div class="label">Provider withdrawals</div>
-    <div class="value {{ 'amber' if pending_withdrawals > 0 else 'green' }}" id="kpi-withdraw">{{ pending_withdrawals }}</div>
-    <div class="sub"><a href="{{ url_for('admin_provider_withdrawals') }}">Review →</a></div>
+  <div class="kpi green">
+    <div class="label">Available fee balance</div>
+    <div class="value green">UGX {{ "{:,.0f}".format(available_fee_balance) }}</div>
+    <div class="sub">UGX {{ "{:,.0f}".format(total_platform_withdrawn) }} withdrawn · <a href="{{ url_for('admin_settings') }}">Withdraw →</a></div>
   </div>
   <div class="kpi {{ 'red' if recent_failed_logins >= 20 else 'amber' if recent_failed_logins >= 5 else 'green' }}">
     <div class="label">Failed logins (1h)</div>
@@ -250,7 +250,7 @@
 <div class="action-links">
   <a class="btn btn-blue" href="{{ url_for('admin_care') }}">← Admin Panel</a>
   <a class="btn btn-blue" href="{{ url_for('admin_fraud_alerts') }}">Fraud Alerts ({{ fraud_count }})</a>
-  <a class="btn btn-blue" href="{{ url_for('admin_provider_withdrawals') }}">Withdrawals ({{ pending_withdrawals }})</a>
+  <a class="btn btn-blue" href="{{ url_for('admin_settings') }}">⚙️ Settings & Withdrawals</a>
   <a class="btn btn-blue" href="{{ url_for('admin_verified_providers') }}">Provider Verification</a>
   <a class="btn btn-gray" href="{{ url_for('export_payments_csv') }}">⬇ Export Payments CSV</a>
   <a class="btn btn-gray" href="{{ url_for('home') }}">← Dashboard</a>
@@ -263,7 +263,6 @@ const KPI_MAP = {
   'locked_users':    'kpi-locked',
   'fraud_count':     'kpi-fraud',
   'pending_care':    'kpi-care',
-  'pending_withdrawals': 'kpi-withdraw',
   'failed_logins_1h': 'kpi-failed',
 };
 async function refreshKPIs() {

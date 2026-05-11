@@ -109,7 +109,7 @@
   <a href="/admin/audit-log" {% if request.path == '/admin/audit-log' %}class="active"{% endif %}>📜 Audit</a>
   <a href="/admin/bulk-sms" {% if request.path == '/admin/bulk-sms' %}class="active"{% endif %}>📱 SMS</a>
   <a href="/admin/ussd-simulator" {% if request.path == '/admin/ussd-simulator' %}class="active"{% endif %}>🔧 USSD Sim</a>
-  <a href="/admin/provider-withdrawals" {% if request.path.startswith('/admin/provider-withdrawals') %}class="active"{% endif %}>💸 Withdrawals</a>
+  <a href="/admin/settings" {% if request.path == '/admin/settings' %}class="active"{% endif %}>⚙️ Settings</a>
   <a href="/admin/global-admins" {% if request.path == '/admin/global-admins' %}class="active"{% endif %}>🔑 Admins</a>
   <div class="nav-spacer"></div>
   {% if user is defined and user %}

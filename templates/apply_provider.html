@@ -115,6 +115,20 @@
       <textarea name="notes" placeholder="Any extra information about your facility or services…">{{ form.notes or '' }}</textarea>
     </label>
 
+    <div style="margin-top:18px; padding:14px 16px; background:#f0f8ff; border:1px solid #b8daff; border-radius:6px;">
+      <label style="display:flex; gap:10px; align-items:flex-start; font-weight:normal; cursor:pointer;">
+        <input type="checkbox" name="tos_accept" value="1" required
+               style="width:auto; margin-top:3px; flex-shrink:0;">
+        <span style="font-size:0.88rem; color:#333; line-height:1.5;">
+          I confirm that the information provided is accurate and complete. I agree to the
+          <a href="/terms" target="_blank" style="color:#2d7dd2;">Terms of Service</a> and
+          <a href="/privacy" target="_blank" style="color:#2d7dd2;">Privacy Policy</a>,
+          including SolidarityPool's provider conduct standards and data handling practices.
+          I understand that false information may result in rejection or removal from the platform.
+        </span>
+      </label>
+    </div>
+
     <button type="submit">Submit Application →</button>
   </form>
 </div>

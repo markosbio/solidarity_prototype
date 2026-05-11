@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Settings – Admin – SolidarityPool</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: sans-serif; max-width: 860px; margin: 40px auto; padding: 0 16px; }
+  h2 { margin-bottom: 4px; }
+  .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 24px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: 20px; background: #fafafa; margin-bottom: 16px; }
+  .card.green-card { border-color: #c3e6cb; background: #f0fff4; }
+  .card.blue-card  { border-color: #b8daff; background: #f0f8ff; }
+  .card.danger-card{ border-color: #f5c6cb; background: #fff8f8; }
+  .card h3 { margin: 0 0 14px; font-size: 1rem; padding-bottom: 8px; border-bottom: 1px solid #eee; }
+  label { display: block; font-size: 0.83rem; font-weight: 600; color: #444; margin-top: 10px; margin-bottom: 2px; }
+  input, select, textarea {
+    width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px;
+    font-size: 0.9rem; box-sizing: border-box;
+  }
+  .hint { font-size: 0.75rem; color: #888; margin-top: 2px; }
+  .btn { display: inline-block; padding: 9px 20px; border-radius: 4px; font-size: 0.9rem;
+         border: none; cursor: pointer; text-decoration: none; font-weight: 600; }
+  .btn-primary { background: #2d7dd2; color: #fff; }
+  .btn-success { background: #28a745; color: #fff; }
+  .btn-danger  { background: #dc3545; color: #fff; }
+  .btn:hover { opacity: 0.88; }
+  .balance-box {
+    background: linear-gradient(135deg, #1a1a2e, #2d3250);
+    color: #fff; border-radius: 12px; padding: 24px 28px; margin-bottom: 24px;
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;
+  }
+  .balance-box .label { font-size: 0.78rem; color: #aaa; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 6px; }
+  .balance-box .amount { font-size: 2.2rem; font-weight: bold; }
+  .balance-box .meta  { font-size: 0.82rem; color: #9ab; margin-top: 4px; }
+  .balance-box .sub-stat { background: rgba(255,255,255,0.08); border-radius: 8px; padding: 12px 18px; text-align: center; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th { background: #f0f0f0; text-align: left; padding: 8px 10px; border-bottom: 2px solid #ddd;
+       font-size: 0.78rem; color: #555; }
+  td { padding: 8px 10px; border-bottom: 1px solid #eee; }
+  tr:hover td { background: #f9f9f9; }
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 8px; font-size: 0.74rem; font-weight: bold; }
+  .badge-ok   { background: #d4edda; color: #155724; }
+  .badge-warn { background: #fff3cd; color: #856404; }
+  .section-title { font-size: 0.82rem; font-weight: bold; color: #555;
+                   text-transform: uppercase; letter-spacing: 0.05em; margin: 24px 0 10px; }
+  .payout-current { background: #e8f4f8; border: 1px solid #bee5eb; border-radius: 6px;
+                    padding: 10px 14px; font-size: 0.88rem; color: #333; margin-bottom: 14px; }
+  .payout-current strong { color: #2d7dd2; }
+</style>
+</head>
+<body>
+
+{% include 'admin_nav.html' %}
+
+<h2>⚙️ Platform Settings</h2>
+<p class="subtitle">Super Admin only — configure payout details and withdraw platform fees to your account.</p>
+
+<!-- ── Fee Balance Dashboard ──────────────────────────────────── -->
+<div class="balance-box">
+  <div>
+    <div class="label">Available Platform Fee Balance</div>
+    <div class="amount">UGX {{ "{:,.0f}".format(available_balance) }}</div>
+    <div class="meta">
+      Total collected: UGX {{ "{:,.0f}".format(total_revenue) }}
+      &nbsp;·&nbsp; Total withdrawn: UGX {{ "{:,.0f}".format(total_withdrawn) }}
+    </div>
+  </div>
+  <div style="display:flex; gap:12px; flex-wrap:wrap;">
+    <div class="sub-stat">
+      <div style="font-size:0.72rem; color:#aaa; margin-bottom:3px;">Total Revenue</div>
+      <div style="font-size:1.2rem; font-weight:bold; color:#7aff8a;">UGX {{ "{:,.0f}".format(total_revenue) }}</div>
+    </div>
+    <div class="sub-stat">
+      <div style="font-size:0.72rem; color:#aaa; margin-bottom:3px;">Withdrawn</div>
+      <div style="font-size:1.2rem; font-weight:bold; color:#ffd700;">UGX {{ "{:,.0f}".format(total_withdrawn) }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="grid2">
+
+<!-- ── Payout Settings ────────────────────────────────────────── -->
+<div class="card blue-card">
+  <h3>💳 Payout Account Settings</h3>
+
+  {% if payout_method and payout_details %}
+  <div class="payout-current">
+    Current: <strong>{{ payout_method | upper }}</strong> — {{ payout_details }}
+  </div>
+  {% else %}
+  <div class="payout-current" style="border-color:#f5c6cb; background:#fff8f8; color:#721c24;">
+    ⚠️ No payout account configured yet. Set one before withdrawing.
+  </div>
+  {% endif %}
+
+  <form method="POST" action="{{ url_for('admin_settings') }}" id="form-payout">
+    <input type="hidden" name="action" value="save_payout">
+    <label>Payout method</label>
+    <select name="payout_method" required>
+      <option value="">— Select —</option>
+      <option value="mtn" {% if payout_method == 'mtn' %}selected{% endif %}>MTN Mobile Money</option>
+      <option value="airtel" {% if payout_method == 'airtel' %}selected{% endif %}>Airtel Money</option>
+      <option value="mpesa" {% if payout_method == 'mpesa' %}selected{% endif %}>M-Pesa</option>
+      <option value="bank" {% if payout_method == 'bank' %}selected{% endif %}>Bank Transfer</option>
+      <option value="till" {% if payout_method == 'till' %}selected{% endif %}>Till Number</option>
+    </select>
+
+    <label>Account number / bank details</label>
+    <input type="text" name="payout_details" value="{{ payout_details or '' }}"
+           placeholder="e.g. 256712345678 or Bank: Stanbic, Acc: 9030012345" required>
+    <div class="hint">Mobile money number in international format, or full bank details.</div>
+
+    <div style="margin-top:14px;">
+      <button type="button" class="btn btn-primary"
+        onclick="if(confirm('Update the account that receives platform fee withdrawals?')){this.closest('form').submit();}">
+        Save Payout Settings
+      </button>
+    </div>
+  </form>
+</div>
+
+<!-- ── Withdraw Fees ──────────────────────────────────────────── -->
+<div class="card {% if available_balance <= 0 %}danger-card{% else %}green-card{% endif %}">
+  <h3>💸 Withdraw Platform Fees</h3>
+
+  {% if not payout_method or not payout_details %}
+  <p style="color:#856404; background:#fff3cd; padding:10px 14px; border-radius:5px; font-size:0.88rem; margin:0 0 12px;">
+    Set your payout account first (left panel) before withdrawing.
+  </p>
+  {% elif available_balance <= 0 %}
+  <p style="color:#721c24; font-size:0.88rem;">No available balance to withdraw.</p>
+  {% else %}
+  <p style="font-size:0.85rem; color:#555; margin:0 0 14px;">
+    Available: <strong style="color:#28a745;">UGX {{ "{:,.0f}".format(available_balance) }}</strong><br>
+    Will be sent to: <strong>{{ payout_method | upper }}</strong> — {{ payout_details }}
+  </p>
+
+  <form method="POST" action="{{ url_for('admin_settings') }}" id="form-withdraw">
+    <input type="hidden" name="action" value="withdraw">
+    <label>Amount to withdraw (UGX)</label>
+    <input type="number" name="amount" step="1" min="1" max="{{ available_balance|int }}"
+           placeholder="0" required>
+    <div class="hint">Max: UGX {{ "{:,.0f}".format(available_balance) }}</div>
+
+    <label>Notes (optional)</label>
+    <input type="text" name="notes" placeholder="e.g. Monthly payout — May 2026">
+
+    <div style="margin-top:14px;">
+      <button type="button" class="btn btn-success"
+        onclick="if(confirm('Record a withdrawal of platform fees? This action is logged in the audit trail.')){this.closest('form').submit();}">
+        Withdraw →
+      </button>
+    </div>
+  </form>
+  {% endif %}
+</div>
+
+</div>
+
+<!-- ── Withdrawal History ─────────────────────────────────────── -->
+{% if recent_withdrawals %}
+<div class="section-title">📋 Withdrawal History (last 20)</div>
+<div class="card" style="padding:12px;">
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Date</th>
+        <th>Amount</th>
+        <th>Method</th>
+        <th>Account</th>
+        <th>By</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for w in recent_withdrawals %}
+    <tr>
+      <td style="color:#888;">{{ w.id }}</td>
+      <td style="white-space:nowrap;">{{ w.withdrawn_at.strftime('%d/%m/%Y %H:%M') }}</td>
+      <td><strong>UGX {{ "{:,.0f}".format(w.amount) }}</strong></td>
+      <td><span class="badge badge-ok">{{ w.payout_method | upper }}</span></td>
+      <td style="font-size:0.82rem; max-width:200px; word-break:break-all;">{{ w.payout_details }}</td>
+      <td>{{ w.admin.name if w.admin else '#' + w.withdrawn_by|string }}</td>
+      <td style="font-size:0.82rem; color:#666;">{{ w.notes or '—' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="section-title">📋 Withdrawal History</div>
+<p style="color:#888; font-style:italic;">No withdrawals recorded yet.</p>
+{% endif %}
+
+<p style="margin-top:20px; font-size:0.88rem;">
+  <a style="color:#2d7dd2;" href="{{ url_for('admin_audit_log') }}">Full audit log →</a>
+  &nbsp;·&nbsp;
+  <a style="color:#2d7dd2;" href="{{ url_for('admin_monitor') }}">← Monitor</a>
+</p>
+
+</body>
+</html>

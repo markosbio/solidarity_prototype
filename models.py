@@ -323,7 +323,7 @@ class PinResetOTP(db.Model):
 
 
 class ProviderWithdrawal(db.Model):
-    """Provider payout / withdrawal requests."""
+    """Legacy model kept for DB compatibility — feature removed."""
     __tablename__ = 'provider_withdrawal'
     id = db.Column(db.Integer, primary_key=True)
     provider_id = db.Column(db.Integer, db.ForeignKey('provider.id'), nullable=False)
@@ -338,3 +338,30 @@ class ProviderWithdrawal(db.Model):
 
     provider = db.relationship('Provider', backref='withdrawals')
     processor = db.relationship('User', foreign_keys=[processed_by])
+
+
+class AdminSetting(db.Model):
+    """Key-value store for global admin configuration (payout details, etc.)."""
+    __tablename__ = 'admin_setting'
+    id = db.Column(db.Integer, primary_key=True)
+    key = db.Column(db.String(100), unique=True, nullable=False)
+    value = db.Column(db.String(500))
+    updated_by = db.Column(db.Integer, db.ForeignKey('member.id'), nullable=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    updater = db.relationship('User', foreign_keys=[updated_by])
+
+
+class PlatformWithdrawal(db.Model):
+    """Records every platform fee withdrawal made by admin to personal account."""
+    __tablename__ = 'platform_withdrawal'
+    id = db.Column(db.Integer, primary_key=True)
+    amount = db.Column(db.Float, nullable=False)
+    payout_method = db.Column(db.String(50), nullable=False)
+    payout_details = db.Column(db.String(300), nullable=False)
+    notes = db.Column(db.String(300))
+    status = db.Column(db.String(20), default='completed')
+    withdrawn_by = db.Column(db.Integer, db.ForeignKey('member.id'), nullable=False)
+    withdrawn_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    admin = db.relationship('User', foreign_keys=[withdrawn_by])
