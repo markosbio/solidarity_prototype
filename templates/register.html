@@ -1,85 +1,211 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<title>Join Solidarity Pool</title>
+<title>Join Solidarity Health Pool</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#2d7dd2">
 <style>
-  body { font-family: sans-serif; max-width: 560px; margin: 40px auto; padding: 0 16px; }
-  h1 { font-size: 1.6rem; margin-bottom: 4px; }
-  .subtitle { color: #666; margin-bottom: 28px; }
-  .card { border: 1px solid #ddd; border-radius: 8px; padding: 22px; margin-bottom: 24px; background: #fafafa; }
-  .card h2 { margin: 0 0 16px 0; font-size: 1.1rem; }
-  label { display: block; font-weight: bold; margin-top: 12px; font-size: 0.9rem; }
-  input, select { width: 100%; padding: 8px; margin-top: 4px; border: 1px solid #ccc;
-                  border-radius: 4px; box-sizing: border-box; font-size: 0.95rem; }
-  .hint { font-size: 0.78em; color: #888; margin-top: 3px; }
-  button { margin-top: 18px; padding: 10px 24px; background: #2d7dd2; color: white;
-           border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; width: 100%; }
-  button:hover { background: #2566b0; }
-  .login-link { text-align: center; margin-top: 12px; font-size: 0.9rem; }
-  .login-link a { color: #2d7dd2; }
-  .alert { background: #fff3cd; border: 1px solid #ffc107; padding: 10px 14px;
-           border-radius: 4px; margin-bottom: 16px; font-size: 0.9rem; }
-  .provider-banner { border: 1px solid #bee5eb; border-radius: 8px; padding: 16px 20px;
-                     background: #e8f4f8; margin-bottom: 0; font-size: 0.9rem; }
-  .provider-banner a { color: #2d7dd2; font-weight: bold; }
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    margin: 0; min-height: 100vh;
+    background: linear-gradient(145deg, #0f1b35 0%, #1a3060 60%, #1e4080 100%);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 24px 16px;
+  }
+
+  .brand { text-align: center; margin-bottom: 24px; }
+  .brand-logo { font-size: 2.4rem; margin-bottom: 6px; }
+  .brand-name { color: #fff; font-size: 1.35rem; font-weight: 700; }
+  .brand-tagline { color: rgba(255,255,255,0.55); font-size: 0.82rem; margin-top: 3px; }
+
+  .card {
+    width: 100%; max-width: 420px;
+    background: #fff; border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+    overflow: hidden;
+  }
+  .card-body { padding: 30px 28px 20px; }
+
+  .card-title { font-size: 1.2rem; font-weight: 700; color: #1a1a2e; margin: 0 0 6px; }
+  .card-sub   { font-size: 0.83rem; color: #6b7280; margin: 0 0 22px; }
+
+  .alert {
+    padding: 11px 14px; border-radius: 8px; margin-bottom: 18px;
+    font-size: 0.87rem; line-height: 1.45; display: flex; gap: 9px; align-items: flex-start;
+  }
+  .alert-error   { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; }
+  .alert-success { background: #f0fdf4; border: 1px solid #86efac; color: #166534; }
+
+  .field { margin-bottom: 15px; }
+  .field label {
+    display: block; font-size: 0.82rem; font-weight: 600;
+    color: #374151; margin-bottom: 5px;
+  }
+  .field .opt { font-weight: 400; color: #9ca3af; }
+  .field input[type=tel],
+  .field input[type=text],
+  .field input[type=password] {
+    width: 100%; padding: 11px 13px;
+    border: 1.5px solid #d1d5db; border-radius: 8px;
+    font-size: 1rem; color: #111827;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    background: #fff;
+  }
+  .field input:focus {
+    outline: none; border-color: #2d7dd2;
+    box-shadow: 0 0 0 3px rgba(45,125,210,0.12);
+  }
+  .field .hint { font-size: 0.74rem; color: #9ca3af; margin-top: 4px; line-height: 1.4; }
+
+  .pin-field input {
+    font-size: 1.8rem; letter-spacing: 0.45em; text-align: center;
+    font-family: monospace; padding: 13px;
+  }
+
+  .pin-rules {
+    background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px;
+    padding: 9px 12px; margin-top: 8px; font-size: 0.75rem; color: #6b7280; line-height: 1.6;
+  }
+  .pin-rules strong { color: #374151; }
+
+  .divider { border: none; border-top: 1.5px dashed #e5e7eb; margin: 18px 0 14px; }
+
+  .tos-row { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 18px; }
+  .tos-row input[type=checkbox] {
+    width: 16px; height: 16px; margin-top: 2px; flex-shrink: 0;
+    accent-color: #2d7dd2; cursor: pointer;
+  }
+  .tos-row label { font-size: 0.8rem; color: #6b7280; line-height: 1.45; cursor: pointer; }
+  .tos-row a { color: #2d7dd2; text-decoration: none; }
+  .tos-row a:hover { text-decoration: underline; }
+
+  .btn-primary {
+    width: 100%; padding: 13px; background: #2d7dd2; color: #fff;
+    border: none; border-radius: 8px; font-size: 1rem; font-weight: 700;
+    cursor: pointer; transition: background 0.15s, transform 0.1s;
+  }
+  .btn-primary:hover  { background: #2566b0; }
+  .btn-primary:active { transform: scale(0.98); }
+
+  .card-footer {
+    border-top: 1px solid #f3f4f6; padding: 14px 28px;
+    text-align: center; font-size: 0.82rem; color: #9ca3af;
+  }
+  .card-footer a { color: #2d7dd2; text-decoration: none; }
+  .card-footer a:hover { text-decoration: underline; }
+
+  .provider-card {
+    width: 100%; max-width: 420px; margin-top: 16px;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 12px; padding: 18px 22px;
+    font-size: 0.85rem; color: rgba(255,255,255,0.8); line-height: 1.55;
+  }
+  .provider-card strong { color: #fff; }
+  .provider-card a { color: #7dd3fc; text-decoration: none; }
+  .provider-card a:hover { text-decoration: underline; }
+
+  @media (max-width: 440px) {
+    .card-body { padding: 22px 18px 16px; }
+    .card-footer { padding: 12px 18px; }
+    .provider-card { padding: 14px 16px; }
+  }
 </style>
 </head>
 <body>
 
-<h1>Solidarity Health Pool</h1>
-<p class="subtitle">Community mutual aid — micro round-ups, peer-verified care funds.</p>
-
-<!-- ── Member registration ─────────────────────────────── -->
-<div class="card">
-  <h2>Join as a Member</h2>
-  <form method="POST" action="{{ url_for('register') }}">
-    <label>Phone number
-      <input type="tel" name="phone" value="{{ prefill_phone or '' }}" placeholder="e.g. 254712345678" required>
-      <span class="hint">Used as your unique login — no password needed.</span>
-    </label>
-    <label>Full name
-      <input type="text" name="name" placeholder="e.g. Amara Osei" required>
-    </label>
-    <label>Referred by (optional)
-      <input type="tel" name="referred_by" placeholder="Referrer's phone number">
-      <span class="hint">Enter a member's phone number to grow their trust network.</span>
-    </label>
-    <label>4-digit PIN
-      <input type="password" name="pin" maxlength="4" inputmode="numeric" pattern="[0-9]{4}"
-             placeholder="e.g. 1234" required>
-      <span class="hint">Used to authorise sensitive actions (care requests, repayments).</span>
-    </label>
-    <label>Confirm PIN
-      <input type="password" name="confirm_pin" maxlength="4" inputmode="numeric" pattern="[0-9]{4}"
-             placeholder="Re-enter PIN" required>
-    </label>
-    <div style="margin-top:14px; display:flex; gap:10px; align-items:flex-start;">
-      <input type="checkbox" name="tos_accept" id="tos_accept" value="1" required
-             style="width:auto; margin-top:3px; flex-shrink:0;">
-      <label for="tos_accept" style="font-weight:normal; font-size:0.87rem; color:#555; margin:0;">
-        I agree to the
-        <a href="/terms" target="_blank" style="color:#2d7dd2;">Terms of Service</a>
-        and
-        <a href="/privacy" target="_blank" style="color:#2d7dd2;">Privacy Policy</a>.
-        I understand that SolidarityPool handles financial data and I consent to its use for mutual-aid fund management.
-      </label>
-    </div>
-    <button type="submit">Register &amp; Join Pool</button>
-  </form>
-  {% if error %}
-  <div class="alert" style="margin-top:12px; background:#f8d7da; border-color:#f5c6cb; color:#721c24;">{{ error }}</div>
-  {% endif %}
-  <div class="login-link">Already registered? <a href="{{ url_for('login') }}">Log in here</a></div>
+<div class="brand">
+  <div class="brand-logo">🤝</div>
+  <div class="brand-name">Solidarity Health Pool</div>
+  <div class="brand-tagline">Community mutual aid — micro round-ups &amp; peer-verified care funds</div>
 </div>
 
-<!-- ── Healthcare provider callout ───────────────────────── -->
-<div class="provider-banner">
+<div class="card">
+  <div class="card-body">
+    <h2 class="card-title">Join as a member</h2>
+    <p class="card-sub">Create your account in under a minute — no password, just a PIN.</p>
+
+    {% if error %}
+    <div class="alert alert-error">
+      <span>⚠️</span><span>{{ error }}</span>
+    </div>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('register') }}" autocomplete="off">
+
+      <div class="field">
+        <label>Phone number</label>
+        <input type="tel" name="phone" value="{{ prefill_phone or '' }}"
+               placeholder="e.g. 254712345678" required autofocus autocomplete="tel">
+        <div class="hint">This is your unique login — no email or password needed.</div>
+      </div>
+
+      <div class="field">
+        <label>Full name</label>
+        <input type="text" name="name" placeholder="e.g. Amara Osei" required autocomplete="name">
+      </div>
+
+      <div class="field">
+        <label>Referred by <span class="opt">(optional)</span></label>
+        <input type="tel" name="referred_by" placeholder="Referrer's phone number" autocomplete="off">
+        <div class="hint">Enter a member's phone number to grow their trust network.</div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="field pin-field">
+        <label>Choose a PIN</label>
+        <input type="password" name="pin" minlength="4" maxlength="6"
+               inputmode="numeric" pattern="[0-9]{4,6}"
+               placeholder="· · · ·" required autocomplete="new-password">
+        <div class="pin-rules">
+          <strong>PIN rules:</strong> 4 to 6 digits &nbsp;·&nbsp;
+          No obvious sequences (1234, 9876) &nbsp;·&nbsp;
+          No repeated digits (1111, 0000)
+        </div>
+      </div>
+
+      <div class="field pin-field" style="margin-top:12px;">
+        <label>Confirm PIN</label>
+        <input type="password" name="confirm_pin" minlength="4" maxlength="6"
+               inputmode="numeric" pattern="[0-9]{4,6}"
+               placeholder="· · · ·" required autocomplete="new-password">
+      </div>
+
+      <div class="tos-row" style="margin-top:16px;">
+        <input type="checkbox" name="tos_accept" id="tos_accept" value="1" required>
+        <label for="tos_accept">
+          I agree to the <a href="/terms" target="_blank">Terms of Service</a>
+          and <a href="/privacy" target="_blank">Privacy Policy</a>.
+          I understand that SolidarityPool handles financial data and I consent to its use for mutual-aid fund management.
+        </label>
+      </div>
+
+      <button class="btn-primary" type="submit">Register &amp; Join Pool →</button>
+    </form>
+  </div>
+
+  <div class="card-footer">
+    Already registered? <a href="{{ url_for('login') }}">Log in here →</a>
+    &nbsp;·&nbsp;
+    <a href="{{ url_for('forgot_pin') }}">Forgot PIN?</a>
+  </div>
+</div>
+
+<div class="provider-card">
   🏥 <strong>Are you a healthcare provider?</strong>
   Clinics and hospitals can <a href="{{ url_for('apply_provider') }}">apply for provider status</a> —
   your application goes to our admin team for review before you can receive care fund payments.
   <br><br>
   Already approved? <a href="{{ url_for('provider_login') }}">Provider login →</a>
 </div>
+
+<script>
+document.querySelector('form').addEventListener('submit', function() {
+  var btn = this.querySelector('.btn-primary');
+  if (btn) setTimeout(function() { btn.disabled = true; btn.textContent = 'Please wait…'; }, 80);
+});
+</script>
 
 </body>
 </html>
