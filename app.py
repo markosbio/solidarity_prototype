@@ -86,15 +86,30 @@ app.register_blueprint(ussd_bp)
 
 # Create tables and seed default data
 with app.app_context():
-    db.create_all()
-    if Community.query.count() == 0:
-        default_comm = Community(name="Global Health Pool", invite_code="GLOBAL001", pool_balance=1_000_000.0, admin_user_id=None)
-        db.session.add(default_comm)
-        db.session.commit()
-    if Provider.query.count() == 0:
-        mulago = Provider(name="Mulago Hospital", provider_code="MULAGO001", payment_type="mpesa", payment_details="254700000", verified=True)
-        db.session.add(mulago)
-        db.session.commit()
+    try:
+        db.create_all()
+    except Exception as _e:
+        from loguru import logger
+        logger.warning("db.create_all() raised an error (tables may already exist): {}", _e)
+        db.session.rollback()
+    try:
+        if Community.query.count() == 0:
+            default_comm = Community(name="Global Health Pool", invite_code="GLOBAL001", pool_balance=1_000_000.0, admin_user_id=None)
+            db.session.add(default_comm)
+            db.session.commit()
+    except Exception as _e:
+        from loguru import logger
+        logger.warning("Community seed skipped: {}", _e)
+        db.session.rollback()
+    try:
+        if Provider.query.count() == 0:
+            mulago = Provider(name="Mulago Hospital", provider_code="MULAGO001", payment_type="mpesa", payment_details="254700000", verified=True)
+            db.session.add(mulago)
+            db.session.commit()
+    except Exception as _e:
+        from loguru import logger
+        logger.warning("Provider seed skipped: {}", _e)
+        db.session.rollback()
 
 # ------------------ Helper ------------------
 def get_user_communities(user_id):
