@@ -100,6 +100,24 @@ def notify_provider_rejected(phone: str, provider_name: str, reason: str = '') -
     _send_sms(phone, msg)
 
 
+def notify_witnesses_assigned(requester_name: str, amount: float, witnesses: list) -> None:
+    """
+    SMS each selected witness asking them to verify a care request.
+    `witnesses` is a list of User objects.
+    """
+    for witness in witnesses:
+        msg = (
+            f"[SolidarityPool] {requester_name} has listed you as a witness for a care fund "
+            f"request of UGX {amount:,.0f}. Log in or dial *384# → option 5 (Witness tasks) "
+            f"to approve or decline. Thank you for helping your community."
+        )
+        logger.info(
+            "Witness assigned notification: witness_id={} phone={} requester={} amount={:.0f}",
+            witness.id, witness.phone, requester_name, amount,
+        )
+        _send_sms(witness.phone, msg)
+
+
 def notify_new_provider_application(admin_phone: str, provider_name: str,
                                     applicant_phone: str) -> None:
     """Alert admin when a new provider application is submitted via /apply-provider."""

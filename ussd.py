@@ -670,6 +670,12 @@ def _request_care_flow(user: User, steps: list, level: int, lang: str) -> str:
     db.session.add(req)
     db.session.commit()
 
+    try:
+        from notifications import notify_witnesses_assigned
+        notify_witnesses_assigned(user.name, needed, witnesses)
+    except Exception:
+        pass
+
     ceiling_remaining = max(0.0, ceiling - from_pool)
     logger.info(
         "USSD care request: user_id={} needed={} from_sub={} from_pool={} social_credit={}",

@@ -72,13 +72,14 @@
       <div class="hint">Blank for first menu. Use * to separate levels (e.g. <code>1*2*3</code>).</div>
 
       <div class="shortcuts">
-        <span class="shortcut" onclick="appendInput('')">Main menu</span>
-        <span class="shortcut" onclick="appendInput('1')">1. Balance</span>
-        <span class="shortcut" onclick="appendInput('2')">2. Care request</span>
-        <span class="shortcut" onclick="appendInput('3')">3. Trust score</span>
-        <span class="shortcut" onclick="appendInput('4')">4. Communities</span>
-        <span class="shortcut" onclick="appendInput('5')">5. Witness tasks</span>
-        <span class="shortcut" onclick="appendInput('8')">8. Repay debt</span>
+        <span class="shortcut" onclick="setInput('')">Main menu</span>
+        <span class="shortcut" onclick="setInput('1')">1. Balance</span>
+        <span class="shortcut" onclick="setInput('2')">2. Care request</span>
+        <span class="shortcut" onclick="setInput('3')">3. Trust score</span>
+        <span class="shortcut" onclick="setInput('5')">5. Witness tasks</span>
+        <span class="shortcut" onclick="setInput('8')">8. Repay debt</span>
+        <span class="shortcut" onclick="setInput('9')">9. Language</span>
+        <span class="shortcut" onclick="appendStep()">➕ Next step</span>
       </div>
 
       <div>
@@ -110,11 +111,23 @@
 </div>
 
 <script>
+/* Set top-level option (clears previous) */
+function setInput(val) {
+  const inp = document.getElementById('ussd-input');
+  inp.value = val;
+}
+/* Append a sub-level input via * separator */
 function appendInput(val) {
   const inp = document.getElementById('ussd-input');
   if (val === '') { inp.value = ''; return; }
   const cur = inp.value.trim();
   inp.value = cur ? cur + '*' + val : val;
+}
+/* Prompt user for the next step value and append it */
+function appendStep() {
+  const val = prompt('Enter next menu input to append (will be joined with * separator):');
+  if (val === null) return;
+  appendInput(val.trim());
 }
 </script>
 </body>

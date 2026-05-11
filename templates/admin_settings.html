@@ -140,12 +140,22 @@
   <form method="POST" action="{{ url_for('admin_settings') }}" id="form-withdraw">
     <input type="hidden" name="action" value="withdraw">
     <label>Amount to withdraw (UGX)</label>
-    <input type="number" name="amount" step="1" min="1" max="{{ available_balance|int }}"
-           placeholder="0" required>
-    <div class="hint">Max: UGX {{ "{:,.0f}".format(available_balance) }}</div>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:4px;">
+      <input type="number" name="amount" id="withdraw-amount" step="1" min="1"
+             max="{{ available_balance|int }}" placeholder="0" required
+             style="flex:1; min-width:120px;">
+      <button type="button"
+              onclick="document.getElementById('withdraw-amount').value = Math.floor({{ total_revenue * 0.1 | int }});"
+              style="padding:8px 12px; background:#6c757d; color:#fff; border:none; border-radius:4px;
+                     cursor:pointer; font-size:0.8rem; white-space:nowrap; flex-shrink:0;">
+        10% = UGX {{ "{:,.0f}".format(total_revenue * 0.1) }}
+      </button>
+    </div>
+    <div class="hint">Suggested: UGX {{ "{:,.0f}".format(total_revenue * 0.1) }} (10% of total revenue collected).
+      Max available: UGX {{ "{:,.0f}".format(available_balance) }}</div>
 
     <label>Notes (optional)</label>
-    <input type="text" name="notes" placeholder="e.g. Monthly payout — May 2026">
+    <input type="text" name="notes" placeholder="e.g. Monthly 10% payout — May 2026">
 
     <div style="margin-top:14px;">
       <button type="button" class="btn btn-success"

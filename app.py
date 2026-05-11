@@ -761,6 +761,11 @@ def request_care():
             witness_ids = ','.join(str(w.id) for w in witnesses)
             care_req.witness_ids = witness_ids
             db.session.commit()
+            try:
+                from notifications import notify_witnesses_assigned
+                notify_witnesses_assigned(user.name, needed_amount, witnesses)
+            except Exception:
+                pass
         try:
             ceiling_remaining = max(0.0, round(ceiling - from_pool, 2))
         except Exception:
@@ -1611,6 +1616,11 @@ def ussd():
             witnesses = select_witnesses(user.id, provider_id, community_id=selected_comm.id)
             care_req.witness_ids = ','.join(str(w.id) for w in witnesses)
             db.session.commit()
+            try:
+                from notifications import notify_witnesses_assigned
+                notify_witnesses_assigned(user.name, amount, witnesses)
+            except Exception:
+                pass
             enforce_pool_health(selected_comm)
             ussd_sessions.pop(phone, None)
             ceiling_remaining = max(0.0, ceiling - from_pool)
@@ -2702,17 +2712,15 @@ def admin_ussd_simulator():
     text = request.form.get('text', '').strip()
 
     if request.method == 'POST':
-        import requests as _requests
+        # Call USSD logic directly (no HTTP round-trip — avoids mTLS SSL issues)
         try:
-            base_url = request.host_url.rstrip('/')
-            resp = _requests.post(
-                f'{base_url}/ussd/callback',
-                data={'sessionId': session_id, 'phoneNumber': phone, 'text': text, 'serviceCode': '*123#'},
-                timeout=5
-            )
-            response_text = resp.text
+            from ussd import _route as _ussd_route
+            steps = text.split('*') if text else ['']
+            level = len(steps)
+            response_text = _ussd_route(phone, steps, level)
         except Exception as e:
-            response_text = f'[Simulator error: {e}]'
+            import traceback
+            response_text = f'[Simulator error: {e}]\n{traceback.format_exc()[:400]}'
 
     return render_template('admin_ussd_simulator.html', user=admin_user,
                            session_id=session_id, phone=phone, text=text,
