@@ -88,11 +88,7 @@
     <button class="btn" type="submit">Log In →</button>
   </form>
 
-  <form method="POST" style="margin-top:0;">
-    <input type="hidden" name="step" value="check">
-    <input type="hidden" name="phone" value="">
-    <button class="btn btn-back" type="submit">← Use a different number</button>
-  </form>
+  <a href="/login" class="btn btn-back" style="display:block; text-align:center; text-decoration:none; margin-top:10px;">← Use a different number</a>
 
   <div style="text-align:center; margin-top:14px; font-size:0.84rem;">
     <a href="{{ url_for('forgot_pin') }}" style="color:#2d7dd2;">Forgot your PIN?</a>
@@ -101,17 +97,22 @@
   {# ── STEP 2a: New member — registration fields ─────────────────────────── #}
   {% elif show_register %}
   <div class="step-label">New member <span class="new-badge">First time</span></div>
-  <div class="phone-display">📱 {{ phone }}</div>
-  <p style="font-size:0.85rem; color:#555; margin:4px 0 12px;">
+
+  <p style="font-size:0.85rem; color:#555; margin:0 0 12px;">
     This number isn't registered yet. Fill in the details below to join the pool.
   </p>
 
   <form method="POST" autocomplete="off">
     <input type="hidden" name="step" value="register">
-    <input type="hidden" name="phone" value="{{ phone }}">
+
+    <label>Phone number
+      <input type="tel" name="phone" value="{{ phone or '' }}"
+             placeholder="e.g. 254712345678" required autofocus autocomplete="tel">
+      <span class="hint">Confirm your number or correct it before continuing.</span>
+    </label>
 
     <label>Full name
-      <input type="text" name="name" placeholder="e.g. Amara Osei" required autofocus
+      <input type="text" name="name" placeholder="e.g. Amara Osei" required
              autocomplete="name">
     </label>
 
@@ -126,7 +127,7 @@
     <label>Choose a PIN (4–6 digits)
       <input type="password" name="pin" minlength="4" maxlength="6"
              inputmode="numeric" pattern="[0-9]{4,6}"
-             placeholder="e.g. 1234" required autocomplete="new-password">
+             placeholder="e.g. 5823" required autocomplete="new-password">
       <span class="hint">Used to authorise care requests &amp; repayments. Do not reuse PINs from other services.</span>
     </label>
     <label>Confirm PIN
@@ -147,11 +148,7 @@
     <button class="btn" type="submit">Create Account</button>
   </form>
 
-  <form method="POST" style="margin-top:0;">
-    <input type="hidden" name="step" value="check">
-    <input type="hidden" name="phone" value="">
-    <button class="btn btn-back" type="submit">← Use a different number</button>
-  </form>
+  <a href="/login" class="btn btn-back" style="display:block; text-align:center; text-decoration:none; margin-top:10px;">← Use a different number</a>
 
   {# ── STEP 1: Phone entry ─────────────────────────────────────────────────── #}
   {% else %}

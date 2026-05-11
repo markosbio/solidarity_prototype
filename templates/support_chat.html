@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Support – Solidarity Pool</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: sans-serif; margin: 0; padding: 0; background: #f4f6fa; }
+  .layout { display: flex; height: 100vh; max-width: 900px; margin: 0 auto; background: #fff; box-shadow: 0 0 20px rgba(0,0,0,0.08); }
+
+  /* Sidebar */
+  .sidebar { width: 260px; flex-shrink: 0; border-right: 1px solid #e8e8e8; display: flex; flex-direction: column; background: #fff; }
+  .sidebar-header { padding: 18px 16px 12px; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 10px; }
+  .sidebar-header a { font-size: 0.8rem; color: #2d7dd2; text-decoration: none; margin-left: auto; }
+  .sidebar-title { font-weight: 700; font-size: 1rem; color: #1a1a2e; }
+  .new-btn { width: calc(100% - 32px); margin: 12px 16px 8px; padding: 10px; background: #2d7dd2; color: #fff;
+             border: none; border-radius: 6px; cursor: pointer; font-size: 0.92rem; font-weight: 600; text-align: center; }
+  .new-btn:hover { background: #2566b0; }
+  .ticket-list { overflow-y: auto; flex: 1; }
+  .ticket-item { padding: 12px 16px; border-bottom: 1px solid #f0f0f0; cursor: pointer;
+                 text-decoration: none; display: block; color: inherit; }
+  .ticket-item:hover { background: #f0f4ff; }
+  .ticket-item.active { background: #e8f0fe; border-left: 3px solid #2d7dd2; }
+  .ticket-subject { font-size: 0.88rem; font-weight: 600; color: #1a1a2e; white-space: nowrap;
+                    overflow: hidden; text-overflow: ellipsis; }
+  .ticket-meta { font-size: 0.75rem; color: #888; margin-top: 2px; display: flex; gap: 6px; align-items: center; }
+  .status-badge { display: inline-block; padding: 1px 7px; border-radius: 8px; font-size: 0.7rem; font-weight: 600; }
+  .status-open    { background: #d4edda; color: #155724; }
+  .status-pending { background: #fff3cd; color: #856404; }
+  .status-closed  { background: #e2e3e5; color: #6c757d; }
+  .empty-state { text-align: center; padding: 40px 16px; color: #aaa; font-size: 0.88rem; }
+
+  /* Main chat area */
+  .chat-area { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .chat-header { padding: 16px 20px; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 12px; }
+  .chat-header h2 { font-size: 1rem; margin: 0; color: #1a1a2e; flex: 1; }
+  .chat-header .close-btn { padding: 5px 14px; font-size: 0.82rem; border: 1.5px solid #dc3545; color: #dc3545;
+                             background: none; border-radius: 5px; cursor: pointer; }
+  .chat-header .close-btn:hover { background: #dc3545; color: #fff; }
+  .messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+  .msg { max-width: 78%; }
+  .msg.user { align-self: flex-end; }
+  .msg.admin { align-self: flex-start; }
+  .msg-bubble { padding: 10px 14px; border-radius: 14px; font-size: 0.9rem; line-height: 1.5; word-break: break-word; }
+  .msg.user  .msg-bubble { background: #2d7dd2; color: #fff; border-bottom-right-radius: 4px; }
+  .msg.admin .msg-bubble { background: #f0f0f5; color: #1a1a2e; border-bottom-left-radius: 4px; }
+  .msg-time { font-size: 0.72rem; color: #aaa; margin-top: 3px; text-align: right; }
+  .msg.admin .msg-time { text-align: left; }
+  .msg-sender { font-size: 0.72rem; color: #888; margin-bottom: 2px; }
+  .chat-input { padding: 14px 16px; border-top: 1px solid #eee; display: flex; gap: 10px; }
+  .chat-input textarea { flex: 1; padding: 10px 12px; border: 1.5px solid #ccc; border-radius: 8px;
+                         font-size: 0.92rem; resize: none; font-family: inherit; }
+  .chat-input textarea:focus { outline: none; border-color: #2d7dd2; }
+  .chat-input button { padding: 10px 20px; background: #2d7dd2; color: #fff; border: none;
+                       border-radius: 8px; cursor: pointer; font-size: 0.92rem; font-weight: 600; flex-shrink: 0; }
+  .chat-input button:hover { background: #2566b0; }
+  .closed-notice { text-align: center; padding: 10px; font-size: 0.84rem; color: #888;
+                   border-top: 1px solid #eee; background: #fafafa; }
+
+  /* New ticket form */
+  .new-ticket-form { padding: 28px 24px; flex: 1; overflow-y: auto; }
+  .new-ticket-form h2 { font-size: 1.1rem; margin: 0 0 20px; color: #1a1a2e; }
+  .form-group { margin-bottom: 16px; }
+  .form-group label { display: block; font-size: 0.85rem; font-weight: 600; color: #555; margin-bottom: 5px; }
+  .form-group input, .form-group textarea, .form-group select {
+    width: 100%; padding: 10px 12px; border: 1.5px solid #ccc; border-radius: 6px;
+    font-size: 0.92rem; font-family: inherit; }
+  .form-group input:focus, .form-group textarea:focus { outline: none; border-color: #2d7dd2; }
+  .form-group textarea { resize: vertical; min-height: 100px; }
+  .submit-btn { padding: 11px 28px; background: #2d7dd2; color: #fff; border: none;
+                border-radius: 6px; cursor: pointer; font-size: 0.95rem; font-weight: 600; }
+  .submit-btn:hover { background: #2566b0; }
+  .error { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24;
+           padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 0.9rem; }
+  .welcome-panel { flex: 1; display: flex; flex-direction: column; align-items: center;
+                   justify-content: center; padding: 40px; text-align: center; }
+  .welcome-panel .icon { font-size: 3rem; margin-bottom: 16px; }
+  .welcome-panel h2 { font-size: 1.15rem; color: #1a1a2e; margin: 0 0 8px; }
+  .welcome-panel p { color: #777; font-size: 0.9rem; max-width: 280px; line-height: 1.5; }
+
+  @media (max-width: 600px) {
+    .layout { flex-direction: column; height: auto; min-height: 100vh; }
+    .sidebar { width: 100%; border-right: none; border-bottom: 1px solid #eee; max-height: 38vh; }
+    .chat-area { min-height: 62vh; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar: ticket list -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <span class="sidebar-title">💬 Support</span>
+      <a href="/">← Back</a>
+    </div>
+
+    <button class="new-btn" onclick="showNewForm()">+ New conversation</button>
+
+    <div class="ticket-list">
+      {% if tickets %}
+        {% for t in tickets %}
+        <a class="ticket-item {% if active_ticket and active_ticket.id == t.id %}active{% endif %}"
+           href="/support/{{ t.id }}">
+          <div class="ticket-subject">{{ t.subject }}</div>
+          <div class="ticket-meta">
+            <span class="status-badge status-{{ t.status }}">{{ t.status }}</span>
+            <span>{{ t.updated_at.strftime('%b %d') }}</span>
+          </div>
+        </a>
+        {% endfor %}
+      {% else %}
+        <div class="empty-state">No conversations yet</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Main area -->
+  <div class="chat-area" id="chat-area">
+
+    {% if active_ticket %}
+    <!-- Active ticket view -->
+    <div class="chat-header">
+      <h2>{{ active_ticket.subject }}</h2>
+      <span class="status-badge status-{{ active_ticket.status }}">{{ active_ticket.status }}</span>
+      {% if active_ticket.status != 'closed' %}
+      <form method="POST" action="/support" style="margin:0;">
+        <input type="hidden" name="action" value="close_redirect">
+        <button type="button" class="close-btn"
+          onclick="if(confirm('Close this conversation?')) { document.getElementById('close-form-{{ active_ticket.id }}').submit(); }">
+          Close
+        </button>
+      </form>
+      {% endif %}
+    </div>
+
+    <div class="messages" id="messages">
+      {% for m in active_ticket.messages %}
+      <div class="msg {{ m.sender_type }}">
+        {% if m.sender_type == 'admin' %}
+        <div class="msg-sender">Support Team</div>
+        {% endif %}
+        <div class="msg-bubble">{{ m.body }}</div>
+        <div class="msg-time">{{ m.sent_at.strftime('%b %d, %H:%M') }}</div>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% if active_ticket.status != 'closed' %}
+    <form class="chat-input" method="POST" action="/support">
+      <input type="hidden" name="action" value="reply">
+      <input type="hidden" name="ticket_id" value="{{ active_ticket.id }}">
+      <textarea name="body" rows="2" placeholder="Type your message…" required></textarea>
+      <button type="submit">Send</button>
+    </form>
+    {% else %}
+    <div class="closed-notice">This conversation has been closed. Start a new one if you need further help.</div>
+    {% endif %}
+
+    {% elif request.args.get('new') == '1' or error %}
+    <!-- New ticket form -->
+    <div class="new-ticket-form" id="new-ticket-form">
+      <h2>Start a new conversation</h2>
+      {% if error %}<div class="error">{{ error }}</div>{% endif %}
+      <form method="POST" action="/support">
+        <input type="hidden" name="action" value="new_ticket">
+        {% if not user %}
+        <div class="form-group">
+          <label>Your phone number</label>
+          <input type="tel" name="phone" placeholder="e.g. 254712345678" required>
+        </div>
+        {% endif %}
+        <div class="form-group">
+          <label>What do you need help with?</label>
+          <input type="text" name="subject" placeholder="e.g. I can't log in" required maxlength="200">
+        </div>
+        <div class="form-group">
+          <label>Describe your issue</label>
+          <textarea name="body" placeholder="Give us as much detail as possible…" required></textarea>
+        </div>
+        <button class="submit-btn" type="submit">Send message</button>
+      </form>
+    </div>
+
+    {% else %}
+    <!-- Welcome panel -->
+    <div class="welcome-panel">
+      <div class="icon">💬</div>
+      <h2>How can we help?</h2>
+      <p>Start a new conversation and our support team will reply as soon as possible.</p>
+      <button class="submit-btn" style="margin-top:16px;" onclick="showNewForm()">+ New conversation</button>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+
+<script>
+function showNewForm() {
+  window.location.href = '/support?new=1';
+}
+// Scroll messages to bottom
+const msgBox = document.getElementById('messages');
+if (msgBox) msgBox.scrollTop = msgBox.scrollHeight;
+// Ctrl+Enter to send
+document.querySelectorAll('.chat-input textarea').forEach(function(ta) {
+  ta.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      ta.closest('form').submit();
+    }
+  });
+});
+</script>
+</body>
+</html>

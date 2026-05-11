@@ -106,6 +106,7 @@
   <a href="/admin/verified-providers" {% if request.path == '/admin/verified-providers' %}class="active"{% endif %}>🏥 Providers</a>
   <a href="/admin/fraud-alerts" {% if request.path == '/admin/fraud-alerts' %}class="active"{% endif %}>🚨 Fraud</a>
   <a href="/admin/disputes" {% if request.path == '/admin/disputes' %}class="active"{% endif %}>⚖️ Disputes</a>
+  <a href="/admin/support" {% if request.path.startswith('/admin/support') %}class="active"{% endif %}>💬 Support</a>
   <a href="/admin/view-user" {% if request.path == '/admin/view-user' %}class="active"{% endif %}>🔍 Lookup</a>
   <a href="/admin/audit-log" {% if request.path == '/admin/audit-log' %}class="active"{% endif %}>📜 Audit</a>
   <a href="/admin/bulk-sms" {% if request.path == '/admin/bulk-sms' %}class="active"{% endif %}>📱 SMS</a>

@@ -380,3 +380,35 @@ class PlatformWithdrawal(db.Model):
     withdrawn_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     admin = db.relationship('User', foreign_keys=[withdrawn_by])
+
+
+class SupportTicket(db.Model):
+    """Customer support chat thread opened by a member or an anonymous visitor."""
+    __tablename__ = 'support_ticket'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('member.id'), nullable=True)
+    phone = db.Column(db.String(20), nullable=True)
+    subject = db.Column(db.String(200), nullable=False)
+    status = db.Column(db.String(20), default='open')  # open | pending | closed
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    assigned_to = db.Column(db.Integer, db.ForeignKey('member.id'), nullable=True)
+
+    user = db.relationship('User', foreign_keys=[user_id], backref='support_tickets')
+    assignee = db.relationship('User', foreign_keys=[assigned_to])
+    messages = db.relationship('SupportMessage', backref='ticket',
+                               order_by='SupportMessage.sent_at', cascade='all, delete-orphan')
+
+
+class SupportMessage(db.Model):
+    """A single message in a support ticket thread."""
+    __tablename__ = 'support_message'
+    id = db.Column(db.Integer, primary_key=True)
+    ticket_id = db.Column(db.Integer, db.ForeignKey('support_ticket.id'), nullable=False)
+    sender_type = db.Column(db.String(10), nullable=False)  # 'user' | 'admin'
+    sender_id = db.Column(db.Integer, db.ForeignKey('member.id'), nullable=True)
+    body = db.Column(db.Text, nullable=False)
+    sent_at = db.Column(db.DateTime, default=datetime.utcnow)
+    read_at = db.Column(db.DateTime, nullable=True)
+
+    sender = db.relationship('User', foreign_keys=[sender_id])

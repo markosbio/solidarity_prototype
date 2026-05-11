@@ -229,10 +229,15 @@ def _security_before_request():
 
 @app.after_request
 def _inject_csrf_meta(response):
-    """Auto-inject CSRF token meta tag + JS auto-fill into every HTML page."""
+    """Auto-inject CSRF token + floating chat bubble into every HTML page."""
     if response.content_type and response.content_type.startswith('text/html'):
         token = _get_csrf_token()
-        snippet = (
+        data = response.get_data(as_text=True)
+        # Skip injecting into the support page itself and admin support
+        path = request.path
+        skip_chat = path.startswith('/support') or path.startswith('/admin/support')
+
+        csrf_snippet = (
             f'<meta name="csrf-token" content="{token}">'
             '<script>document.addEventListener("DOMContentLoaded",function(){'
             'var m=document.querySelector(\'meta[name="csrf-token"]\');'
@@ -244,10 +249,26 @@ def _inject_csrf_meta(response):
             'i.name="csrf_token";i.value=v;f.appendChild(i);}}'
             '});});</script>'
         )
-        data = response.get_data(as_text=True)
+
+        chat_bubble = '' if skip_chat else (
+            '<style>'
+            '#sp-chat-btn{position:fixed;bottom:22px;right:20px;z-index:9999;'
+            'background:#2d7dd2;color:#fff;border:none;border-radius:50px;'
+            'padding:12px 20px;font-size:0.92rem;font-weight:600;cursor:pointer;'
+            'box-shadow:0 4px 14px rgba(45,125,210,0.45);display:flex;align-items:center;gap:8px;'
+            'text-decoration:none;}'
+            '#sp-chat-btn:hover{background:#2566b0;}'
+            '#sp-chat-badge{background:#dc3545;color:#fff;border-radius:50%;'
+            'font-size:0.7rem;font-weight:700;padding:1px 6px;margin-left:2px;}'
+            '</style>'
+            '<a id="sp-chat-btn" href="/support">💬 <span>Help</span></a>'
+        )
+
         if '</head>' in data:
-            data = data.replace('</head>', snippet + '</head>', 1)
-            response.set_data(data)
+            data = data.replace('</head>', csrf_snippet + '</head>', 1)
+        if '</body>' in data and chat_bubble:
+            data = data.replace('</body>', chat_bubble + '</body>', 1)
+        response.set_data(data)
     return response
 
 
@@ -287,6 +308,25 @@ def _run_column_migrations():
         "ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS old_value VARCHAR(500)",
         "ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS new_value VARCHAR(500)",
         "ALTER TABLE user_login_history ADD COLUMN IF NOT EXISTS user_agent VARCHAR(300)",
+        """CREATE TABLE IF NOT EXISTS support_ticket (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER REFERENCES member(id),
+            phone VARCHAR(20),
+            subject VARCHAR(200) NOT NULL,
+            status VARCHAR(20) DEFAULT 'open',
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW(),
+            assigned_to INTEGER REFERENCES member(id)
+        )""",
+        """CREATE TABLE IF NOT EXISTS support_message (
+            id SERIAL PRIMARY KEY,
+            ticket_id INTEGER REFERENCES support_ticket(id) ON DELETE CASCADE,
+            sender_type VARCHAR(10) NOT NULL,
+            sender_id INTEGER REFERENCES member(id),
+            body TEXT NOT NULL,
+            sent_at TIMESTAMP DEFAULT NOW(),
+            read_at TIMESTAMP
+        )""",
     ]
     try:
         with db.engine.connect() as conn:
@@ -505,11 +545,17 @@ def login():
 
         # ── Step 3: new member registration ──────────────────────────────────
         elif step == 'register':
+            # Phone is now editable on the registration form — re-read it
+            phone       = request.form.get('phone', phone).strip()
             name        = request.form.get('name', '').strip()
             pin         = request.form.get('pin', '').strip()
             confirm_pin = request.form.get('confirm_pin', '').strip()
             referred_by = request.form.get('referred_by', '').strip()
             tos_accept  = request.form.get('tos_accept', '')
+
+            if not phone or not phone.replace('+', '').isdigit():
+                return render_template('login.html', phone=phone, show_register=True,
+                                       error='Please enter a valid phone number.')
 
             existing = User.query.filter_by(phone=phone).first()
             if existing:
@@ -3439,6 +3485,167 @@ def admin_user_deactivate(target_id):
                           details=f'Account deactivated for {target.name} ({target.phone}). Reason: {reason}')
         flash(f'{target.name}\'s account has been deactivated.', 'success')
     return redirect(url_for('admin_users'))
+
+
+# ── Support Chat ───────────────────────────────────────────────────────────────
+
+from models import SupportTicket, SupportMessage
+
+@app.route('/support', methods=['GET', 'POST'])
+def support_chat():
+    user_id = session.get('user_id')
+    user = db.session.get(User, user_id) if user_id else None
+
+    if request.method == 'POST':
+        action = request.form.get('action', '')
+
+        if action == 'new_ticket':
+            subject = request.form.get('subject', '').strip()
+            body    = request.form.get('body', '').strip()
+            phone   = request.form.get('phone', '').strip() if not user else user.phone
+            if not subject or not body:
+                return render_template('support_chat.html', user=user,
+                                       tickets=_user_tickets(user, phone),
+                                       error='Please fill in both the subject and message.')
+            ticket = SupportTicket(
+                user_id=user_id,
+                phone=phone or None,
+                subject=subject,
+                status='open',
+            )
+            db.session.add(ticket)
+            db.session.flush()
+            msg = SupportMessage(
+                ticket_id=ticket.id,
+                sender_type='user',
+                sender_id=user_id,
+                body=body,
+            )
+            db.session.add(msg)
+            db.session.commit()
+            return redirect(url_for('support_ticket_view', ticket_id=ticket.id))
+
+        if action == 'reply':
+            ticket_id = request.form.get('ticket_id', type=int)
+            body      = request.form.get('body', '').strip()
+            ticket    = SupportTicket.query.get_or_404(ticket_id)
+            if not _can_access_ticket(ticket, user):
+                return redirect(url_for('support_chat'))
+            if body:
+                db.session.add(SupportMessage(
+                    ticket_id=ticket.id,
+                    sender_type='user',
+                    sender_id=user_id,
+                    body=body,
+                ))
+                ticket.status = 'open'
+                ticket.updated_at = datetime.utcnow()
+                db.session.commit()
+            return redirect(url_for('support_ticket_view', ticket_id=ticket.id))
+
+    phone = (user.phone if user else request.args.get('phone', ''))
+    tickets = _user_tickets(user, phone)
+    open_ticket = request.args.get('ticket', type=int)
+    return render_template('support_chat.html', user=user, tickets=tickets,
+                           open_ticket=open_ticket)
+
+
+@app.route('/support/<int:ticket_id>')
+def support_ticket_view(ticket_id):
+    user_id = session.get('user_id')
+    user    = db.session.get(User, user_id) if user_id else None
+    ticket  = SupportTicket.query.get_or_404(ticket_id)
+    if not _can_access_ticket(ticket, user):
+        return redirect(url_for('support_chat'))
+    # Mark admin messages as read
+    if user_id:
+        for m in ticket.messages:
+            if m.sender_type == 'admin' and not m.read_at:
+                m.read_at = datetime.utcnow()
+        db.session.commit()
+    return render_template('support_chat.html', user=user,
+                           tickets=_user_tickets(user, ticket.phone),
+                           active_ticket=ticket)
+
+
+def _can_access_ticket(ticket, user):
+    if user and ticket.user_id == user.id:
+        return True
+    if ticket.user_id is None and ticket.phone:
+        return True  # anonymous always allowed to view
+    return False
+
+
+def _user_tickets(user, phone=None):
+    if user:
+        return SupportTicket.query.filter_by(user_id=user.id).order_by(
+            SupportTicket.updated_at.desc()).all()
+    if phone:
+        return SupportTicket.query.filter_by(phone=phone, user_id=None).order_by(
+            SupportTicket.updated_at.desc()).all()
+    return []
+
+
+# ── Admin: Support inbox ────────────────────────────────────────────────────────
+
+@app.route('/admin/support')
+@admin_required
+def admin_support():
+    status_filter = request.args.get('status', 'open')
+    q = SupportTicket.query
+    if status_filter != 'all':
+        q = q.filter_by(status=status_filter)
+    tickets = q.order_by(SupportTicket.updated_at.desc()).all()
+    unread  = _admin_support_unread_count()
+    return render_template('admin_support.html', tickets=tickets,
+                           status_filter=status_filter, unread=unread)
+
+
+@app.route('/admin/support/<int:ticket_id>', methods=['GET', 'POST'])
+@admin_required
+def admin_support_ticket(ticket_id):
+    ticket = SupportTicket.query.get_or_404(ticket_id)
+    if request.method == 'POST':
+        action = request.form.get('action', '')
+        if action == 'reply':
+            body = request.form.get('body', '').strip()
+            if body:
+                db.session.add(SupportMessage(
+                    ticket_id=ticket.id,
+                    sender_type='admin',
+                    sender_id=session.get('user_id'),
+                    body=body,
+                ))
+                ticket.status = 'pending'
+                ticket.updated_at = datetime.utcnow()
+                db.session.commit()
+        elif action == 'close':
+            ticket.status = 'closed'
+            ticket.updated_at = datetime.utcnow()
+            db.session.commit()
+        elif action == 'reopen':
+            ticket.status = 'open'
+            ticket.updated_at = datetime.utcnow()
+            db.session.commit()
+        return redirect(url_for('admin_support_ticket', ticket_id=ticket.id))
+
+    # Mark user messages as read
+    for m in ticket.messages:
+        if m.sender_type == 'user' and not m.read_at:
+            m.read_at = datetime.utcnow()
+    db.session.commit()
+    unread = _admin_support_unread_count()
+    return render_template('admin_support.html', active_ticket=ticket,
+                           tickets=SupportTicket.query.order_by(
+                               SupportTicket.updated_at.desc()).limit(30).all(),
+                           status_filter='all', unread=unread)
+
+
+def _admin_support_unread_count():
+    return SupportMessage.query.filter(
+        SupportMessage.sender_type == 'user',
+        SupportMessage.read_at == None
+    ).count()
 
 
 # ── Admin: Monitor live JSON feed ──────────────────────────────────────────────

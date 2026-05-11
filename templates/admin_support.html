@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Support Inbox – Admin</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: sans-serif; margin: 0; padding: 40px 16px; background: #f4f6fa; }
+  .layout { display: flex; gap: 0; max-width: 1100px; margin: 0 auto; background: #fff;
+            border-radius: 10px; box-shadow: 0 2px 16px rgba(0,0,0,0.09); overflow: hidden; min-height: 80vh; }
+
+  /* Sidebar */
+  .sidebar { width: 310px; flex-shrink: 0; border-right: 1px solid #e8e8e8; display: flex; flex-direction: column; }
+  .sidebar-header { padding: 16px; border-bottom: 1px solid #eee; }
+  .sidebar-header h2 { margin: 0 0 10px; font-size: 1rem; color: #1a1a2e; }
+  .filter-tabs { display: flex; gap: 6px; }
+  .filter-tab { padding: 4px 12px; border-radius: 12px; font-size: 0.78rem; font-weight: 600;
+                text-decoration: none; border: 1.5px solid #ddd; color: #555; background: #fff; }
+  .filter-tab.active { background: #2d7dd2; color: #fff; border-color: #2d7dd2; }
+  .ticket-list { overflow-y: auto; flex: 1; }
+  .ticket-item { padding: 13px 16px; border-bottom: 1px solid #f0f0f0; cursor: pointer;
+                 text-decoration: none; display: block; color: inherit; }
+  .ticket-item:hover { background: #f0f4ff; }
+  .ticket-item.active { background: #e8f0fe; border-left: 3px solid #2d7dd2; }
+  .ticket-subject { font-size: 0.88rem; font-weight: 600; color: #1a1a2e; white-space: nowrap;
+                    overflow: hidden; text-overflow: ellipsis; }
+  .ticket-meta { font-size: 0.75rem; color: #888; margin-top: 3px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .status-badge { display: inline-block; padding: 1px 7px; border-radius: 8px; font-size: 0.7rem; font-weight: 600; }
+  .status-open    { background: #d4edda; color: #155724; }
+  .status-pending { background: #fff3cd; color: #856404; }
+  .status-closed  { background: #e2e3e5; color: #6c757d; }
+  .unread-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #dc3545; margin-left: 4px; }
+  .empty-state { text-align: center; padding: 40px 16px; color: #aaa; font-size: 0.88rem; }
+
+  /* Chat area */
+  .chat-area { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .chat-header { padding: 16px 20px; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 12px; }
+  .chat-header h2 { font-size: 1rem; margin: 0; flex: 1; color: #1a1a2e; }
+  .chat-header .ticket-info { font-size: 0.78rem; color: #888; }
+  .action-btn { padding: 5px 14px; font-size: 0.82rem; border: 1.5px solid #ccc; color: #555;
+                background: none; border-radius: 5px; cursor: pointer; text-decoration: none; }
+  .action-btn.close { border-color: #dc3545; color: #dc3545; }
+  .action-btn.close:hover { background: #dc3545; color: #fff; }
+  .action-btn.reopen { border-color: #28a745; color: #28a745; }
+  .action-btn.reopen:hover { background: #28a745; color: #fff; }
+  .messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+  .msg { max-width: 78%; }
+  .msg.user  { align-self: flex-start; }
+  .msg.admin { align-self: flex-end; }
+  .msg-bubble { padding: 10px 14px; border-radius: 14px; font-size: 0.9rem; line-height: 1.5; word-break: break-word; }
+  .msg.user  .msg-bubble { background: #f0f0f5; color: #1a1a2e; border-bottom-left-radius: 4px; }
+  .msg.admin .msg-bubble { background: #2d7dd2; color: #fff; border-bottom-right-radius: 4px; }
+  .msg-time { font-size: 0.72rem; color: #aaa; margin-top: 3px; }
+  .msg.admin .msg-time { text-align: right; }
+  .msg-sender { font-size: 0.72rem; color: #888; margin-bottom: 2px; }
+  .chat-input { padding: 14px 16px; border-top: 1px solid #eee; display: flex; gap: 10px; }
+  .chat-input textarea { flex: 1; padding: 10px 12px; border: 1.5px solid #ccc; border-radius: 8px;
+                         font-size: 0.92rem; resize: none; font-family: inherit; }
+  .chat-input textarea:focus { outline: none; border-color: #2d7dd2; }
+  .chat-input button { padding: 10px 20px; background: #2d7dd2; color: #fff; border: none;
+                       border-radius: 8px; cursor: pointer; font-size: 0.92rem; font-weight: 600; }
+  .chat-input button:hover { background: #2566b0; }
+  .closed-notice { text-align: center; padding: 10px; font-size: 0.84rem; color: #888;
+                   border-top: 1px solid #eee; background: #fafafa; }
+  .welcome { flex: 1; display: flex; align-items: center; justify-content: center;
+             text-align: center; color: #aaa; font-size: 0.92rem; flex-direction: column; gap: 8px; }
+  .welcome .icon { font-size: 2.5rem; }
+
+  @media (max-width: 700px) {
+    .layout { flex-direction: column; }
+    .sidebar { width: 100%; max-height: 35vh; border-right: none; border-bottom: 1px solid #eee; }
+  }
+</style>
+</head>
+<body>
+{% include 'admin_nav.html' %}
+
+<div class="layout">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h2>💬 Support Inbox {% if unread %}<span style="color:#dc3545; font-size:0.8rem;">({{ unread }} unread)</span>{% endif %}</h2>
+      <div class="filter-tabs">
+        <a href="/admin/support?status=open"    class="filter-tab {% if status_filter=='open'    %}active{% endif %}">Open</a>
+        <a href="/admin/support?status=pending" class="filter-tab {% if status_filter=='pending' %}active{% endif %}">Pending</a>
+        <a href="/admin/support?status=closed"  class="filter-tab {% if status_filter=='closed'  %}active{% endif %}">Closed</a>
+        <a href="/admin/support?status=all"     class="filter-tab {% if status_filter=='all'     %}active{% endif %}">All</a>
+      </div>
+    </div>
+    <div class="ticket-list">
+      {% if tickets %}
+        {% for t in tickets %}
+        {% set has_unread = t.messages | selectattr('sender_type', 'equalto', 'user') | selectattr('read_at', 'none') | list | length > 0 %}
+        <a class="ticket-item {% if active_ticket and active_ticket.id == t.id %}active{% endif %}"
+           href="/admin/support/{{ t.id }}">
+          <div class="ticket-subject">
+            {{ t.subject }}
+            {% if has_unread %}<span class="unread-dot"></span>{% endif %}
+          </div>
+          <div class="ticket-meta">
+            <span class="status-badge status-{{ t.status }}">{{ t.status }}</span>
+            <span>{{ t.phone or (t.user.phone if t.user else '—') }}</span>
+            <span>{{ t.updated_at.strftime('%b %d') }}</span>
+          </div>
+        </a>
+        {% endfor %}
+      {% else %}
+        <div class="empty-state">No tickets found</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Chat area -->
+  <div class="chat-area">
+    {% if active_ticket %}
+    <div class="chat-header">
+      <div>
+        <h2>{{ active_ticket.subject }}</h2>
+        <div class="ticket-info">
+          From: {{ active_ticket.phone or (active_ticket.user.phone if active_ticket.user else 'anonymous') }}
+          {% if active_ticket.user %} · {{ active_ticket.user.name }}{% endif %}
+          &nbsp;·&nbsp; Opened {{ active_ticket.created_at.strftime('%b %d, %H:%M') }}
+        </div>
+      </div>
+      <span class="status-badge status-{{ active_ticket.status }}">{{ active_ticket.status }}</span>
+      {% if active_ticket.status != 'closed' %}
+      <form method="POST" style="margin:0;">
+        <input type="hidden" name="action" value="close">
+        <button class="action-btn close" type="submit">Close ticket</button>
+      </form>
+      {% else %}
+      <form method="POST" style="margin:0;">
+        <input type="hidden" name="action" value="reopen">
+        <button class="action-btn reopen" type="submit">Reopen</button>
+      </form>
+      {% endif %}
+    </div>
+
+    <div class="messages" id="messages">
+      {% for m in active_ticket.messages %}
+      <div class="msg {{ m.sender_type }}">
+        {% if m.sender_type == 'user' %}
+        <div class="msg-sender">{{ active_ticket.user.name if active_ticket.user else (active_ticket.phone or 'Guest') }}</div>
+        {% else %}
+        <div class="msg-sender" style="text-align:right;">Support Team</div>
+        {% endif %}
+        <div class="msg-bubble">{{ m.body }}</div>
+        <div class="msg-time">{{ m.sent_at.strftime('%b %d, %H:%M') }}</div>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% if active_ticket.status != 'closed' %}
+    <form class="chat-input" method="POST">
+      <input type="hidden" name="action" value="reply">
+      <textarea name="body" rows="2" placeholder="Reply to this customer…" required></textarea>
+      <button type="submit">Send</button>
+    </form>
+    {% else %}
+    <div class="closed-notice">Ticket closed. Reopen it above to send a reply.</div>
+    {% endif %}
+
+    {% else %}
+    <div class="welcome">
+      <div class="icon">📬</div>
+      <div>Select a ticket to view the conversation</div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+const msgBox = document.getElementById('messages');
+if (msgBox) msgBox.scrollTop = msgBox.scrollHeight;
+document.querySelectorAll('.chat-input textarea').forEach(function(ta) {
+  ta.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      ta.closest('form').submit();
+    }
+  });
+});
+</script>
+</body>
+</html>
