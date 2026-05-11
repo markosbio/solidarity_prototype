@@ -40,15 +40,7 @@ def admin_required(f):
         user = User.query.get(session['user_id'])
         if not user or not GlobalAdmin.query.filter_by(user_id=user.id).first():
             return "Access denied — admin only.", 403
-        admin_secret = os.environ.get('ADMIN_SECRET', '')
-        token = request.args.get('token') or request.form.get('token')
-        if admin_secret:
-            if token == admin_secret:
-                session['admin_authed'] = True
-            elif not session.get('admin_authed'):
-                return "Invalid admin token. Append ?token=YOUR_SECRET to the URL.", 403
-        else:
-            session['admin_authed'] = True
+        session['admin_authed'] = True
         return f(*args, **kwargs)
     return decorated
 
