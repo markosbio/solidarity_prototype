@@ -4,6 +4,7 @@ from datetime import datetime
 db = SQLAlchemy()
 
 class User(db.Model):
+    __tablename__ = 'member'
     id = db.Column(db.Integer, primary_key=True)
     phone = db.Column(db.String(20), unique=True)
     name = db.Column(db.String(100))
@@ -13,7 +14,7 @@ class User(db.Model):
     trust_score = db.Column(db.Float, default=0.5)
     total_social_credit = db.Column(db.Float, default=0.0)
     roundup_intensifier = db.Column(db.Float, default=1.0)
-    referred_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    referred_by = db.Column(db.Integer, db.ForeignKey('member.id'))
     recruitment_freshness = db.Column(db.DateTime, default=datetime.utcnow)
     primary_community_id = db.Column(db.Integer, db.ForeignKey('community.id'), nullable=True)
     witness_accuracy_score = db.Column(db.Float, default=0.5)
@@ -27,7 +28,7 @@ class User(db.Model):
 
 class Transaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('member.id'))
     amount = db.Column(db.Float)
     type = db.Column(db.String(20))
     description = db.Column(db.String(200))
@@ -41,9 +42,8 @@ class Community(db.Model):
     pool_balance = db.Column(db.Float, default=0.0)
     invite_code = db.Column(db.String(20), unique=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    admin_user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    admin_user_id = db.Column(db.Integer, db.ForeignKey('member.id'))
 
-    # Pool health protection fields
     pool_target = db.Column(db.Float, default=2_000_000.0)
     ceiling_multiplier = db.Column(db.Float, default=1.0)
     witness_strictness = db.Column(db.String(10), default='normal')
@@ -56,7 +56,7 @@ class Community(db.Model):
 
 class CommunityMembership(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('member.id'))
     community_id = db.Column(db.Integer, db.ForeignKey('community.id'))
     role = db.Column(db.String(20), default='member')
     joined_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -86,7 +86,7 @@ class VerifiedProvider(db.Model):
     location = db.Column(db.String(200))
     verification_status = db.Column(db.String(20), default='pending')
     provider_wallet_number = db.Column(db.String(50))
-    reviewed_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    reviewed_by = db.Column(db.Integer, db.ForeignKey('member.id'), nullable=True)
     review_notes = db.Column(db.String(500))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     reviewed_at = db.Column(db.DateTime, nullable=True)
@@ -96,7 +96,7 @@ class VerifiedProvider(db.Model):
 
 class CareRequest(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('member.id'))
     community_id = db.Column(db.Integer, db.ForeignKey('community.id'))
     provider_id = db.Column(db.Integer, db.ForeignKey('provider.id'))
     amount_needed = db.Column(db.Float)
@@ -108,12 +108,11 @@ class CareRequest(db.Model):
     witness_votes = db.Column(db.String(500), default='')
     witness_ids = db.Column(db.String(200), default='')
     admin_approved = db.Column(db.Boolean, default=False)
-    admin_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    admin_id = db.Column(db.Integer, db.ForeignKey('member.id'), nullable=True)
     payment_transaction_id = db.Column(db.String(100))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # Fraud scoring fields
     fraud_score = db.Column(db.Float, default=0.0)
     fraud_flagged = db.Column(db.Boolean, default=False)
     fraud_reasons = db.Column(db.String(500), default='')
@@ -127,11 +126,11 @@ class FraudAlert(db.Model):
     """Log of all fraud score events for audit and review."""
     id = db.Column(db.Integer, primary_key=True)
     care_request_id = db.Column(db.Integer, db.ForeignKey('care_request.id'), nullable=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('member.id'))
     fraud_score = db.Column(db.Float, nullable=False)
     triggers = db.Column(db.String(1000))
     resolved = db.Column(db.Boolean, default=False)
-    resolved_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    resolved_by = db.Column(db.Integer, db.ForeignKey('member.id'), nullable=True)
     resolved_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -144,7 +143,7 @@ class PaymentRecord(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     reference_code = db.Column(db.String(50), unique=True, nullable=False)
     care_request_id = db.Column(db.Integer, db.ForeignKey('care_request.id'))
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('member.id'))
     provider_id = db.Column(db.Integer, db.ForeignKey('provider.id'))
     community_id = db.Column(db.Integer, db.ForeignKey('community.id'))
     amount = db.Column(db.Float, nullable=False)
@@ -161,7 +160,7 @@ class PaymentRecord(db.Model):
 
 class TrustEvent(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('member.id'))
     old_score = db.Column(db.Float)
     new_score = db.Column(db.Float)
     delta = db.Column(db.Float)
@@ -182,7 +181,7 @@ class SystemState(db.Model):
 
 class WitnessRequest(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('member.id'))
     needed_amount = db.Column(db.Float)
     provider_id = db.Column(db.String(100))
     from_sub = db.Column(db.Float, default=0.0)
@@ -199,7 +198,7 @@ class WitnessRequest(db.Model):
 class MobileMoneyTransaction(db.Model):
     """Records every mobile money fee-based solidarity contribution."""
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('member.id'), nullable=False)
     type = db.Column(db.String(20), nullable=False)
     amount = db.Column(db.Float, nullable=False)
     normal_fee = db.Column(db.Float, nullable=False)
@@ -227,7 +226,7 @@ class PlatformRevenue(db.Model):
 class MpesaTopup(db.Model):
     """Tracks a pending STK Push top-up until Safaricom confirms it."""
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('member.id'), nullable=False)
     amount = db.Column(db.Float, nullable=False)
     checkout_request_id = db.Column(db.String(100), unique=True, nullable=False)
     merchant_request_id = db.Column(db.String(100))
@@ -243,8 +242,8 @@ class MpesaTopup(db.Model):
 class AdminAuditLog(db.Model):
     """Log of all admin actions for audit and accountability."""
     id = db.Column(db.Integer, primary_key=True)
-    admin_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    target_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    admin_id = db.Column(db.Integer, db.ForeignKey('member.id'), nullable=False)
+    target_user_id = db.Column(db.Integer, db.ForeignKey('member.id'), nullable=True)
     action = db.Column(db.String(100), nullable=False)
     details = db.Column(db.String(500))
     ip = db.Column(db.String(50))
@@ -257,9 +256,9 @@ class AdminAuditLog(db.Model):
 class GlobalAdmin(db.Model):
     """Platform-level global admins — replaces hardcoded ADMIN_PHONES list."""
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), unique=True, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('member.id'), unique=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    created_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    created_by = db.Column(db.Integer, db.ForeignKey('member.id'), nullable=True)
 
     user = db.relationship('User', foreign_keys=[user_id], backref='global_admin_entry')
     creator = db.relationship('User', foreign_keys=[created_by])
