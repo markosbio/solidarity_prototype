@@ -12,21 +12,28 @@
   .step-label { font-size: 0.78rem; font-weight: bold; text-transform: uppercase;
                 letter-spacing: 0.05em; color: #888; margin-bottom: 16px; }
   label { display: block; font-weight: 600; margin-top: 14px; font-size: 0.9rem; color: #333; }
-  input { width: 100%; padding: 11px 12px; margin-top: 5px; border: 1.5px solid #ccc;
-          border-radius: 6px; font-size: 1rem; transition: border-color 0.15s; }
+  input[type=tel], input[type=text], input[type=password] {
+    width: 100%; padding: 11px 12px; margin-top: 5px; border: 1.5px solid #ccc;
+    border-radius: 6px; font-size: 1rem; transition: border-color 0.15s;
+  }
   input:focus { outline: none; border-color: #2d7dd2; }
+  /* PIN field — large centred digits */
+  .pin-input {
+    font-size: 1.6rem; letter-spacing: 0.3em; text-align: center;
+    font-family: monospace; padding: 12px;
+  }
   .hint { font-size: 0.76rem; color: #888; margin-top: 3px; }
   .btn { margin-top: 18px; padding: 12px 24px; background: #2d7dd2; color: white;
          border: none; border-radius: 6px; cursor: pointer; font-size: 1rem;
          width: 100%; font-weight: 600; transition: background 0.15s; }
   .btn:hover { background: #2566b0; }
-  .btn-back { background: none; border: 1.5px solid #ccc; color: #555; margin-top: 10px; font-weight: normal; }
+  .btn-back { background: none; border: 1.5px solid #ccc; color: #555;
+              margin-top: 10px; font-weight: normal; }
   .btn-back:hover { background: #f0f0f0; }
   .error { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24;
            padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 0.9rem; }
-  .welcome { background: #d4edda; border: 1px solid #c3e6cb; color: #155724;
-             padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 0.92rem; }
-  .welcome strong { display: block; font-size: 1rem; margin-bottom: 2px; }
+  .success-msg { background: #d4edda; border: 1px solid #c3e6cb; color: #155724;
+                 padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 0.9rem; }
   .phone-display { background: #e8f0fe; border: 1px solid #b8d0f8; border-radius: 6px;
                    padding: 10px 14px; font-size: 0.95rem; color: #1a5fc8;
                    font-weight: bold; margin-bottom: 6px; letter-spacing: 0.03em; }
@@ -37,6 +44,10 @@
   .new-badge { display: inline-block; background: #fff3cd; color: #856404; font-size: 0.75rem;
                font-weight: bold; padding: 2px 8px; border-radius: 10px; margin-left: 6px;
                vertical-align: middle; }
+  .lock-icon { font-size: 2rem; text-align: center; margin-bottom: 8px; }
+  .attempts-bar { display: flex; gap: 4px; margin-top: 10px; }
+  .attempts-bar .dot { width: 10px; height: 10px; border-radius: 50%; background: #ddd; }
+  .attempts-bar .dot.used { background: #dc3545; }
 </style>
 </head>
 <body>
@@ -50,37 +61,78 @@
   <div class="error">{{ error }}</div>
   {% endif %}
 
-  {% if show_register %}
-  <!-- ── STEP 2: New member — show registration fields ── -->
+  {% if success %}
+  <div class="success-msg">{{ success }}</div>
+  {% endif %}
+
+  {# ── STEP 2b: Existing member — enter PIN ───────────────────────────────── #}
+  {% if show_pin %}
+  <div class="step-label">Enter your PIN</div>
+  <div class="phone-display">📱 {{ phone }}</div>
+  <p style="font-size:0.85rem; color:#555; margin:4px 0 12px;">
+    Enter your 4–6 digit PIN to access your account.
+  </p>
+
+  <form method="POST" autocomplete="off">
+    <input type="hidden" name="step" value="pin">
+    <input type="hidden" name="phone" value="{{ phone }}">
+
+    <label>PIN
+      <input class="pin-input" type="password" name="pin"
+             minlength="4" maxlength="6" inputmode="numeric"
+             pattern="[0-9]{4,6}" placeholder="••••"
+             required autofocus autocomplete="current-password">
+      <span class="hint">4–6 digit PIN you chose when registering.</span>
+    </label>
+
+    <button class="btn" type="submit">Log In →</button>
+  </form>
+
+  <form method="POST" style="margin-top:0;">
+    <input type="hidden" name="step" value="check">
+    <input type="hidden" name="phone" value="">
+    <button class="btn btn-back" type="submit">← Use a different number</button>
+  </form>
+
+  <div style="text-align:center; margin-top:14px; font-size:0.84rem;">
+    <a href="{{ url_for('forgot_pin') }}" style="color:#2d7dd2;">Forgot your PIN?</a>
+  </div>
+
+  {# ── STEP 2a: New member — registration fields ─────────────────────────── #}
+  {% elif show_register %}
   <div class="step-label">New member <span class="new-badge">First time</span></div>
   <div class="phone-display">📱 {{ phone }}</div>
   <p style="font-size:0.85rem; color:#555; margin:4px 0 12px;">
     This number isn't registered yet. Fill in the details below to join the pool.
   </p>
 
-  <form method="POST">
+  <form method="POST" autocomplete="off">
     <input type="hidden" name="step" value="register">
     <input type="hidden" name="phone" value="{{ phone }}">
 
     <label>Full name
-      <input type="text" name="name" placeholder="e.g. Amara Osei" required autofocus>
+      <input type="text" name="name" placeholder="e.g. Amara Osei" required autofocus
+             autocomplete="name">
     </label>
 
     <label>Referred by (optional)
-      <input type="tel" name="referred_by" placeholder="Referrer's phone number">
+      <input type="tel" name="referred_by" placeholder="Referrer's phone number"
+             autocomplete="off">
       <span class="hint">Enter a member's phone to grow their trust network.</span>
     </label>
 
     <hr class="section-divider">
 
-    <label>Choose a 4-digit PIN
-      <input type="password" name="pin" maxlength="4" inputmode="numeric"
-             pattern="[0-9]{4}" placeholder="e.g. 1234" required>
-      <span class="hint">Used to authorise care requests &amp; repayments.</span>
+    <label>Choose a PIN (4–6 digits)
+      <input type="password" name="pin" minlength="4" maxlength="6"
+             inputmode="numeric" pattern="[0-9]{4,6}"
+             placeholder="e.g. 1234" required autocomplete="new-password">
+      <span class="hint">Used to authorise care requests &amp; repayments. Do not reuse PINs from other services.</span>
     </label>
     <label>Confirm PIN
-      <input type="password" name="confirm_pin" maxlength="4" inputmode="numeric"
-             pattern="[0-9]{4}" placeholder="Re-enter PIN" required>
+      <input type="password" name="confirm_pin" minlength="4" maxlength="6"
+             inputmode="numeric" pattern="[0-9]{4,6}"
+             placeholder="Re-enter PIN" required autocomplete="new-password">
     </label>
 
     <div style="display:flex; gap:10px; align-items:flex-start; margin-top:12px;">
@@ -92,28 +144,28 @@
       </label>
     </div>
 
-    <button class="btn" type="submit">Join &amp; Enter Pool</button>
+    <button class="btn" type="submit">Create Account</button>
   </form>
 
   <form method="POST" style="margin-top:0;">
     <input type="hidden" name="step" value="check">
     <input type="hidden" name="phone" value="">
-    <button class="btn btn-back" type="submit"
-            onclick="this.form.querySelector('[name=phone]').value=''">
-      ← Use a different number
-    </button>
+    <button class="btn btn-back" type="submit">← Use a different number</button>
   </form>
 
+  {# ── STEP 1: Phone entry ─────────────────────────────────────────────────── #}
   {% else %}
-  <!-- ── STEP 1: Phone entry ── -->
   <div class="step-label">Enter your phone number</div>
 
   <form method="POST">
     <input type="hidden" name="step" value="check">
     <label>Phone number
       <input type="tel" name="phone" value="{{ phone or '' }}"
-             placeholder="e.g. 254712345678" required autofocus>
-      <span class="hint">If you're already a member, you'll be logged in straight away.</span>
+             placeholder="e.g. 254712345678" required autofocus
+             autocomplete="tel">
+      <span class="hint">
+        Existing members proceed to PIN entry. New numbers start registration.
+      </span>
     </label>
     <button class="btn" type="submit">Continue →</button>
   </form>
@@ -121,12 +173,26 @@
   {% endif %}
 
   <div class="divider">
+    {% if not show_pin %}
     <a href="{{ url_for('forgot_pin') }}">Forgot your PIN?</a>
     &nbsp;·&nbsp;
+    {% endif %}
     Are you a healthcare provider?
     <a href="{{ url_for('provider_login') }}">Provider login →</a>
   </div>
 </div>
+
+<script>
+/* Prevent accidental double-submit on slow connections */
+document.querySelectorAll('form').forEach(function(form) {
+  form.addEventListener('submit', function() {
+    var btn = form.querySelector('button[type=submit]');
+    if (btn && !btn.classList.contains('btn-back')) {
+      setTimeout(function() { btn.disabled = true; btn.textContent = 'Please wait…'; }, 50);
+    }
+  });
+});
+</script>
 
 </body>
 </html>

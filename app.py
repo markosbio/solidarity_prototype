@@ -284,58 +284,100 @@ def _record_login(user, success=True):
     except Exception:
         db.session.rollback()
 
-MAX_LOGIN_ATTEMPTS = 10
+MAX_LOGIN_ATTEMPTS = 5   # lock account after this many consecutive wrong PINs
 
 @app.route('/login', methods=['GET', 'POST'])
-@limiter.limit("20 per minute")
+@limiter.limit("30 per minute")
 def login():
     if request.method == 'POST':
         phone = request.form.get('phone', '').strip()
-        step = request.form.get('step', 'check')
+        step  = request.form.get('step', 'check')
 
+        # ── Step 1: phone lookup ──────────────────────────────────────────────
         if step == 'check':
-            # Phone-lookup step — decide whether to log in or show registration fields
             user = User.query.filter_by(phone=phone).first()
             if user:
-                # Check lock status
                 if getattr(user, 'is_locked', False):
-                    reason = getattr(user, 'locked_reason', '') or 'Account locked by admin.'
+                    reason = getattr(user, 'locked_reason', '') or 'Contact support.'
                     return render_template('login.html', phone=phone,
-                                           error=f'Your account has been locked. {reason}')
-                # Check failed login count
+                                           error=f'Account locked. {reason}')
                 if (getattr(user, 'failed_login_count', 0) or 0) >= MAX_LOGIN_ATTEMPTS:
+                    if not getattr(user, 'is_locked', False):
+                        user.is_locked = True
+                        user.locked_reason = 'Locked after too many failed PIN attempts.'
+                        db.session.commit()
                     return render_template('login.html', phone=phone,
-                                           error='Too many failed login attempts. Contact support.')
-                _record_login(user, success=True)
-                session.permanent = True
-                session['user_id'] = user.id
-                return redirect(url_for('home'))
-            # Phone not found — show registration fields with phone pre-filled
+                                           error='Account locked after too many failed attempts. Contact support.')
+                # Existing user — prompt for PIN
+                return render_template('login.html', phone=phone, show_pin=True)
+            # New number — show registration form
             return render_template('login.html', phone=phone, show_register=True)
 
+        # ── Step 2: PIN verification ──────────────────────────────────────────
+        elif step == 'pin':
+            pin  = request.form.get('pin', '').strip()
+            user = User.query.filter_by(phone=phone).first()
+            if not user:
+                return render_template('login.html', phone=phone,
+                                       error='Phone number not found. Please try again.')
+            if getattr(user, 'is_locked', False):
+                reason = getattr(user, 'locked_reason', '') or 'Contact support.'
+                return render_template('login.html', phone=phone,
+                                       error=f'Account locked. {reason}')
+            failed = getattr(user, 'failed_login_count', 0) or 0
+            if failed >= MAX_LOGIN_ATTEMPTS:
+                user.is_locked = True
+                user.locked_reason = 'Locked after too many failed PIN attempts.'
+                db.session.commit()
+                return render_template('login.html', phone=phone,
+                                       error='Account locked after too many failed attempts. Contact support.')
+            # Verify PIN
+            if pin != (user.pin or ''):
+                _record_login(user, success=False)
+                remaining = max(0, MAX_LOGIN_ATTEMPTS - (failed + 1))
+                if remaining == 0:
+                    user.is_locked = True
+                    user.locked_reason = 'Locked after too many failed PIN attempts.'
+                    db.session.commit()
+                    return render_template('login.html', phone=phone,
+                                           error='Account locked after too many failed attempts. Contact support.')
+                return render_template('login.html', phone=phone, show_pin=True,
+                                       error=f'Incorrect PIN. {remaining} attempt{"s" if remaining != 1 else ""} remaining before lockout.')
+            # Correct PIN — log in
+            _record_login(user, success=True)
+            session.permanent = True
+            session['user_id'] = user.id
+            next_url = request.args.get('next') or url_for('home')
+            return redirect(next_url)
+
+        # ── Step 3: new member registration ──────────────────────────────────
         elif step == 'register':
-            # New-user registration submitted from the login page
-            name = request.form.get('name', '').strip()
-            pin = request.form.get('pin', '').strip()
+            name        = request.form.get('name', '').strip()
+            pin         = request.form.get('pin', '').strip()
             confirm_pin = request.form.get('confirm_pin', '').strip()
             referred_by = request.form.get('referred_by', '').strip()
+            tos_accept  = request.form.get('tos_accept', '')
 
-            # Re-check in case they registered in another tab
             existing = User.query.filter_by(phone=phone).first()
             if existing:
-                session.permanent = True
-                session['user_id'] = existing.id
-                return redirect(url_for('home'))
+                # Race condition — already registered; ask for PIN
+                return render_template('login.html', phone=phone, show_pin=True,
+                                       error='This number is already registered. Please enter your PIN.')
             if not name:
                 return render_template('login.html', phone=phone, show_register=True,
                                        error='Please enter your full name.')
-            if not pin.isdigit() or len(pin) != 4:
+            if not pin.isdigit() or not (4 <= len(pin) <= 6):
                 return render_template('login.html', phone=phone, show_register=True,
-                                       error='PIN must be exactly 4 digits.')
+                                       error='PIN must be 4–6 digits.')
             if pin != confirm_pin:
                 return render_template('login.html', phone=phone, show_register=True,
                                        error='PINs do not match. Please try again.')
-            user = User(phone=phone, name=name, pin=pin, sub_wallet_balance=0.0, trust_score=0.5)
+            if not tos_accept:
+                return render_template('login.html', phone=phone, show_register=True,
+                                       error='You must accept the Terms of Service to register.')
+
+            user = User(phone=phone, name=name, pin=pin,
+                        sub_wallet_balance=0.0, trust_score=0.5)
             if referred_by:
                 referrer = User.query.filter_by(phone=referred_by).first()
                 if referrer:
@@ -344,17 +386,23 @@ def login():
             db.session.commit()
             default_comm = Community.query.first()
             if default_comm:
-                membership = CommunityMembership(user_id=user.id, community_id=default_comm.id, role='member')
-                db.session.add(membership)
+                db.session.add(CommunityMembership(
+                    user_id=user.id, community_id=default_comm.id, role='member'))
                 user.primary_community_id = default_comm.id
                 db.session.commit()
-            session.permanent = True
-            session['user_id'] = user.id
-            return redirect(url_for('home'))
 
-    # GET — check for pre-filled phone from register page redirect
+            # No auto-login — redirect to login with success message
+            logger.info("New member registered: phone={} name={}", phone, name)
+            return redirect(url_for('login', phone=phone, registered='1'))
+
+    # GET
     prefill_phone = request.args.get('phone', '')
-    return render_template('login.html', phone=prefill_phone)
+    registered    = request.args.get('registered', '')
+    return render_template(
+        'login.html',
+        phone=prefill_phone,
+        success='Account created! Please log in with your phone number and PIN.' if registered else None,
+    )
 
 
 @app.route('/terms')
@@ -378,11 +426,10 @@ def register():
         confirm_pin = request.form.get('confirm_pin', '').strip()
         existing = User.query.filter_by(phone=phone).first()
         if existing:
-            session.permanent = True
-            session['user_id'] = existing.id
-            return redirect(url_for('home'))
-        if not pin.isdigit() or len(pin) != 4:
-            return render_template('register.html', error='PIN must be exactly 4 digits.')
+            # Already registered — send to login PIN step
+            return redirect(url_for('login', phone=phone))
+        if not pin.isdigit() or not (4 <= len(pin) <= 6):
+            return render_template('register.html', error='PIN must be 4–6 digits.')
         if pin != confirm_pin:
             return render_template('register.html', error='PINs do not match. Please try again.')
         tos_accept = request.form.get('tos_accept', '')
@@ -402,9 +449,9 @@ def register():
             db.session.add(membership)
             user.primary_community_id = default_comm.id
             db.session.commit()
-        session.permanent = True
-        session['user_id'] = user.id
-        return redirect(url_for('home'))
+        # No auto-login — redirect to login with success banner
+        logger.info("New member registered via /register: phone={} name={}", phone, name)
+        return redirect(url_for('login', phone=phone, registered='1'))
     prefill = request.args.get('phone', '')
     return render_template('register.html', prefill_phone=prefill)
 
