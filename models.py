@@ -390,6 +390,7 @@ class SupportTicket(db.Model):
     phone = db.Column(db.String(20), nullable=True)
     subject = db.Column(db.String(200), nullable=False)
     status = db.Column(db.String(20), default='open')  # open | pending | closed
+    priority = db.Column(db.String(10), default='medium')  # low | medium | high
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     assigned_to = db.Column(db.Integer, db.ForeignKey('member.id'), nullable=True)

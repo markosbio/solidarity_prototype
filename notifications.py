@@ -156,6 +156,93 @@ def notify_treatment_started(user, provider_name: str) -> None:
     _send_sms(user.phone, msg)
 
 
+def notify_admin_care_pending(admin_phones: list, user_name: str,
+                              amount: float, care_req_id: int) -> None:
+    """Alert all admins when a care request moves to pending_admin review."""
+    msg = (
+        f"[SolidarityPool] Admin review needed: Care Request #{care_req_id} "
+        f"by {user_name} for UGX {amount:,.0f} has passed witness checks and "
+        f"requires admin approval. Log in: /admin/care"
+    )
+    logger.info("Admin care-pending alert: care_req_id={} user={} amount={:.0f}",
+                care_req_id, user_name, amount)
+    for phone in admin_phones:
+        _send_sms(phone, msg)
+
+
+def notify_admin_new_support_ticket(admin_phones: list, subject: str,
+                                    ticket_id: int, from_phone: str = '') -> None:
+    """Alert admins when a new support ticket is opened."""
+    from_txt = f" from {from_phone}" if from_phone else ''
+    msg = (
+        f"[SolidarityPool] New support ticket{from_txt}: '{subject}' "
+        f"(Ticket #{ticket_id}). Log in to reply: /admin/support/{ticket_id}"
+    )
+    logger.info("Admin support-ticket alert: ticket_id={} subject={!r}", ticket_id, subject)
+    for phone in admin_phones:
+        _send_sms(phone, msg)
+
+
+def notify_admin_dispute_filed(admin_phones: list, payment_ref: str,
+                               user_name: str, amount: float) -> None:
+    """Alert admins when a member files a payment dispute."""
+    msg = (
+        f"[SolidarityPool] Payment dispute filed by {user_name} "
+        f"on payment {payment_ref} (UGX {amount:,.0f}). "
+        f"Review: /admin/disputes"
+    )
+    logger.info("Admin dispute alert: ref={} user={} amount={:.0f}",
+                payment_ref, user_name, amount)
+    for phone in admin_phones:
+        _send_sms(phone, msg)
+
+
+def notify_admin_fraud_alert(admin_phones: list, user_name: str,
+                             score: float, care_req_id: int) -> None:
+    """Alert admins when a new fraud alert is raised."""
+    msg = (
+        f"[SolidarityPool] Fraud alert: Care Request #{care_req_id} by {user_name} "
+        f"flagged with risk score {score:.0%}. Review: /admin/fraud-alerts"
+    )
+    logger.info("Admin fraud alert: care_req_id={} user={} score={}", care_req_id, user_name, score)
+    for phone in admin_phones:
+        _send_sms(phone, msg)
+
+
+def notify_member_care_approved(user, amount: float, provider_name: str) -> None:
+    """SMS member when their care request is approved."""
+    msg = (
+        f"[SolidarityPool] Great news {user.name.split()[0]}! Your care fund request "
+        f"of UGX {amount:,.0f} has been approved. Payment is being sent to {provider_name}. "
+        f"You'll receive a confirmation when they accept it."
+    )
+    logger.info("Care approved notification: user_id={} amount={:.0f}", user.id, amount)
+    _send_sms(user.phone, msg)
+
+
+def notify_member_care_rejected(user, reason: str = '') -> None:
+    """SMS member when their care request is rejected."""
+    reason_txt = f" Reason: {reason}." if reason else ''
+    msg = (
+        f"[SolidarityPool] {user.name.split()[0]}, your care fund request was not approved."
+        f"{reason_txt} Contact support or visit /support for help."
+    )
+    logger.info("Care rejected notification: user_id={} reason={!r}", user.id, reason)
+    _send_sms(user.phone, msg)
+
+
+def notify_admin_new_provider_app(admin_phones: list, provider_name: str,
+                                  applicant_phone: str) -> None:
+    """Alert all admins (not just one) when a new provider application arrives."""
+    msg = (
+        f"[SolidarityPool] New provider application: '{provider_name}' "
+        f"({applicant_phone}). Review: /admin/verified-providers"
+    )
+    logger.info("Admin provider-app alert: name={} phone={}", provider_name, applicant_phone)
+    for phone in admin_phones:
+        _send_sms(phone, msg)
+
+
 def _send_sms(phone: str, message: str) -> None:
     at_username = os.getenv('AT_USERNAME')
     at_api_key = os.getenv('AT_API_KEY')

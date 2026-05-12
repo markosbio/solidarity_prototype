@@ -4,7 +4,8 @@ from models import (db, User, Transaction, Community, CommunityMembership, Provi
                     CareRequest, SystemState, PaymentRecord, MpesaTopup,
                     MobileMoneyTransaction, VerifiedProvider, FraudAlert, PlatformRevenue,
                     TrustEvent, AdminAuditLog, GlobalAdmin, UserLoginHistory, ProviderCodeHistory,
-                    PinResetOTP, AdminSetting, PlatformWithdrawal)
+                    PinResetOTP, AdminSetting, PlatformWithdrawal,
+                    SupportTicket, SupportMessage)
 from trust_graph import compute_draw_ceiling
 from witness import select_witnesses
 from recovery import update_recovery_parameters
@@ -24,7 +25,10 @@ import os
 import io
 import csv
 from datetime import datetime, timedelta
-from notifications import notify_ceiling_increase, notify_pool_low, notify_fraud_flagged
+from notifications import (notify_ceiling_increase, notify_pool_low, notify_fraud_flagged,
+                           notify_admin_care_pending, notify_admin_new_support_ticket,
+                           notify_admin_dispute_filed, notify_admin_fraud_alert,
+                           notify_admin_new_provider_app)
 from dotenv import load_dotenv
 from loguru import logger
 load_dotenv()
@@ -122,6 +126,59 @@ def _log_admin_action(admin_id, action, target_user_id=None, details='',
     )
     db.session.add(log)
     db.session.commit()
+
+def _get_admin_phones():
+    """Return a list of all admin phone numbers (GlobalAdmin table + ADMIN_PHONES fallback)."""
+    try:
+        phones = []
+        for ga in GlobalAdmin.query.all():
+            u = db.session.get(User, ga.user_id)
+            if u and u.phone:
+                phones.append(u.phone)
+        if not phones:
+            phones = list(ADMIN_PHONES)
+        return phones
+    except Exception:
+        return list(ADMIN_PHONES)
+
+
+def _admin_pending_counts():
+    """Compute badge counts for admin navigation & dashboard. Returns a dict."""
+    try:
+        role = _get_current_admin_role()
+        if not role:
+            return {}
+        counts = {
+            'role': role,
+            'pending_care': CareRequest.query.filter_by(
+                status='pending_admin', admin_approved=False).count(),
+            'fraud_alerts': FraudAlert.query.filter_by(resolved=False).count(),
+            'pending_providers': VerifiedProvider.query.filter_by(
+                verification_status='pending').count(),
+            'open_support': SupportTicket.query.filter_by(status='open').count(),
+            'open_disputes': PaymentRecord.query.filter(
+                PaymentRecord.dispute_status == 'open').count(),
+        }
+        # Role-based filtering: only show tasks relevant to each role
+        if role == 'support':
+            counts['pending_care'] = 0
+            counts['fraud_alerts'] = 0
+        elif role == 'operator':
+            counts['pending_providers'] = 0
+            counts['open_support'] = 0
+        return counts
+    except Exception:
+        return {}
+
+
+@app.context_processor
+def inject_admin_counts():
+    """Inject admin_counts into every template on admin routes."""
+    from flask import request as _req
+    if _req.path.startswith('/admin'):
+        return {'admin_counts': _admin_pending_counts()}
+    return {'admin_counts': {}}
+
 
 db.init_app(app)
 app.register_blueprint(communities_bp)
@@ -308,6 +365,7 @@ def _run_column_migrations():
         "ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS old_value VARCHAR(500)",
         "ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS new_value VARCHAR(500)",
         "ALTER TABLE user_login_history ADD COLUMN IF NOT EXISTS user_agent VARCHAR(300)",
+        "ALTER TABLE support_ticket ADD COLUMN IF NOT EXISTS priority VARCHAR(10) DEFAULT 'medium'",
         """CREATE TABLE IF NOT EXISTS support_ticket (
             id SERIAL PRIMARY KEY,
             user_id INTEGER REFERENCES member(id),
@@ -1008,7 +1066,13 @@ def request_care():
                 care_req.status = 'pending_admin'
                 db.session.commit()
                 alert = log_fraud_alert(user.id, care_req.id, fraud_score, fraud_reasons)
-                # Notify admin if found
+                # Notify all admins of the fraud flag
+                try:
+                    notify_admin_fraud_alert(
+                        _get_admin_phones(), user.name, fraud_score, care_req.id)
+                except Exception:
+                    pass
+                # Legacy: also notify community admin if different
                 admin_comm = Community.query.get(community_id)
                 if admin_comm and admin_comm.admin_user_id:
                     admin_user = User.query.get(admin_comm.admin_user_id)
@@ -1088,6 +1152,16 @@ def verify_care(request_id, response):
         need_admin = (care_req.amount_needed > 180000) or care_req.is_emergency
         if need_admin:
             care_req.status = 'pending_admin'
+            try:
+                _care_user = db.session.get(User, care_req.user_id)
+                notify_admin_care_pending(
+                    _get_admin_phones(),
+                    _care_user.name if _care_user else 'Unknown',
+                    float(care_req.amount_needed or 0),
+                    care_req.id,
+                )
+            except Exception:
+                pass
         else:
             care_req.status = 'admin_approved'
             care_req.admin_approved = True
@@ -1290,6 +1364,10 @@ def admin_resolve_fraud_alert(alert_id):
     alert.resolved_by = session['user_id']
     alert.resolved_at = datetime.utcnow()
     db.session.commit()
+    _log_admin_action(session['user_id'], 'fraud_alert_resolved',
+                      target_user_id=alert.user_id,
+                      details=f'Fraud alert #{alert_id} resolved',
+                      old_value='open', new_value='resolved')
     return redirect(url_for('admin_fraud_alerts'))
 
 @app.route('/admin/care/<int:request_id>', methods=['POST'])
@@ -1301,6 +1379,7 @@ def admin_care_action(request_id):
         return "Request not found", 404
     action = request.form.get('action')
     if action == 'approve':
+        old_status = care_req.status
         care_req.admin_approved = True
         care_req.admin_id = user.id
         care_req.status = 'admin_approved'
@@ -1312,9 +1391,19 @@ def admin_care_action(request_id):
         if success:
             care_req.payment_transaction_id = ref
         db.session.commit()
+        _log_admin_action(user.id, 'care_request_approved',
+                          target_user_id=care_req.user_id,
+                          details=f'Care request #{care_req.id} UGX {care_req.amount_needed:,.0f}',
+                          old_value=old_status, new_value='admin_approved')
     elif action == 'deny':
+        old_status = care_req.status
+        reason = request.form.get('reason', '')
         care_req.status = 'rejected'
         db.session.commit()
+        _log_admin_action(user.id, 'care_request_denied',
+                          target_user_id=care_req.user_id,
+                          details=f'Care request #{care_req.id}. Reason: {reason[:200]}',
+                          old_value=old_status, new_value='rejected')
     return redirect(url_for('admin_care'))
 
 @app.route('/verify_witness/<int:request_id>/<response>')
@@ -1338,6 +1427,16 @@ def verify_witness(request_id, response):
         need_admin = (care_req.amount_needed > 180000) or care_req.is_emergency
         if need_admin:
             care_req.status = 'pending_admin'
+            try:
+                _care_user2 = db.session.get(User, care_req.user_id)
+                notify_admin_care_pending(
+                    _get_admin_phones(),
+                    _care_user2.name if _care_user2 else 'Unknown',
+                    float(care_req.amount_needed or 0),
+                    care_req.id,
+                )
+            except Exception:
+                pass
         else:
             care_req.status = 'admin_approved'
             care_req.admin_approved = True
@@ -2975,14 +3074,12 @@ def file_dispute(ref):
         pr.dispute_by_user_id = user.id
         pr.dispute_at = datetime.utcnow()
         db.session.commit()
+        _log_admin_action(0, 'dispute_filed', target_user_id=user.id,
+                          details=f'Payment {ref}: {note[:200]}',
+                          old_value='none', new_value='open')
         try:
-            from notifications import _send_sms
-            for phone in ADMIN_PHONES:
-                try:
-                    _send_sms(phone,
-                              f'[SolidarityPool] Dispute filed on payment {ref} by {user.phone}. Note: {note[:80]}')
-                except Exception:
-                    pass
+            notify_admin_dispute_filed(
+                _get_admin_phones(), ref, user.name, float(pr.amount or 0))
         except Exception:
             pass
         flash('Your dispute has been submitted. Admin will review it shortly.', 'success')
@@ -3489,8 +3586,6 @@ def admin_user_deactivate(target_id):
 
 # ── Support Chat ───────────────────────────────────────────────────────────────
 
-from models import SupportTicket, SupportMessage
-
 @app.route('/support', methods=['GET', 'POST'])
 def support_chat():
     user_id = session.get('user_id')
@@ -3507,11 +3602,20 @@ def support_chat():
                 return render_template('support_chat.html', user=user,
                                        tickets=_user_tickets(user, phone),
                                        error='Please fill in both the subject and message.')
+            # Auto-assign priority based on subject keywords
+            subj_lower = subject.lower()
+            if any(w in subj_lower for w in ('urgent', 'emergency', 'critical', 'fraud', 'stolen')):
+                ticket_priority = 'high'
+            elif any(w in subj_lower for w in ('help', 'problem', 'issue', 'error', 'wrong', 'failed')):
+                ticket_priority = 'medium'
+            else:
+                ticket_priority = 'low'
             ticket = SupportTicket(
                 user_id=user_id,
                 phone=phone or None,
                 subject=subject,
                 status='open',
+                priority=ticket_priority,
             )
             db.session.add(ticket)
             db.session.flush()
@@ -3523,6 +3627,13 @@ def support_chat():
             )
             db.session.add(msg)
             db.session.commit()
+            try:
+                notify_admin_new_support_ticket(
+                    _get_admin_phones(), subject, ticket.id,
+                    from_phone=phone or (user.phone if user else ''),
+                )
+            except Exception:
+                pass
             return redirect(url_for('support_ticket_view', ticket_id=ticket.id))
 
         if action == 'reply':
@@ -3607,26 +3718,63 @@ def admin_support_ticket(ticket_id):
     ticket = SupportTicket.query.get_or_404(ticket_id)
     if request.method == 'POST':
         action = request.form.get('action', '')
+        admin_uid = session.get('user_id')
         if action == 'reply':
             body = request.form.get('body', '').strip()
             if body:
                 db.session.add(SupportMessage(
                     ticket_id=ticket.id,
                     sender_type='admin',
-                    sender_id=session.get('user_id'),
+                    sender_id=admin_uid,
                     body=body,
                 ))
+                old_s = ticket.status
                 ticket.status = 'pending'
                 ticket.updated_at = datetime.utcnow()
                 db.session.commit()
+                _log_admin_action(admin_uid, 'support_ticket_replied',
+                                  target_user_id=ticket.user_id,
+                                  details=f'Ticket #{ticket.id}: {body[:150]}',
+                                  old_value=old_s, new_value='pending')
         elif action == 'close':
+            old_s = ticket.status
             ticket.status = 'closed'
             ticket.updated_at = datetime.utcnow()
             db.session.commit()
+            _log_admin_action(admin_uid, 'support_ticket_closed',
+                              target_user_id=ticket.user_id,
+                              details=f'Ticket #{ticket.id}: {ticket.subject[:100]}',
+                              old_value=old_s, new_value='closed')
         elif action == 'reopen':
+            old_s = ticket.status
             ticket.status = 'open'
             ticket.updated_at = datetime.utcnow()
             db.session.commit()
+            _log_admin_action(admin_uid, 'support_ticket_reopened',
+                              target_user_id=ticket.user_id,
+                              details=f'Ticket #{ticket.id}: {ticket.subject[:100]}',
+                              old_value=old_s, new_value='open')
+        elif action == 'assign':
+            assignee_id = request.form.get('assignee_id', type=int)
+            old_assignee = ticket.assigned_to
+            ticket.assigned_to = assignee_id
+            ticket.updated_at = datetime.utcnow()
+            db.session.commit()
+            _log_admin_action(admin_uid, 'support_ticket_assigned',
+                              target_user_id=ticket.user_id,
+                              details=f'Ticket #{ticket.id} assigned to admin #{assignee_id}',
+                              old_value=str(old_assignee), new_value=str(assignee_id))
+        elif action == 'set_priority':
+            priority = request.form.get('priority', 'medium')
+            if priority in ('low', 'medium', 'high'):
+                old_p = getattr(ticket, 'priority', 'medium')
+                ticket.priority = priority
+                ticket.updated_at = datetime.utcnow()
+                db.session.commit()
+                _log_admin_action(admin_uid, 'support_ticket_priority_changed',
+                                  target_user_id=ticket.user_id,
+                                  details=f'Ticket #{ticket.id}: priority changed',
+                                  old_value=old_p, new_value=priority)
         return redirect(url_for('admin_support_ticket', ticket_id=ticket.id))
 
     # Mark user messages as read
@@ -3649,6 +3797,13 @@ def _admin_support_unread_count():
 
 
 # ── Admin: Monitor live JSON feed ──────────────────────────────────────────────
+
+@app.route('/admin/pending-counts')
+@admin_required
+def admin_pending_counts_api():
+    """JSON endpoint polled every 60 s by the admin nav to refresh badge counts."""
+    return jsonify(_admin_pending_counts())
+
 
 @app.route('/admin/monitor/data')
 @admin_required

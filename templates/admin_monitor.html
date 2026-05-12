@@ -70,6 +70,22 @@
   .badge-warn { background: #fff3cd; color: #856404; }
   .badge-crit { background: #f8d7da; color: #721c24; }
 
+  /* Pending Tasks grid */
+  .pending-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 28px; }
+  .pending-card { background: white; border: 1px solid #ddd; border-radius: 10px; padding: 14px 16px;
+                  text-decoration: none; color: inherit; transition: box-shadow .15s, transform .1s; display: block; }
+  .pending-card:hover { box-shadow: 0 4px 14px rgba(0,0,0,.1); transform: translateY(-1px); }
+  .pending-card .pc-icon { font-size: 1.4rem; margin-bottom: 6px; }
+  .pending-card .pc-count { font-size: 1.8rem; font-weight: 800; line-height: 1; }
+  .pending-card .pc-label { font-size: 0.74rem; color: #666; margin-top: 3px; text-transform: uppercase; letter-spacing: .04em; }
+  .pending-card.pc-ok     { border-left: 4px solid #28a745; }
+  .pending-card.pc-ok .pc-count { color: #28a745; }
+  .pending-card.pc-amber  { border-left: 4px solid #ffc107; }
+  .pending-card.pc-amber .pc-count { color: #e6a817; }
+  .pending-card.pc-red    { border-left: 4px solid #dc3545; }
+  .pending-card.pc-red .pc-count { color: #dc3545; }
+  .pending-card .pc-sub { font-size: 0.72rem; color: #aaa; margin-top: 5px; }
+
   .action-links { margin-top: 28px; display: flex; gap: 10px; flex-wrap: wrap; }
   .btn { display: inline-block; padding: 8px 18px; border-radius: 4px; font-size: 0.88rem;
          text-decoration: none; }
@@ -112,6 +128,51 @@
 {% else %}
 <div class="no-alerts" style="margin-bottom:20px;">✅ No active alerts — all systems look healthy.</div>
 {% endif %}
+
+<!-- ── Pending Tasks ───────────────────────────────────────────── -->
+{% set c = admin_counts %}
+<div class="section-title">Pending Tasks</div>
+<div class="pending-grid" id="pending-task-grid">
+  {% set n_care = c.get('pending_care', pending_care|default(0)) %}
+  <a href="{{ url_for('admin_care') }}" class="pending-card {{ 'pc-amber' if n_care > 0 else 'pc-ok' }}">
+    <div class="pc-icon">📋</div>
+    <div class="pc-count" id="pt-care">{{ n_care }}</div>
+    <div class="pc-label">Care Approvals</div>
+    <div class="pc-sub">{{ 'Needs review' if n_care > 0 else 'All clear' }}</div>
+  </a>
+
+  {% set n_fraud = c.get('fraud_alerts', fraud_count|default(0)) %}
+  <a href="{{ url_for('admin_fraud_alerts') }}" class="pending-card {{ 'pc-red' if n_fraud >= 5 else 'pc-amber' if n_fraud > 0 else 'pc-ok' }}">
+    <div class="pc-icon">🚨</div>
+    <div class="pc-count" id="pt-fraud">{{ n_fraud }}</div>
+    <div class="pc-label">Fraud Alerts</div>
+    <div class="pc-sub">{{ 'Urgent' if n_fraud >= 5 else 'Needs review' if n_fraud > 0 else 'All clear' }}</div>
+  </a>
+
+  {% set n_prov = c.get('pending_providers', pending_verifications|default(0)) %}
+  <a href="{{ url_for('admin_verified_providers') }}" class="pending-card {{ 'pc-amber' if n_prov > 0 else 'pc-ok' }}">
+    <div class="pc-icon">🏥</div>
+    <div class="pc-count" id="pt-prov">{{ n_prov }}</div>
+    <div class="pc-label">Provider Applications</div>
+    <div class="pc-sub">{{ 'Awaiting approval' if n_prov > 0 else 'All clear' }}</div>
+  </a>
+
+  {% set n_sup = c.get('open_support', 0) %}
+  <a href="{{ url_for('admin_support_inbox') }}" class="pending-card {{ 'pc-red' if n_sup > 0 else 'pc-ok' }}">
+    <div class="pc-icon">💬</div>
+    <div class="pc-count" id="pt-sup">{{ n_sup }}</div>
+    <div class="pc-label">Support Tickets</div>
+    <div class="pc-sub">{{ 'Open tickets' if n_sup > 0 else 'All clear' }}</div>
+  </a>
+
+  {% set n_disp = c.get('open_disputes', 0) %}
+  <a href="{{ url_for('admin_disputes') }}" class="pending-card {{ 'pc-amber' if n_disp > 0 else 'pc-ok' }}">
+    <div class="pc-icon">⚖️</div>
+    <div class="pc-count" id="pt-disp">{{ n_disp }}</div>
+    <div class="pc-label">Disputes</div>
+    <div class="pc-sub">{{ 'Needs resolution' if n_disp > 0 else 'All clear' }}</div>
+  </a>
+</div>
 
 <!-- ── Service Status ─────────────────────────────────────────── -->
 <div class="section-title">Service Status</div>
@@ -279,6 +340,40 @@ async function refreshKPIs() {
   } catch (_) {}
 }
 setInterval(refreshKPIs, 30_000);
+
+// ── Live Pending Tasks polling (every 60 s) ────────────────────
+const TASK_MAP = {
+  'pending_care':       'pt-care',
+  'fraud_alerts':       'pt-fraud',
+  'pending_providers':  'pt-prov',
+  'open_support':       'pt-sup',
+  'open_disputes':      'pt-disp',
+};
+const NAV_BADGE_MAP = {
+  'pending_care':       null,
+  'fraud_alerts':       null,
+  'pending_providers':  null,
+  'open_support':       'nav-support-badge',
+  'open_disputes':      null,
+};
+async function refreshPendingCounts() {
+  try {
+    const res = await fetch('/admin/pending-counts');
+    if (!res.ok) return;
+    const d = await res.json();
+    for (const [key, elId] of Object.entries(TASK_MAP)) {
+      const el = document.getElementById(elId);
+      if (el && d[key] !== undefined) el.textContent = d[key];
+    }
+    // Update nav badges if element exists
+    const supBadge = document.getElementById('nav-support-badge');
+    if (supBadge && d.open_support !== undefined) {
+      supBadge.textContent = d.open_support;
+      supBadge.style.display = d.open_support > 0 ? 'inline-flex' : 'none';
+    }
+  } catch (_) {}
+}
+setInterval(refreshPendingCounts, 60_000);
 
 // ── Full page meta-refresh every 60 s ─────────────────────────
 setTimeout(() => location.reload(), 60_000);

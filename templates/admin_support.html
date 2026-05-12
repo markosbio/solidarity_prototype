@@ -29,6 +29,10 @@
   .status-open    { background: #d4edda; color: #155724; }
   .status-pending { background: #fff3cd; color: #856404; }
   .status-closed  { background: #e2e3e5; color: #6c757d; }
+  .priority-high   { background: #f8d7da; color: #721c24; }
+  .priority-medium { background: #fff3cd; color: #856404; }
+  .priority-low    { background: #e2e3e5; color: #6c757d; }
+  .ticket-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
   .unread-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #dc3545; margin-left: 4px; }
   .empty-state { text-align: center; padding: 40px 16px; color: #aaa; font-size: 0.88rem; }
 
@@ -99,6 +103,8 @@
           </div>
           <div class="ticket-meta">
             <span class="status-badge status-{{ t.status }}">{{ t.status }}</span>
+            {% set tp = t.priority if t.priority else 'medium' %}
+            <span class="status-badge priority-{{ tp }}">{{ tp }}</span>
             <span>{{ t.phone or (t.user.phone if t.user else '—') }}</span>
             <span>{{ t.updated_at.strftime('%b %d') }}</span>
           </div>
@@ -122,18 +128,37 @@
           &nbsp;·&nbsp; Opened {{ active_ticket.created_at.strftime('%b %d, %H:%M') }}
         </div>
       </div>
-      <span class="status-badge status-{{ active_ticket.status }}">{{ active_ticket.status }}</span>
-      {% if active_ticket.status != 'closed' %}
-      <form method="POST" style="margin:0;">
-        <input type="hidden" name="action" value="close">
-        <button class="action-btn close" type="submit">Close ticket</button>
-      </form>
-      {% else %}
-      <form method="POST" style="margin:0;">
-        <input type="hidden" name="action" value="reopen">
-        <button class="action-btn reopen" type="submit">Reopen</button>
-      </form>
-      {% endif %}
+      <div class="ticket-actions">
+        {% set ap = active_ticket.priority if active_ticket.priority else 'medium' %}
+        <span class="status-badge priority-{{ ap }}">{{ ap }} priority</span>
+        <span class="status-badge status-{{ active_ticket.status }}">{{ active_ticket.status }}</span>
+        {% if active_ticket.assigned_to %}
+        <span style="font-size:0.75rem; color:#888;">Assigned: #{{ active_ticket.assigned_to }}</span>
+        {% endif %}
+
+        <!-- Priority control -->
+        <form method="POST" style="margin:0; display:flex; gap:4px; align-items:center;">
+          <input type="hidden" name="action" value="set_priority">
+          <select name="priority" style="font-size:0.78rem; padding:3px 6px; border:1.5px solid #ccc; border-radius:4px;">
+            <option value="low"    {% if ap=='low'    %}selected{% endif %}>Low</option>
+            <option value="medium" {% if ap=='medium' %}selected{% endif %}>Medium</option>
+            <option value="high"   {% if ap=='high'   %}selected{% endif %}>High</option>
+          </select>
+          <button type="submit" class="action-btn" style="padding:3px 10px; font-size:0.76rem;">Set</button>
+        </form>
+
+        {% if active_ticket.status != 'closed' %}
+        <form method="POST" style="margin:0;">
+          <input type="hidden" name="action" value="close">
+          <button class="action-btn close" type="submit">Close ticket</button>
+        </form>
+        {% else %}
+        <form method="POST" style="margin:0;">
+          <input type="hidden" name="action" value="reopen">
+          <button class="action-btn reopen" type="submit">Reopen</button>
+        </form>
+        {% endif %}
+      </div>
     </div>
 
     <div class="messages" id="messages">

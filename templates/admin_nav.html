@@ -1,4 +1,12 @@
 <style>
+  .nav-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 18px; height: 18px; padding: 0 5px;
+    border-radius: 9px; font-size: 0.68rem; font-weight: 700;
+    line-height: 1; margin-left: 4px; vertical-align: middle;
+  }
+  .nav-badge-red   { background: #dc3545; color: #fff; }
+  .nav-badge-amber { background: #ffc107; color: #1a1a2e; }
   .admin-nav {
     background: #1a1a2e;
     color: #fff;
@@ -100,19 +108,60 @@
 
 <nav class="admin-nav">
   <a class="nav-brand" href="/admin/care">⚙️ Admin</a>
-  <a href="/admin/care" {% if request.path == '/admin/care' %}class="active"{% endif %}>📋 Care Queue</a>
+  {# Role-aware nav — super_admin sees all, support sees providers+support, operator sees care+fraud #}
+  {% set role = admin_counts.get('role', 'super_admin') %}
+  {% set c = admin_counts %}
+
+  {% if role in ('super_admin', 'operator') %}
+  <a href="/admin/care" {% if request.path == '/admin/care' %}class="active"{% endif %}>
+    📋 Care Queue
+    {% if c.get('pending_care', 0) > 0 %}<span class="nav-badge nav-badge-amber">{{ c.pending_care }}</span>{% endif %}
+  </a>
+  {% endif %}
+
   <a href="/admin/monitor" {% if request.path == '/admin/monitor' %}class="active"{% endif %}>📊 Monitor</a>
+
+  {% if role == 'super_admin' %}
   <a href="/admin/users" {% if request.path.startswith('/admin/users') or request.path.startswith('/admin/user/') %}class="active"{% endif %}>👥 Users</a>
-  <a href="/admin/verified-providers" {% if request.path == '/admin/verified-providers' %}class="active"{% endif %}>🏥 Providers</a>
-  <a href="/admin/fraud-alerts" {% if request.path == '/admin/fraud-alerts' %}class="active"{% endif %}>🚨 Fraud</a>
-  <a href="/admin/disputes" {% if request.path == '/admin/disputes' %}class="active"{% endif %}>⚖️ Disputes</a>
-  <a href="/admin/support" {% if request.path.startswith('/admin/support') %}class="active"{% endif %}>💬 Support</a>
+  {% endif %}
+
+  {% if role in ('super_admin', 'support') %}
+  <a href="/admin/verified-providers" {% if request.path == '/admin/verified-providers' %}class="active"{% endif %}>
+    🏥 Providers
+    {% if c.get('pending_providers', 0) > 0 %}<span class="nav-badge nav-badge-amber">{{ c.pending_providers }}</span>{% endif %}
+  </a>
+  {% endif %}
+
+  {% if role in ('super_admin', 'operator') %}
+  <a href="/admin/fraud-alerts" {% if request.path == '/admin/fraud-alerts' %}class="active"{% endif %}>
+    🚨 Fraud
+    {% if c.get('fraud_alerts', 0) > 0 %}<span class="nav-badge nav-badge-red">{{ c.fraud_alerts }}</span>{% endif %}
+  </a>
+  {% endif %}
+
+  {% if role == 'super_admin' %}
+  <a href="/admin/disputes" {% if request.path == '/admin/disputes' %}class="active"{% endif %}>
+    ⚖️ Disputes
+    {% if c.get('open_disputes', 0) > 0 %}<span class="nav-badge nav-badge-amber">{{ c.open_disputes }}</span>{% endif %}
+  </a>
+  {% endif %}
+
+  {% if role in ('super_admin', 'support') %}
+  <a href="/admin/support" {% if request.path.startswith('/admin/support') %}class="active"{% endif %}>
+    💬 Support
+    {% if c.get('open_support', 0) > 0 %}<span class="nav-badge nav-badge-red" id="nav-support-badge">{{ c.open_support }}</span>{% endif %}
+  </a>
+  {% endif %}
+
   <a href="/admin/view-user" {% if request.path == '/admin/view-user' %}class="active"{% endif %}>🔍 Lookup</a>
   <a href="/admin/audit-log" {% if request.path == '/admin/audit-log' %}class="active"{% endif %}>📜 Audit</a>
+
+  {% if role == 'super_admin' %}
   <a href="/admin/bulk-sms" {% if request.path == '/admin/bulk-sms' %}class="active"{% endif %}>📱 SMS</a>
   <a href="/admin/ussd-simulator" {% if request.path == '/admin/ussd-simulator' %}class="active"{% endif %}>🔧 USSD Sim</a>
   <a href="/admin/settings" {% if request.path == '/admin/settings' %}class="active"{% endif %}>⚙️ Settings</a>
   <a href="/admin/global-admins" {% if request.path == '/admin/global-admins' %}class="active"{% endif %}>🔑 Admins</a>
+  {% endif %}
   <div class="nav-spacer"></div>
   {% if user is defined and user %}
   <span class="nav-user">
