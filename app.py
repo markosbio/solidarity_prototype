@@ -138,6 +138,19 @@ def roles_required(*allowed_roles):
         return decorated
     return decorator
 
+def _admin_redirect(url):
+    """Return a 200 JS-redirect page instead of a 302.
+    Prevents Replit's mTLS proxy from flashing an intermediate 'loading' page
+    on POST → redirect chains in the admin panel."""
+    safe = url.replace('"', '%22')
+    return (
+        f'<!DOCTYPE html><html><head>'
+        f'<meta http-equiv="refresh" content="0;url={safe}">'
+        f'<script>window.location.replace("{safe}")</script>'
+        f'</head><body></body></html>'
+    )
+
+
 def _log_admin_action(admin_id, action, target_user_id=None, details='',
                       old_value=None, new_value=None):
     log = AdminAuditLog(
@@ -371,6 +384,7 @@ def _run_column_migrations():
         "ALTER TABLE member ADD COLUMN IF NOT EXISTS tos_accepted_at TIMESTAMP",
         "ALTER TABLE member ADD COLUMN IF NOT EXISTS preferred_language VARCHAR(5) DEFAULT 'en'",
         "ALTER TABLE global_admin ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'super_admin'",
+        "UPDATE community SET pool_balance = 0.0 WHERE invite_code = 'GLOBAL001' AND pool_balance = 1000000.0",
         "ALTER TABLE transaction ADD COLUMN IF NOT EXISTS reversed BOOLEAN DEFAULT FALSE",
         "ALTER TABLE transaction ADD COLUMN IF NOT EXISTS reversed_by INTEGER",
         "ALTER TABLE transaction ADD COLUMN IF NOT EXISTS reversed_reason VARCHAR(200)",
@@ -432,7 +446,7 @@ with app.app_context():
     _run_column_migrations()
     try:
         if Community.query.count() == 0:
-            default_comm = Community(name="Global Health Pool", invite_code="GLOBAL001", pool_balance=1_000_000.0, admin_user_id=None)
+            default_comm = Community(name="Global Health Pool", invite_code="GLOBAL001", pool_balance=0.0, admin_user_id=None)
             db.session.add(default_comm)
             db.session.commit()
     except Exception as _e:
@@ -2811,7 +2825,7 @@ def admin_user_edit(target_id):
     reason = request.form.get('reason', '').strip()
     if not reason:
         flash('Reason is required for all edits.', 'error')
-        return redirect(url_for('admin_user_detail', target_id=target_id))
+        return _admin_redirect(url_for('admin_user_detail', target_id=target_id))
 
     changes = []
     new_name = request.form.get('name', '').strip()
@@ -2826,13 +2840,13 @@ def admin_user_edit(target_id):
         existing = User.query.filter_by(phone=new_phone).first()
         if existing and existing.id != target.id:
             flash('Phone number already in use by another member.', 'error')
-            return redirect(url_for('admin_user_detail', target_id=target_id))
+            return _admin_redirect(url_for('admin_user_detail', target_id=target_id))
         changes.append(f'phone: {target.phone!r} → {new_phone!r}')
         target.phone = new_phone
     if new_pin:
         if not new_pin.isdigit() or len(new_pin) != 4:
             flash('PIN must be exactly 4 digits.', 'error')
-            return redirect(url_for('admin_user_detail', target_id=target_id))
+            return _admin_redirect(url_for('admin_user_detail', target_id=target_id))
         changes.append('pin: [changed]')
         target.pin = new_pin
     if new_comm_id:
@@ -2849,13 +2863,13 @@ def admin_user_edit(target_id):
 
     if not changes:
         flash('No changes detected.', 'info')
-        return redirect(url_for('admin_user_detail', target_id=target_id))
+        return _admin_redirect(url_for('admin_user_detail', target_id=target_id))
 
     db.session.commit()
     detail = f'Profile edit — {", ".join(changes)}. Reason: {reason}'
     _log_admin_action(session['user_id'], 'edit_user_profile', target_user_id=target.id, details=detail)
     flash('Profile updated successfully.', 'success')
-    return redirect(url_for('admin_user_detail', target_id=target_id))
+    return _admin_redirect(url_for('admin_user_detail', target_id=target_id))
 
 
 @app.route('/admin/user/<int:target_id>/wallet', methods=['POST'])
@@ -2866,12 +2880,12 @@ def admin_user_wallet(target_id):
     reason = request.form.get('reason', '').strip()
     if not reason:
         flash('Reason is required for balance adjustments.', 'error')
-        return redirect(url_for('admin_user_detail', target_id=target_id))
+        return _admin_redirect(url_for('admin_user_detail', target_id=target_id))
     try:
         amount = float(request.form.get('amount', 0))
     except ValueError:
         flash('Invalid amount.', 'error')
-        return redirect(url_for('admin_user_detail', target_id=target_id))
+        return _admin_redirect(url_for('admin_user_detail', target_id=target_id))
     direction = request.form.get('direction', 'add')
     if direction == 'deduct':
         amount = -abs(amount)
@@ -2887,7 +2901,7 @@ def admin_user_wallet(target_id):
     detail = f'Wallet: UGX {old_balance:,.0f} → UGX {target.sub_wallet_balance:,.0f} ({"+" if amount>=0 else ""}{amount:,.0f}). Reason: {reason}'
     _log_admin_action(session['user_id'], 'adjust_wallet', target_user_id=target.id, details=detail)
     flash(f'Wallet adjusted by UGX {amount:+,.0f}. New balance: UGX {target.sub_wallet_balance:,.0f}', 'success')
-    return redirect(url_for('admin_user_detail', target_id=target_id))
+    return _admin_redirect(url_for('admin_user_detail', target_id=target_id))
 
 
 @app.route('/admin/user/<int:target_id>/social-credit', methods=['POST'])
@@ -2898,12 +2912,12 @@ def admin_user_social_credit(target_id):
     reason = request.form.get('reason', '').strip()
     if not reason:
         flash('Reason is required for social credit adjustments.', 'error')
-        return redirect(url_for('admin_user_detail', target_id=target_id))
+        return _admin_redirect(url_for('admin_user_detail', target_id=target_id))
     try:
         amount = float(request.form.get('amount', 0))
     except ValueError:
         flash('Invalid amount.', 'error')
-        return redirect(url_for('admin_user_detail', target_id=target_id))
+        return _admin_redirect(url_for('admin_user_detail', target_id=target_id))
     direction = request.form.get('direction', 'add')
     if direction == 'deduct':
         amount = -abs(amount)
@@ -2916,7 +2930,7 @@ def admin_user_social_credit(target_id):
     detail = f'Social credit: UGX {old_credit:,.0f} → UGX {target.total_social_credit:,.0f}. Reason: {reason}'
     _log_admin_action(session['user_id'], 'adjust_social_credit', target_user_id=target.id, details=detail)
     flash(f'Social credit adjusted. New balance: UGX {target.total_social_credit:,.0f}', 'success')
-    return redirect(url_for('admin_user_detail', target_id=target_id))
+    return _admin_redirect(url_for('admin_user_detail', target_id=target_id))
 
 
 @app.route('/admin/user/<int:target_id>/lock', methods=['POST'])
@@ -2940,7 +2954,7 @@ def admin_user_lock(target_id):
     else:
         if not reason:
             flash('Reason is required to lock an account.', 'error')
-            return redirect(url_for('admin_user_detail', target_id=target_id))
+            return _admin_redirect(url_for('admin_user_detail', target_id=target_id))
         target.is_locked = True
         target.locked_reason = reason
         target.locked_by = admin_user.id
@@ -2948,7 +2962,7 @@ def admin_user_lock(target_id):
         _log_admin_action(session['user_id'], 'lock_user', target_user_id=target.id,
                           details=f'Account locked. Reason: {reason}')
         flash(f'{target.name}\'s account has been locked.', 'success')
-    return redirect(url_for('admin_user_detail', target_id=target_id))
+    return _admin_redirect(url_for('admin_user_detail', target_id=target_id))
 
 
 @app.route('/admin/user/<int:target_id>/pin-reset', methods=['POST'])
@@ -2961,16 +2975,16 @@ def admin_user_pin_reset(target_id):
     new_pin = request.form.get('new_pin', '').strip()
     if not reason:
         flash('Reason is required to reset a PIN.', 'error')
-        return redirect(url_for('admin_user_detail', target_id=target_id))
+        return _admin_redirect(url_for('admin_user_detail', target_id=target_id))
     if not new_pin or not new_pin.isdigit() or len(new_pin) != 4:
         flash('New PIN must be exactly 4 digits.', 'error')
-        return redirect(url_for('admin_user_detail', target_id=target_id))
+        return _admin_redirect(url_for('admin_user_detail', target_id=target_id))
     target.pin = new_pin
     db.session.commit()
     _log_admin_action(session['user_id'], 'reset_pin', target_user_id=target.id,
                       details=f'PIN reset by admin. Reason: {reason}')
     flash(f'PIN for {target.name} has been reset.', 'success')
-    return redirect(url_for('admin_user_detail', target_id=target_id))
+    return _admin_redirect(url_for('admin_user_detail', target_id=target_id))
 
 
 @app.route('/admin/transaction/<int:tx_id>/reverse', methods=['POST'])
@@ -3005,7 +3019,7 @@ def admin_reverse_transaction(tx_id):
     flash(f'Transaction #{tx.id} reversed successfully.', 'success')
     target_id = request.form.get('target_id')
     if target_id:
-        return redirect(url_for('admin_user_detail', target_id=int(target_id)))
+        return _admin_redirect(url_for('admin_user_detail', target_id=int(target_id)))
     return redirect(url_for('admin_users'))
 
 
@@ -3573,7 +3587,7 @@ def admin_settings():
 def admin_user_deactivate(target_id):
     if not _is_super_admin():
         flash('Only Super Admins can deactivate accounts.', 'error')
-        return redirect(url_for('admin_user_detail', target_id=target_id))
+        return _admin_redirect(url_for('admin_user_detail', target_id=target_id))
     admin_user = User.query.get(session['user_id'])
     target = User.query.get_or_404(target_id)
     reason = request.form.get('reason', '').strip()
@@ -3581,10 +3595,10 @@ def admin_user_deactivate(target_id):
 
     if not reason:
         flash('Reason is required for deactivation.', 'error')
-        return redirect(url_for('admin_user_detail', target_id=target_id))
+        return _admin_redirect(url_for('admin_user_detail', target_id=target_id))
     if target.id == admin_user.id:
         flash('You cannot deactivate your own account.', 'error')
-        return redirect(url_for('admin_user_detail', target_id=target_id))
+        return _admin_redirect(url_for('admin_user_detail', target_id=target_id))
 
     if mode == 'anonymise':
         # GDPR-style: anonymise PII but keep financial records
