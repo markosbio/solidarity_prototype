@@ -158,7 +158,7 @@
   </a>
 
   {% set n_sup = c.get('open_support', 0) %}
-  <a href="{{ url_for('admin_support_inbox') }}" class="pending-card {{ 'pc-red' if n_sup > 0 else 'pc-ok' }}">
+  <a href="{{ url_for('admin_support') }}" class="pending-card {{ 'pc-red' if n_sup > 0 else 'pc-ok' }}">
     <div class="pc-icon">💬</div>
     <div class="pc-count" id="pt-sup">{{ n_sup }}</div>
     <div class="pc-label">Support Tickets</div>

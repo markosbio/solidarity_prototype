@@ -113,6 +113,31 @@ def super_admin_required(f):
         return f(*args, **kwargs)
     return decorated
 
+
+def roles_required(*allowed_roles):
+    """Decorator: restrict route to admins with one of the given roles.
+    Must be applied AFTER @admin_required.
+    Role hierarchy: super_admin always passes; then the explicit allowed list.
+    Usage:
+        @app.route('/admin/care')
+        @admin_required
+        @roles_required('super_admin', 'operator')
+        def admin_care(): ...
+    """
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            role = _get_current_admin_role()
+            if role not in allowed_roles:
+                return render_template(
+                    'admin_access_denied.html',
+                    logged_in_phone=None,
+                    reason=f"Your role ({role}) cannot access this area. Required: {' or '.join(allowed_roles)}."
+                ), 403
+            return f(*args, **kwargs)
+        return decorated
+    return decorator
+
 def _log_admin_action(admin_id, action, target_user_id=None, details='',
                       old_value=None, new_value=None):
     log = AdminAuditLog(
@@ -1191,6 +1216,7 @@ def trust_history():
 
 @app.route('/admin/care')
 @admin_required
+@roles_required('super_admin', 'operator')
 def admin_care():
     user = User.query.get(session['user_id'])
     _check_emergency_auto_approvals()
@@ -1261,6 +1287,7 @@ def mobile_money_callback():
 
 @app.route('/admin/verified-providers')
 @admin_required
+@roles_required('super_admin', 'support')
 def admin_verified_providers():
     applications = VerifiedProvider.query.order_by(VerifiedProvider.created_at.desc()).all()
     # Build lookup maps for attaching Provider records
@@ -1347,6 +1374,7 @@ def admin_verify_provider_application(app_id):
 
 @app.route('/admin/fraud-alerts')
 @admin_required
+@roles_required('super_admin', 'operator')
 def admin_fraud_alerts():
     open_alerts = FraudAlert.query.filter_by(resolved=False).order_by(FraudAlert.created_at.desc()).all()
     resolved_alerts = FraudAlert.query.filter_by(resolved=True).order_by(FraudAlert.created_at.desc()).limit(20).all()
@@ -1372,6 +1400,7 @@ def admin_resolve_fraud_alert(alert_id):
 
 @app.route('/admin/care/<int:request_id>', methods=['POST'])
 @admin_required
+@roles_required('super_admin', 'operator')
 def admin_care_action(request_id):
     user = User.query.get(session['user_id'])
     care_req = CareRequest.query.get(request_id)
@@ -3089,6 +3118,7 @@ def file_dispute(ref):
 
 @app.route('/admin/disputes')
 @admin_required
+@roles_required('super_admin', 'operator')
 def admin_disputes():
     admin_user = db.session.get(User, session['user_id'])
     status_filter = request.args.get('status', 'open')
@@ -3701,6 +3731,7 @@ def _user_tickets(user, phone=None):
 
 @app.route('/admin/support')
 @admin_required
+@roles_required('super_admin', 'support')
 def admin_support():
     status_filter = request.args.get('status', 'open')
     q = SupportTicket.query

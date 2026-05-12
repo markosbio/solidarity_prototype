@@ -98,6 +98,29 @@ STRINGS = {
         'lang_saved':    "Language set to English. Dial again.",
         'lang_invalid':  "Invalid choice. Dial again.",
         'unreg_first':   "Please register first.\nDial again and select 1.",
+        'opt_witness':   "5. Witness tasks",
+        'opt_communities':"6. My community",
+        'opt_support':   "7. Support & help",
+        'opt_more':      "9. More options",
+        'witness_pin_prompt': "Enter PIN to view witness tasks:",
+        'witness_none':  "No pending witness tasks. Check back later.",
+        'witness_count': "You have {n} pending witness task(s). PIN to continue:",
+        'witness_item':  "Request from {name}\nAmount: UGX {amount:,.0f}\n1. Approve\n2. Reject\n0. Skip",
+        'witness_voted': "Vote recorded. Thank you for supporting your community!",
+        'community_none':"You have no community yet.\n1. Browse communities\n0. Back",
+        'community_info':"{name}\nPool: UGX {pool:,.0f} ({pct:.0f}% full)\nMembers: {members}\n0. Back",
+        'community_join_prompt': "Type community name to join:",
+        'community_join_ok': "Joined {name}! Save together with your community.",
+        'community_join_fail': "Community '{name}' not found. Check the name and try again.",
+        'support_menu':  "Support & Help\n1. Open a support ticket\n2. My tickets\n3. FAQ\n0. Back",
+        'support_new_prompt': "Describe your issue (your message will be sent to support):",
+        'support_submitted': "Ticket #{id} submitted! Support team will reply soon.",
+        'support_my_none':  "No support tickets found for your account.",
+        'support_my_title': "Your recent tickets:",
+        'more_menu':     "More Options\n1. Provider payment check\n2. M-Pesa top-up\n3. Change language\n0. Back",
+        'more_menu_admin': "More Options\n1. Provider payment check\n2. M-Pesa top-up\n3. Change language\n4. Admin summary\n0. Back",
+        'admin_not_auth':"Admin access not authorized for this account.",
+        'admin_summary': "Admin Summary [{role}]\nCare pending: {care}\nFraud alerts: {fraud}\nProvider apps: {prov}\nOpen support: {sup}\nDisputes: {dis}",
     },
     'lg': {
         'welcome_back':  "Tukusubirira nate, {name}",
@@ -170,6 +193,29 @@ STRINGS = {
         'lang_saved':    "Oluganda lwasettingulibwa. Yita nate.",
         'lang_invalid':  "Londa etali ya ntuufu. Yita nate.",
         'unreg_first':   "Kyusiddwa okusooka.\nYita nate ne ulonda 1.",
+        'opt_witness':   "5. Emirimu gy'abakkirizaani",
+        'opt_communities': "6. Ekibiina kyange",
+        'opt_support':   "7. Obuyambi",
+        'opt_more':      "9. Ebirala",
+        'witness_pin_prompt': "Yingiza PIN yo okebera emirimu gy'abakkirizaani:",
+        'witness_none':  "Tewali saba ya kukkiriziganya kati.",
+        'witness_count': "Olina emirimu {n} gy'abakkirizaani. PIN okukomyawo:",
+        'witness_item':  "Okusaba okuva {name}\nOmuwendo: UGX {amount:,.0f}\n1. Kiriza\n2. Gaana\n0. Ssula",
+        'witness_voted': "Eddembe lyo lyateereddwayo. Webale okuyamba ekibiina!",
+        'community_none':"Tolina kibiina kati.\n1. Laba ebibiina\n0. Subira",
+        'community_info':"{name}\nEkisumuluzo: UGX {pool:,.0f} ({pct:.0f}%)\nAbagattiddwa: {members}\n0. Subira",
+        'community_join_prompt': "Wandiika erinnya ly'ekibiina ky'oyagala kuyingira:",
+        'community_join_ok': "Wayingira {name}! Teeka ssente n'ekibiina kyo.",
+        'community_join_fail': "Ekibiina '{name}' tekizuulwa. Kebera erinnya n'ogezeeko.",
+        'support_menu':  "Obuyambi\n1. Saba obuyambi\n2. Okusaba kwange\n3. Ebibuuzo\n0. Subira",
+        'support_new_prompt': "Wandiika obuzibu bwo (butumibwe ku ssaawo):",
+        'support_submitted': "Okusaba #{id} kwatumibwa! Bazaamu mangu.",
+        'support_my_none':  "Tosaba bwa buyambi.",
+        'support_my_title': "Okusaba kwako okuggya:",
+        'more_menu':     "Ebirala\n1. Kebera payment ya clinic\n2. M-Pesa\n3. Kyusa olulimi\n0. Subira",
+        'more_menu_admin': "Ebirala\n1. Kebera payment\n2. M-Pesa\n3. Kyusa olulimi\n4. Ssaawo panel\n0. Subira",
+        'admin_not_auth':"Obutaali kw'okuyingira ssaawo.",
+        'admin_summary': "Ssaawo [{role}]\nOkusaba: {care}\nEbibogo: {fraud}\nAbapedde: {prov}\nObuyambi: {sup}\nObutatuukiridde: {dis}",
     },
     'sw': {
         'welcome_back':  "Karibu tena, {name}",
@@ -242,6 +288,29 @@ STRINGS = {
         'lang_saved':    "Kiswahili kimewekwa. Piga tena.",
         'lang_invalid':  "Chaguo si sahihi. Piga tena.",
         'unreg_first':   "Tafadhali jisajili kwanza.\nPiga tena na chagua 1.",
+        'opt_witness':   "5. Kazi za ushuhuda",
+        'opt_communities': "6. Jamii yangu",
+        'opt_support':   "7. Msaada & FAQ",
+        'opt_more':      "9. Zaidi",
+        'witness_pin_prompt': "Ingiza PIN kuona kazi za ushuhuda:",
+        'witness_none':  "Hakuna maombi ya ushuhuda kwa sasa.",
+        'witness_count': "Una kazi {n} za ushuhuda. PIN kuendelea:",
+        'witness_item':  "Ombi kutoka {name}\nKiasi: UGX {amount:,.0f}\n1. Kubali\n2. Kataa\n0. Ruka",
+        'witness_voted': "Kura imerekodiwa. Asante kwa kusaidia jamii!",
+        'community_none':"Huna jamii bado.\n1. Tazama jamii\n0. Rudi",
+        'community_info':"{name}\nMfuko: UGX {pool:,.0f} ({pct:.0f}%)\nWanachama: {members}\n0. Rudi",
+        'community_join_prompt': "Andika jina la jamii unayotaka kujiunga:",
+        'community_join_ok': "Umejiunga na {name}! Okoa pamoja.",
+        'community_join_fail': "Jamii '{name}' haipatikani. Angalia jina na jaribu tena.",
+        'support_menu':  "Msaada & FAQ\n1. Fungua tiketi\n2. Tiketi zangu\n3. Maswali\n0. Rudi",
+        'support_new_prompt': "Elezea tatizo lako (ujumbe utumwa kwa timu):",
+        'support_submitted': "Tiketi #{id} imewasilishwa! Timu itajibu hivi karibuni.",
+        'support_my_none':  "Huna tiketi za msaada.",
+        'support_my_title': "Tiketi zako za hivi karibuni:",
+        'more_menu':     "Zaidi\n1. Angalia malipo ya kliniki\n2. M-Pesa\n3. Badilisha lugha\n0. Rudi",
+        'more_menu_admin': "Zaidi\n1. Angalia malipo\n2. M-Pesa\n3. Badilisha lugha\n4. Admin panel\n0. Rudi",
+        'admin_not_auth':"Huna ruhusa ya admin.",
+        'admin_summary': "Admin [{role}]\nMatibabu: {care}\nUlaghai: {fraud}\nWahudumu: {prov}\nMsaada: {sup}\nMigogoro: {dis}",
     },
 }
 
@@ -315,7 +384,6 @@ def _route(phone: str, steps: list, level: int) -> str:
     # ── Level 0: main menu ───────────────────────────────────────────────────
     if steps[0] == '':
         if user:
-            mpesa_line = t('opt_topup', lang) + "\n" if (os.getenv('MPESA_CONSUMER_KEY') and os.getenv('MPESA_CONSUMER_SECRET')) else ""
             repay_line = t('opt_repay', lang) + "\n" if user.total_social_credit > 0 else ""
             return (
                 f"CON {t('welcome_back', lang, name=user.name)}\n"
@@ -323,20 +391,19 @@ def _route(phone: str, steps: list, level: int) -> str:
                 + t('opt_roundup', lang) + "\n"
                 + t('opt_care', lang) + "\n"
                 + t('opt_trust', lang) + "\n"
-                + mpesa_line
-                + t('opt_provider', lang) + "\n"
-                + t('opt_help', lang) + "\n"
+                + t('opt_witness', lang) + "\n"
+                + t('opt_communities', lang) + "\n"
+                + t('opt_support', lang) + "\n"
                 + repay_line
-                + t('opt_language', lang) + "\n"
+                + t('opt_more', lang) + "\n"
                 + t('opt_exit', lang)
             )
         else:
             return (
                 f"CON {t('welcome', lang)}\n"
                 "1. Register\n"
-                + t('opt_provider', lang) + "\n"
-                + t('opt_help', lang) + "\n"
-                + t('opt_language', lang) + "\n"
+                + t('opt_support', lang) + "\n"
+                + t('opt_more', lang) + "\n"
                 + t('opt_exit', lang)
             )
 
@@ -346,16 +413,12 @@ def _route(phone: str, steps: list, level: int) -> str:
     if top == '0':
         return f"END {t('goodbye', lang)}"
 
-    # ── Language selection (option 9) ─────────────────────────────────────────
-    if top == '9':
-        return _language_flow(user, phone, steps, level, lang)
-
     # ── Unregistered user flows ───────────────────────────────────────────────
     if not user:
-        if top == '6':
-            return _provider_check_flow(steps, level, lang)
         if top == '7':
-            return _help_faq(steps, level, lang)
+            return _support_flow(None, phone, steps, level, lang)
+        if top == '9':
+            return _more_options_flow(None, phone, steps, level, lang)
         return _register_flow(phone, steps, level, lang)
 
     # ── Registered user flows ─────────────────────────────────────────────────
@@ -368,13 +431,15 @@ def _route(phone: str, steps: list, level: int) -> str:
     if top == '4':
         return _trust_score(user, lang)
     if top == '5':
-        return _topup_flow(user, steps, level, lang)
+        return _witness_flow(user, steps, level, lang)
     if top == '6':
-        return _provider_check_flow(steps, level, lang)
+        return _communities_flow(user, steps, level, lang)
     if top == '7':
-        return _help_faq(steps, level, lang)
+        return _support_flow(user, user.phone, steps, level, lang)
     if top == '8':
         return _repay_flow(user, steps, level, lang)
+    if top == '9':
+        return _more_options_flow(user, user.phone, steps, level, lang)
 
     return f"END {t('invalid_opt', lang)}"
 
@@ -787,3 +852,283 @@ def _topup_flow(user: User, steps: list, level: int, lang: str) -> str:
         user.id, phone, topup_amount, checkout_id,
     )
     return f"END {t('topup_sent', lang, phone=phone, amt=int(topup_amount))}"
+
+
+# ── witness tasks flow (option 5) ─────────────────────────────────────────────
+
+def _witness_flow(user: 'User', steps: list, level: int, lang: str) -> str:
+    """Option 5: View and vote on pending care request witness tasks."""
+    from models import CareRequest
+
+    # Gather all CareRequests where this user is a witness and hasn't voted yet
+    pending = []
+    for cr in CareRequest.query.filter(CareRequest.status == 'pending_witness').all():
+        if not cr.witness_ids:
+            continue
+        ids = [x.strip() for x in cr.witness_ids.split(',') if x.strip()]
+        if str(user.id) not in ids:
+            continue
+        votes = [v for v in (cr.witness_votes or '').split(',') if v.strip()]
+        already_voted = any(v.startswith(f"{user.id}:") for v in votes)
+        if not already_voted:
+            pending.append(cr)
+
+    if level == 1:
+        if not pending:
+            return f"END {t('witness_none', lang)}"
+        return f"CON {t('witness_count', lang, n=len(pending))}"
+
+    if level == 2:
+        pin = steps[1].strip()
+        if pin != (user.pin or '1234'):
+            return f"END {t('wrong_pin', lang)}"
+        if not pending:
+            return f"END {t('witness_none', lang)}"
+        cr = pending[0]
+        from models import User as _User
+        req_user = _User.query.get(cr.user_id)
+        req_name = req_user.name if req_user else 'Unknown'
+        needed = getattr(cr, 'amount_needed', getattr(cr, 'needed_amount', 0))
+        return f"CON {t('witness_item', lang, name=req_name, amount=needed)}"
+
+    if level == 3:
+        pin = steps[1].strip()
+        if pin != (user.pin or '1234'):
+            return f"END {t('wrong_pin', lang)}"
+        if not pending:
+            return f"END {t('witness_none', lang)}"
+        cr = pending[0]
+        vote_choice = steps[2].strip()
+        if vote_choice == '0':
+            return f"END {t('goodbye', lang)}"
+        if vote_choice not in ('1', '2'):
+            return f"END {t('invalid_opt', lang)}"
+        response = 'accept' if vote_choice == '1' else 'reject'
+        votes = [v for v in (cr.witness_votes or '').split(',') if v.strip()]
+        if not any(v.startswith(f"{user.id}:") for v in votes):
+            votes.append(f"{user.id}:{response}")
+            cr.witness_votes = ','.join(votes)
+            # Count accept/reject to determine final status
+            accepts = sum(1 for v in votes if v.endswith(':accept'))
+            rejects = sum(1 for v in votes if v.endswith(':reject'))
+            total_witnesses = len([x for x in (cr.witness_ids or '').split(',') if x.strip()])
+            if accepts >= 2:
+                cr.status = 'approved'
+            elif rejects >= 2 or (total_witnesses > 0 and rejects > total_witnesses / 2):
+                cr.status = 'rejected'
+            db.session.commit()
+        logger.info("USSD witness vote: user_id={} care_req_id={} vote={}", user.id, cr.id, response)
+        return f"END {t('witness_voted', lang)}"
+
+    return f"END {t('session_err', lang)}"
+
+
+# ── communities flow (option 6) ────────────────────────────────────────────────
+
+def _communities_flow(user: 'User', steps: list, level: int, lang: str) -> str:
+    """Option 6: View user's community pool info or join a community."""
+    from models import Community, CommunityMembership
+
+    if level == 1:
+        if user.primary_community_id:
+            comm = Community.query.get(user.primary_community_id)
+            if comm:
+                target = comm.pool_target or 1
+                pct = min(100.0, comm.pool_balance / target * 100)
+                member_count = CommunityMembership.query.filter_by(community_id=comm.id).count()
+                return f"CON {t('community_info', lang, name=comm.name, pool=comm.pool_balance, pct=pct, members=member_count)}"
+        # No community — list top 5
+        comms = Community.query.limit(5).all()
+        if comms:
+            names = '\n'.join(f"  {i+1}. {c.name}" for i, c in enumerate(comms))
+            return f"CON {t('community_none', lang)}\n{names}"
+        return f"CON {t('community_none', lang)}"
+
+    choice = steps[1].strip()
+
+    if level == 2:
+        if choice == '0':
+            return f"END {t('goodbye', lang)}"
+        if user.primary_community_id:
+            # Already in a community — only valid option is 0 (back)
+            return f"END {t('goodbye', lang)}"
+        # No community — user is trying to pick one by number or will type name
+        comms = Community.query.limit(5).all()
+        idx = None
+        try:
+            idx = int(choice) - 1
+        except ValueError:
+            pass
+        if idx is not None and 0 <= idx < len(comms):
+            comm = comms[idx]
+            existing = CommunityMembership.query.filter_by(user_id=user.id, community_id=comm.id).first()
+            if not existing:
+                db.session.add(CommunityMembership(user_id=user.id, community_id=comm.id))
+                user.primary_community_id = comm.id
+                db.session.commit()
+            logger.info("USSD community join: user_id={} community_id={}", user.id, comm.id)
+            return f"END {t('community_join_ok', lang, name=comm.name)}"
+        # Treat input as a name search prompt
+        return f"CON {t('community_join_prompt', lang)}"
+
+    if level == 3:
+        if user.primary_community_id:
+            return f"END {t('goodbye', lang)}"
+        community_name = steps[2].strip()
+        from sqlalchemy import func as _func
+        comm = Community.query.filter(
+            _func.lower(Community.name).contains(community_name.lower())
+        ).first()
+        if not comm:
+            return f"END {t('community_join_fail', lang, name=community_name)}"
+        existing = CommunityMembership.query.filter_by(user_id=user.id, community_id=comm.id).first()
+        if not existing:
+            db.session.add(CommunityMembership(user_id=user.id, community_id=comm.id))
+            if not user.primary_community_id:
+                user.primary_community_id = comm.id
+            db.session.commit()
+        logger.info("USSD community join by name: user_id={} community={}", user.id, comm.name)
+        return f"END {t('community_join_ok', lang, name=comm.name)}"
+
+    return f"END {t('session_err', lang)}"
+
+
+# ── support & help flow (option 7) ────────────────────────────────────────────
+
+def _support_flow(user, phone: str, steps: list, level: int, lang: str) -> str:
+    """Option 7: Support tickets + FAQ. user may be None for unregistered callers."""
+    from models import SupportTicket, SupportMessage
+
+    if level == 1:
+        return f"CON {t('support_menu', lang)}"
+
+    choice = steps[1].strip()
+
+    if choice == '0':
+        return f"END {t('goodbye', lang)}"
+
+    # ── FAQ sub-flow (choice 3) ────────────────────────────────────────────────
+    if choice == '3':
+        return _help_faq(steps[1:], level - 1, lang)
+
+    # ── My tickets (choice 2) ─────────────────────────────────────────────────
+    if choice == '2':
+        if user is None:
+            return f"END {t('unreg_first', lang)}"
+        tickets = SupportTicket.query.filter_by(user_id=user.id)\
+            .order_by(SupportTicket.updated_at.desc()).limit(4).all()
+        if not tickets:
+            return f"END {t('support_my_none', lang)}"
+        lines = [t('support_my_title', lang)]
+        for tk in tickets:
+            lines.append(f"#{tk.id}: {(tk.subject or '')[:22]} [{tk.status}]")
+        return "END " + "\n".join(lines)
+
+    # ── Open new ticket (choice 1) ────────────────────────────────────────────
+    if choice == '1':
+        if level == 2:
+            return f"CON {t('support_new_prompt', lang)}"
+        if level == 3:
+            message = steps[2].strip()
+            if not message or len(message) < 3:
+                return f"END Please describe your issue in more detail."
+            norm_phone = _normalize_phone(phone)
+            uid = user.id if user else None
+            ticket = SupportTicket(
+                user_id=uid,
+                phone=norm_phone,
+                subject='USSD Support Request',
+                status='open',
+                priority='medium',
+            )
+            db.session.add(ticket)
+            db.session.flush()
+            db.session.add(SupportMessage(
+                ticket_id=ticket.id,
+                sender_type='user',
+                sender_id=uid or 0,
+                body=message[:500],
+            ))
+            db.session.commit()
+            logger.info("USSD support ticket created: phone={} ticket_id={}", norm_phone, ticket.id)
+            # Notify admins
+            try:
+                from models import GlobalAdmin, User as _User
+                admin_phones = []
+                for ga in GlobalAdmin.query.all():
+                    au = _User.query.get(ga.user_id)
+                    if au and au.phone:
+                        admin_phones.append(au.phone)
+                from notifications import notify_admin_new_support_ticket
+                notify_admin_new_support_ticket(admin_phones, ticket.subject, ticket.id, norm_phone)
+            except Exception:
+                pass
+            return f"END {t('support_submitted', lang, id=ticket.id)}"
+
+    return f"END {t('invalid_opt', lang)}"
+
+
+# ── more options flow (option 9) ──────────────────────────────────────────────
+
+def _more_options_flow(user, phone: str, steps: list, level: int, lang: str) -> str:
+    """Option 9: Sub-menu for provider check, M-Pesa top-up, language, admin."""
+    from models import GlobalAdmin
+    is_admin = False
+    if user:
+        is_admin = GlobalAdmin.query.filter_by(user_id=user.id).first() is not None
+
+    if level == 1:
+        menu_key = 'more_menu_admin' if is_admin else 'more_menu'
+        return f"CON {t(menu_key, lang)}"
+
+    choice = steps[1].strip()
+
+    if choice == '0':
+        return f"END {t('goodbye', lang)}"
+
+    if choice == '1':
+        # Provider payment check — delegate with shifted steps
+        return _provider_check_flow(steps[1:], level - 1, lang)
+
+    if choice == '2':
+        # M-Pesa top-up — requires registered user
+        if user is None:
+            return f"END {t('unreg_first', lang)}"
+        return _topup_flow(user, steps[1:], level - 1, lang)
+
+    if choice == '3':
+        # Change language
+        return _language_flow(user, phone, steps[1:], level - 1, lang)
+
+    if choice == '4' and is_admin:
+        # Admin summary panel
+        return _admin_summary_ussd(user, lang)
+
+    return f"END {t('invalid_opt', lang)}"
+
+
+# ── admin summary via USSD ─────────────────────────────────────────────────────
+
+def _admin_summary_ussd(user: 'User', lang: str) -> str:
+    """Show a compact admin task-count summary over USSD."""
+    from models import GlobalAdmin, CareRequest, FraudAlert, SupportTicket, PaymentRecord
+    try:
+        from models import VerifiedProvider
+        prov_count = VerifiedProvider.query.filter_by(verification_status='pending').count()
+    except Exception:
+        prov_count = 0
+
+    ga = GlobalAdmin.query.filter_by(user_id=user.id).first()
+    if not ga:
+        return f"END {t('admin_not_auth', lang)}"
+
+    role = ga.role or 'admin'
+    care = CareRequest.query.filter_by(status='pending_admin').count()
+    fraud = FraudAlert.query.filter_by(resolved=False).count()
+    sup = SupportTicket.query.filter_by(status='open').count()
+    try:
+        dis = PaymentRecord.query.filter(PaymentRecord.dispute_status == 'open').count()
+    except Exception:
+        dis = 0
+
+    return f"END {t('admin_summary', lang, role=role, care=care, fraud=fraud, prov=prov_count, sup=sup, dis=dis)}"

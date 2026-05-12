@@ -24,16 +24,23 @@
 <div class="icon">🔒</div>
 <h1>Admin Access Required</h1>
 
-{% if logged_in_phone %}
+{% if reason %}
+<div class="phone-box" style="border-color:#f5c6cb;background:#fff5f5;">
+  <strong style="color:#dc3545;">Access restricted:</strong><br>{{ reason }}
+</div>
+<p class="msg">Contact your system administrator if you believe this is an error.</p>
+<a class="btn btn-secondary" href="/admin/monitor">Back to Dashboard</a>
+
+{% elif logged_in_phone %}
 <div class="phone-box">
   You are logged in as <strong>{{ logged_in_phone }}</strong> which does not have admin privileges.
 </div>
 <p class="msg">
-  Log out and log back in with your admin phone number <strong>0769547988</strong>,
-  then try again.
+  Log out and log back in with your admin phone number, then try again.
 </p>
 <a class="btn btn-primary" href="/logout">Log out &amp; switch account</a>
 <a class="btn btn-secondary" href="/">Back to Dashboard</a>
+
 {% else %}
 <p class="msg">You need to log in with an admin account to access this page.</p>
 <a class="btn btn-primary" href="/login">Log in</a>
