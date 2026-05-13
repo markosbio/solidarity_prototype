@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Disputes &amp; Payment Holds – Admin – SolidarityPool</title>
+<title>Care Quality Reports – Admin – SolidarityPool</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   body { font-family: sans-serif; max-width: 1100px; margin: 40px auto; padding: 0 16px; background: #f5f6fa; color: #222; }
@@ -9,26 +9,22 @@
   .page-header { margin-bottom: 24px; }
   .page-header p { color: #666; font-size: 0.9rem; margin: 4px 0 0; }
 
-  /* How-it-works explainer */
   .explainer { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
                gap: 12px; margin-bottom: 28px; }
   .ex-card { background: #fff; border-radius: 8px; padding: 14px 16px;
              border-left: 4px solid #ccc; font-size: 0.85rem; }
   .ex-card h4 { margin: 0 0 6px; font-size: 0.88rem; display: flex; align-items: center; gap: 6px; }
   .ex-card p  { margin: 0; color: #555; line-height: 1.5; }
-  .ex-hold    { border-color: #fd7e14; }
-  .ex-resolve { border-color: #28a745; }
   .ex-dismiss { border-color: #6c757d; }
-  .ex-reverse { border-color: #dc3545; }
-  .ex-card.ex-reverse { background: #fff5f5; }
+  .ex-warn    { border-color: #fd7e14; }
+  .ex-suspend { border-color: #dc3545; background: #fff5f5; }
+  .ex-restore { border-color: #2d7dd2; background: #f0f8ff; }
 
-  /* Tabs */
   .tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
   .tab { padding: 6px 16px; border-radius: 4px; font-size: 0.88rem; text-decoration: none;
          background: #f0f0f0; color: #444; border: 1px solid #ddd; }
   .tab.active { background: #2d7dd2; color: #fff; border-color: #2d7dd2; }
 
-  /* Table */
   .card-wrap { background: #fff; border-radius: 8px; overflow: hidden;
                box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
   table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
@@ -36,43 +32,39 @@
   th { background: #f8f8f8; font-weight: 600; color: #555; border-bottom: 2px solid #ddd; }
   tr:hover td { background: #fafafa; }
 
-  /* Badges */
   .badge { display: inline-block; padding: 2px 8px; border-radius: 10px;
            font-size: 0.74rem; font-weight: 700; }
   .badge-open      { background: #fff3cd; color: #856404; }
   .badge-resolved  { background: #d4edda; color: #155724; }
   .badge-dismissed { background: #f8d7da; color: #721c24; }
-  .badge-held      { background: #cce5ff; color: #004085; }
-  .badge-reversed  { background: #e2e3e5; color: #383d41; }
 
-  /* Buttons */
+  .cat-badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 0.74rem;
+               background: #e9ecef; color: #444; font-family: monospace; }
+
   .btn { display: inline-block; padding: 5px 11px; border-radius: 4px; font-size: 0.8rem;
          border: none; cursor: pointer; text-decoration: none; white-space: nowrap; }
   .btn-danger    { background: #dc3545; color: #fff; }
   .btn-warning   { background: #fd7e14; color: #fff; }
   .btn-success   { background: #28a745; color: #fff; }
   .btn-secondary { background: #6c757d; color: #fff; }
+  .btn-info      { background: #2d7dd2; color: #fff; }
   .btn:hover { opacity: 0.88; }
-  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
-  /* Action groups */
-  .action-group { margin-bottom: 6px; }
-  .action-group label { display: block; font-size: 0.72rem; color: #888;
-                        text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 3px; }
+  .action-group { margin-bottom: 8px; }
+  .action-group > .group-label { display: block; font-size: 0.7rem; color: #888;
+                                  text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
   .inline-form { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
   .inline-form input[type=text] { padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px;
-                                   font-size: 0.8rem; width: 150px; }
-  .reversal-highlight { background: #fff5f5; border: 1px solid #f5c6cb;
-                        border-radius: 6px; padding: 8px 10px; margin-top: 8px; }
-  .reversal-highlight .inline-form input[type=text] { border-color: #f5c6cb; }
-
+                                   font-size: 0.8rem; width: 140px; }
+  .restore-box { background: #f0f8ff; border: 1px solid #b8daff;
+                 border-radius: 6px; padding: 8px 10px; margin-top: 6px; }
   .note-text { font-size: 0.8rem; color: #555; max-width: 200px; white-space: pre-wrap; }
   .empty { text-align: center; color: #888; padding: 50px 0; font-size: 0.9rem; }
-
-  /* Alert info box */
   .info-box { background: #e8f4fd; border: 1px solid #bee3f8; border-radius: 6px;
               padding: 12px 16px; font-size: 0.85rem; color: #2c5f7a; margin-bottom: 20px; }
   .info-box strong { display: block; margin-bottom: 4px; }
+  a.provider-link { font-weight: 600; font-size: 0.84rem; color: #1a5fc8; text-decoration: none; }
+  a.provider-link:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -80,32 +72,35 @@
 {% include 'admin_nav.html' %}
 
 <div class="page-header">
-  <h2>⚖️ Disputes &amp; Payment Holds</h2>
-  <p>Review member-filed disputes on provider payments. Apply holds, resolve disputes, or reverse fraudulent payments.</p>
+  <h2>📋 Care Quality Reports</h2>
+  <p>Members can report issues with a provider — treatment not given, overcharging, or poor care. Review reports and take action below.</p>
 </div>
 
 <div class="info-box">
-  <strong>How members file a dispute</strong>
-  Members can dispute any provider payment by visiting <code>/dispute/&lt;ref&gt;</code> (linked from their transaction history).
-  Once filed, the payment appears here with status <em>open</em>. You have four tools below to act on it.
+  <strong>How members file a report</strong>
+  Members visit <code>/report-care/&lt;ref&gt;</code> from their transaction history and choose a category
+  (not treated, overcharged, poor care, etc.). Reports appear here with status <em>open</em>.
+  Because payments go directly to providers' mobile wallets, <strong>admin cannot reverse a mobile money transfer</strong>.
+  Instead, you can restore the community pool balance from platform reserves as compensation,
+  and suspend the provider to protect future members.
 </div>
 
 <div class="explainer">
-  <div class="ex-card ex-hold">
-    <h4>🔒 Place Hold</h4>
-    <p>Freezes the payment so the provider cannot withdraw it. Use this while you investigate. Does <em>not</em> refund anything yet.</p>
-  </div>
-  <div class="ex-card ex-resolve">
-    <h4>✅ Resolve</h4>
-    <p>Closes the dispute in the member's favour or confirms the payment was legitimate. Marks the dispute resolved — no money moves.</p>
-  </div>
   <div class="ex-card ex-dismiss">
     <h4>🚫 Dismiss</h4>
-    <p>Rejects the member's dispute claim. Payment stays with the provider. Use when the dispute is unfounded.</p>
+    <p>Report is unfounded or resolved informally. No further action taken.</p>
   </div>
-  <div class="ex-card ex-reverse">
-    <h4>↩️ Reverse Payment</h4>
-    <p><strong>Returns the payment amount to the community pool.</strong> The provider no longer receives the funds. This is permanent and logged in the audit trail. Only Super Admins can reverse.</p>
+  <div class="ex-card ex-warn">
+    <h4>⚠️ Warn Provider</h4>
+    <p>Logs a formal warning in the audit trail and sends an SMS to the provider. Report is resolved.</p>
+  </div>
+  <div class="ex-card ex-suspend">
+    <h4>🔴 Suspend Provider</h4>
+    <p>Immediately blocks the provider from receiving new care fund payments. Use the provider detail page to suspend.</p>
+  </div>
+  <div class="ex-card ex-restore">
+    <h4>💰 Restore Pool Funds</h4>
+    <p>Credits the member's community pool from platform reserves as compensation. The provider keeps their mobile money — this is an admin goodwill credit, not a reversal.</p>
   </div>
 </div>
 
@@ -125,9 +120,8 @@
       <th>Member</th>
       <th>Provider</th>
       <th>Amount</th>
-      <th>Payment State</th>
-      <th>Dispute Status</th>
-      <th>Note</th>
+      <th>Category &amp; Details</th>
+      <th>Status</th>
       <th>Filed</th>
       <th>Actions</th>
     </tr>
@@ -136,6 +130,7 @@
     {% for d in disputes %}
     <tr>
       <td><code style="font-size:0.78rem;">{{ d.reference_code }}</code></td>
+
       <td>
         {% if d._user %}
           <a href="/admin/user/{{ d.user_id }}">{{ d._user.name }}</a><br>
@@ -145,12 +140,13 @@
           <br><small style="color:#aaa">Filed by {{ d._reporter.name }}</small>
         {% endif %}
       </td>
+
       <td>
         {% if d._provider %}
-          <a href="/admin/provider/{{ d._provider.id }}" style="font-size:0.84rem;font-weight:600;">{{ d._provider.name }}</a><br>
+          <a class="provider-link" href="/admin/provider/{{ d._provider.id }}">{{ d._provider.name }}</a><br>
           <code style="font-size:0.76rem;">{{ d._provider.provider_code }}</code><br>
           {% if d._provider.verified %}
-            <span style="color:#155724;font-size:0.74rem;">✓ verified</span>
+            <span style="color:#155724;font-size:0.74rem;">✓ active</span>
           {% else %}
             <span style="color:#721c24;font-size:0.74rem;">⛔ suspended</span>
           {% endif %}
@@ -158,16 +154,31 @@
           <span style="color:#aaa;font-size:0.82rem;">No provider</span>
         {% endif %}
       </td>
+
       <td><strong>UGX {{ '{:,.0f}'.format(d.amount) }}</strong></td>
+
       <td>
-        <span style="font-size:0.82rem;">{{ d.status }}</span>
-        {% if d.on_hold %}<br><span class="badge badge-held">ON HOLD</span>{% endif %}
-        {% if d.reversed %}<br><span class="badge badge-reversed">REVERSED</span>
-          {% if d.reversed_at %}<br><small style="color:#888">{{ d.reversed_at.strftime('%d %b %Y') }}</small>{% endif %}
-        {% endif %}
+        {% if d.dispute_note %}
+          {% set note_text = d.dispute_note %}
+          {% if note_text.startswith('[') %}
+            {% set cat_end = note_text.find(']') %}
+            {% if cat_end > 0 %}
+              <span class="cat-badge">{{ note_text[1:cat_end] }}</span><br>
+              <div class="note-text" style="margin-top:4px;">{{ note_text[cat_end+2:] }}</div>
+            {% else %}
+              <div class="note-text">{{ note_text }}</div>
+            {% endif %}
+          {% else %}
+            <div class="note-text">{{ note_text }}</div>
+          {% endif %}
+        {% else %}—{% endif %}
       </td>
-      <td><span class="badge badge-{{ d.dispute_status }}">{{ d.dispute_status }}</span></td>
-      <td><div class="note-text">{{ d.dispute_note or '—' }}</div></td>
+
+      <td>
+        <span class="badge badge-{{ d.dispute_status }}">{{ d.dispute_status }}</span>
+        {% if d.reversed %}<br><span style="font-size:0.76rem;color:#155724;">Pool restored</span>{% endif %}
+      </td>
+
       <td>
         {% if d.dispute_at %}
           <span style="font-size:0.8rem;">{{ d.dispute_at.strftime('%d %b %Y') }}</span><br>
@@ -175,54 +186,61 @@
         {% else %}—{% endif %}
       </td>
 
-      <td style="min-width:220px;">
-
-        {# ── Resolve / Dismiss ── #}
-        {% if d.dispute_status == 'open' %}
-        <div class="action-group">
-          <label>Close dispute</label>
-          <form method="post" action="/admin/dispute/{{ d.id }}/resolve" class="inline-form">
-            <input type="text" name="note" placeholder="Note (optional)" maxlength="200">
-            <button type="submit" name="action" value="resolve" class="btn btn-success">Resolve</button>
-            <button type="submit" name="action" value="dismiss" class="btn btn-secondary">Dismiss</button>
-          </form>
-        </div>
-        {% endif %}
-
-        {# ── Hold / Release ── #}
+      <td style="min-width:210px;">
         {% if not d.reversed %}
-        <div class="action-group">
-          {% if d.on_hold %}
-          <label>Payment is on hold</label>
-          <form method="post" action="/admin/payment/{{ d.id }}/hold" class="inline-form">
-            <button type="submit" name="action" value="release" class="btn btn-warning">Release Hold</button>
-          </form>
-          {% else %}
-          <label>Place a hold</label>
-          <form method="post" action="/admin/payment/{{ d.id }}/hold" class="inline-form">
-            <input type="text" name="reason" placeholder="Hold reason" required maxlength="200">
-            <button type="submit" name="action" value="hold" class="btn btn-warning">Hold</button>
-          </form>
-          {% endif %}
-        </div>
 
-        {# ── Reverse Payment (Super Admin only) ── #}
-        <div class="reversal-highlight">
-          <label style="font-size:0.72rem;color:#721c24;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:5px;display:block;">
-            ↩ Reverse payment — restores UGX {{ '{:,.0f}'.format(d.amount) }} to community pool
-          </label>
-          <form method="post" action="/admin/payment/{{ d.id }}/reverse" class="inline-form"
-                onsubmit="return confirm('REVERSE payment {{ d.reference_code }}?\n\nThis will:\n• Mark payment as reversed\n• Restore UGX {{ '{:,.0f}'.format(d.amount) }} to the community pool\n• Create a compensating ledger entry\n\nThis CANNOT be undone. Continue?')">
-            <input type="text" name="reason" placeholder="Reversal reason (required)" required maxlength="300">
-            <button type="submit" class="btn btn-danger">Reverse</button>
-          </form>
-        </div>
+          {# ── Dismiss / Resolve ── #}
+          {% if d.dispute_status == 'open' %}
+          <div class="action-group">
+            <span class="group-label">Close report</span>
+            <form method="post" action="/admin/dispute/{{ d.id }}/resolve" class="inline-form">
+              <input type="text" name="note" placeholder="Note (optional)" maxlength="200">
+              <button type="submit" name="action" value="resolve" class="btn btn-success">Resolve</button>
+              <button type="submit" name="action" value="dismiss" class="btn btn-secondary">Dismiss</button>
+            </form>
+          </div>
+
+          {# ── Warn Provider ── #}
+          <div class="action-group">
+            <span class="group-label">Warn provider (resolves report + sends SMS)</span>
+            <form method="post" action="/admin/dispute/{{ d.id }}/resolve" class="inline-form">
+              <input type="text" name="note" placeholder="Warning message" maxlength="200">
+              <button type="submit" name="action" value="warn" class="btn btn-warning">⚠ Warn</button>
+            </form>
+          </div>
+          {% endif %}
+
+          {# ── Restore Pool Funds ── #}
+          {% if not d.reversed %}
+          <div class="restore-box">
+            <span class="group-label" style="color:#1a5fc8;font-size:0.7rem;font-weight:bold;display:block;margin-bottom:4px;">
+              💰 Restore UGX {{ '{:,.0f}'.format(d.amount) }} to community pool from reserves
+            </span>
+            <p style="font-size:0.74rem;color:#555;margin:0 0 5px;">
+              Credits the pool as admin compensation. Provider keeps their payment.
+            </p>
+            <form method="post" action="/admin/payment/{{ d.id }}/reverse" class="inline-form"
+                  onsubmit="return confirm('Restore UGX {{ '{:,.0f}'.format(d.amount) }} to the community pool?\n\nThis credits the pool from platform reserves as compensation.\nThe provider keeps their mobile money payment.\n\nContinue?')">
+              <input type="text" name="reason" placeholder="Reason (required)" required maxlength="300">
+              <button type="submit" class="btn btn-info">Restore Funds</button>
+            </form>
+          </div>
+          {% endif %}
 
         {% else %}
-        <small style="color:#888; font-size:0.8rem;">
-          Payment reversed{% if d.reversed_at %} on {{ d.reversed_at.strftime('%d %b %Y') }}{% endif %}.
-          UGX {{ '{:,.0f}'.format(d.amount) }} returned to pool.
-        </small>
+          <small style="color:#555; font-size:0.8rem;">
+            Pool funds restored{% if d.reversed_at %} on {{ d.reversed_at.strftime('%d %b %Y') }}{% endif %}.
+            UGX {{ '{:,.0f}'.format(d.amount) }} credited to community.
+          </small>
+        {% endif %}
+
+        {# ── Suspend provider link ── #}
+        {% if d._provider and d._provider.verified %}
+        <div style="margin-top:8px;">
+          <a href="/admin/provider/{{ d._provider.id }}" class="btn btn-danger" style="font-size:0.76rem;">
+            View &amp; Suspend Provider →
+          </a>
+        </div>
         {% endif %}
 
       </td>
@@ -233,7 +251,7 @@
 </div>
 {% else %}
 <div class="card-wrap">
-  <div class="empty">No {{ status_filter }} disputes found.</div>
+  <div class="empty">No {{ status_filter }} care reports found.</div>
 </div>
 {% endif %}
 

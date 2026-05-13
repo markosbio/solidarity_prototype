@@ -1677,7 +1677,18 @@ def provider_dashboard():
         return redirect(url_for('provider_login'))
     provider = Provider.query.get(session['provider_id'])
     payments = PaymentRecord.query.filter_by(provider_id=provider.id).order_by(PaymentRecord.created_at.desc()).all()
-    return render_template('provider_dashboard.html', provider=provider, payments=payments)
+    # Summary stats
+    from datetime import date
+    now = datetime.utcnow()
+    month_start = datetime(now.year, now.month, 1)
+    total_earned    = sum(p.amount for p in payments if getattr(p, 'reversed', False) is not True)
+    month_payments  = [p for p in payments if p.created_at and p.created_at >= month_start]
+    month_earned    = sum(p.amount for p in month_payments if getattr(p, 'reversed', False) is not True)
+    pending_count   = sum(1 for p in payments if p.status == 'sent')
+    patients_served = len({p.user_id for p in payments if p.status not in ('reversed',)})
+    return render_template('provider_dashboard.html', provider=provider, payments=payments,
+                           total_earned=total_earned, month_earned=month_earned,
+                           pending_count=pending_count, patients_served=patients_served)
 
 @app.route('/provider/confirm/<ref>')
 def confirm_payment(ref):
@@ -3096,42 +3107,50 @@ def admin_hold_payment(pr_id):
     return redirect(request.referrer or url_for('admin_disputes'))
 
 
-@app.route('/dispute/<ref>', methods=['GET', 'POST'])
+@app.route('/report-care/<ref>', methods=['GET', 'POST'])
 def file_dispute(ref):
+    """Member reports a care quality issue with a provider."""
     if 'user_id' not in session:
         return redirect(url_for('login'))
     user = db.session.get(User, session['user_id'])
     pr = PaymentRecord.query.filter_by(reference_code=ref).first_or_404()
     if pr.user_id != user.id:
-        flash('You can only file disputes on your own payments.', 'error')
+        flash('You can only report care issues on your own payments.', 'error')
         return redirect(url_for('home'))
     if getattr(pr, 'reversed', False):
-        flash('This payment has already been reversed.', 'info')
+        flash('This payment record has already been resolved by admin.', 'info')
         return redirect(url_for('home'))
     if getattr(pr, 'dispute_status', None) == 'open':
-        flash('A dispute is already open for this payment.', 'info')
+        flash('A care report is already open for this payment. Admin will be in touch.', 'info')
         return redirect(url_for('home'))
     if request.method == 'POST':
+        category = request.form.get('category', 'other').strip()
         note = request.form.get('note', '').strip()
         if not note or len(note) < 10:
             return render_template('file_dispute.html', pr=pr, user=user,
-                                   error='Please describe your dispute in at least 10 characters.')
+                                   error='Please describe the issue in at least 10 characters.')
+        full_note = f'[{category}] {note}'
         pr.dispute_status = 'open'
-        pr.dispute_note = note[:500]
+        pr.dispute_note = full_note[:500]
         pr.dispute_by_user_id = user.id
         pr.dispute_at = datetime.utcnow()
         db.session.commit()
-        _log_admin_action(0, 'dispute_filed', target_user_id=user.id,
-                          details=f'Payment {ref}: {note[:200]}',
+        _log_admin_action(0, 'care_report_filed', target_user_id=user.id,
+                          details=f'Payment {ref} — {full_note[:200]}',
                           old_value='none', new_value='open')
         try:
             notify_admin_dispute_filed(
                 _get_admin_phones(), ref, user.name, float(pr.amount or 0))
         except Exception:
             pass
-        flash('Your dispute has been submitted. Admin will review it shortly.', 'success')
+        flash('Your report has been submitted. Our admin team will review it within 1–2 business days.', 'success')
         return redirect(url_for('home'))
     return render_template('file_dispute.html', pr=pr, user=user, error=None)
+
+# Keep old URL working
+@app.route('/dispute/<ref>', methods=['GET', 'POST'])
+def file_dispute_legacy(ref):
+    return redirect(url_for('file_dispute', ref=ref))
 
 
 @app.route('/admin/disputes')
@@ -3157,14 +3176,40 @@ def admin_disputes():
 def admin_dispute_resolve(pr_id):
     pr = PaymentRecord.query.get_or_404(pr_id)
     action = request.form.get('action', 'resolve')
-    note = request.form.get('note', '').strip()
-    pr.dispute_status = 'resolved' if action == 'resolve' else 'dismissed'
-    if note:
-        pr.dispute_note = (pr.dispute_note or '') + f'\n[Admin {action}]: {note}'
-    db.session.commit()
-    _log_admin_action(session['user_id'], f'dispute_{action}', target_user_id=pr.user_id,
-                      details=f'Dispute on payment {pr.reference_code} {action}d. Note: {note[:100]}')
-    flash(f'Dispute {action}d successfully.', 'success')
+    note   = request.form.get('note', '').strip()
+
+    if action == 'warn':
+        # Warn the provider: resolve the report and log a formal warning
+        pr.dispute_status = 'resolved'
+        warn_text = f'[Admin warning issued to provider]: {note}' if note else '[Admin warning issued to provider]'
+        pr.dispute_note = (pr.dispute_note or '') + f'\n{warn_text}'
+        db.session.commit()
+        # Try to notify provider by SMS
+        if pr.provider_id:
+            prov = Provider.query.get(pr.provider_id)
+            if prov and prov.contact_phone:
+                try:
+                    from notifications import send_sms
+                    send_sms(prov.contact_phone,
+                             f'[SolidarityPool] A care quality concern has been reported for your facility. '
+                             f'Admin note: {note or "Please ensure all patients receive appropriate care."}')
+                except Exception:
+                    pass
+        _log_admin_action(session['user_id'], 'provider_warned', target_user_id=pr.user_id,
+                          details=f'Provider #{pr.provider_id} warned via report on payment {pr.reference_code}. Note: {note[:100]}')
+        flash('Provider warning issued and report resolved.', 'success')
+
+    elif action in ('resolve', 'dismiss'):
+        pr.dispute_status = 'resolved' if action == 'resolve' else 'dismissed'
+        if note:
+            pr.dispute_note = (pr.dispute_note or '') + f'\n[Admin {action}]: {note}'
+        db.session.commit()
+        _log_admin_action(session['user_id'], f'report_{action}', target_user_id=pr.user_id,
+                          details=f'Care report on payment {pr.reference_code} {action}d. Note: {note[:100]}')
+        flash(f'Report {action}d successfully.', 'success')
+    else:
+        flash('Unknown action.', 'error')
+
     return redirect(url_for('admin_disputes'))
 
 
