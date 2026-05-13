@@ -69,6 +69,7 @@
   <div class="card">
     <h3>{{ app.provider_name }} <span class="badge badge-pending">Pending</span></h3>
     <div class="meta">
+      {% if app.contact_person %}<strong>Contact person:</strong> {{ app.contact_person }}<br>{% endif %}
       <strong>Phone / Wallet:</strong> {{ app.phone }} · {{ app.provider_wallet_number or '—' }}<br>
       <strong>Location:</strong> {{ app.location or '—' }}<br>
       <strong>Business License:</strong> {{ app.business_license or '—' }}<br>
@@ -107,6 +108,7 @@
       {% endif %}
     </h3>
     <div class="meta">
+      {% if app.contact_person %}<strong>Contact person:</strong> {{ app.contact_person }}<br>{% endif %}
       <strong>Phone / Wallet:</strong> {{ app.phone }} · {{ app.provider_wallet_number or '—' }}<br>
       <strong>Location:</strong> {{ app.location or '—' }}<br>
       <strong>Verified:</strong> {{ app.reviewed_at.strftime('%Y-%m-%d') if app.reviewed_at else '—' }}
@@ -124,22 +126,25 @@
         <label>Mode</label>
         <select name="mode" id="mode-sel-{{ app.provider_ref.id }}"
                 onchange="toggleCodeMode({{ app.provider_ref.id }})">
+          <option value="sequential" selected>Sequential (prefix + auto-number)</option>
           <option value="manual">Manual (type new code)</option>
-          <option value="sequential">Sequential (prefix + auto-number)</option>
         </select>
 
-        <div id="manual-block-{{ app.provider_ref.id }}">
+        <div id="seq-block-{{ app.provider_ref.id }}">
+          <label>Prefix (auto-numbered)</label>
+          <div class="code-row">
+            <input type="text" name="prefix" placeholder="e.g. MUTUNGOC" maxlength="12"
+                   oninput="this.value=this.value.toUpperCase()">
+            <span style="font-size:0.78rem;color:#888;align-self:center;">
+              Admin will get next available number e.g. MUTUNGOC002
+            </span>
+          </div>
+        </div>
+        <div id="manual-block-{{ app.provider_ref.id }}" style="display:none;">
           <label>New code</label>
           <div class="code-row">
             <input type="text" name="new_code" placeholder="e.g. KAMPALA002" maxlength="20"
                    style="text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()">
-          </div>
-        </div>
-        <div id="seq-block-{{ app.provider_ref.id }}" style="display:none;">
-          <label>Prefix (auto-numbered)</label>
-          <div class="code-row">
-            <input type="text" name="prefix" placeholder="e.g. KAMPALA" maxlength="12"
-                   oninput="this.value=this.value.toUpperCase()">
           </div>
         </div>
 
@@ -190,8 +195,8 @@
 <script>
 function toggleCodeMode(pid) {
   const sel = document.getElementById('mode-sel-' + pid);
-  document.getElementById('manual-block-' + pid).style.display = sel.value === 'manual' ? '' : 'none';
-  document.getElementById('seq-block-' + pid).style.display   = sel.value === 'sequential' ? '' : 'none';
+  document.getElementById('seq-block-' + pid).style.display    = sel.value === 'sequential' ? '' : 'none';
+  document.getElementById('manual-block-' + pid).style.display = sel.value === 'manual'     ? '' : 'none';
 }
 </script>
 </body>

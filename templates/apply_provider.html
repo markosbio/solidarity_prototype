@@ -74,6 +74,13 @@
     <label>Facility / Organisation name *
       <input type="text" name="provider_name" placeholder="e.g. Kampala City Clinic"
              value="{{ form.provider_name or '' }}" required>
+      <span class="hint">The name of your clinic, hospital, or healthcare facility.</span>
+    </label>
+
+    <label>Contact person name *
+      <input type="text" name="contact_person" placeholder="e.g. Dr. Jane Mugisha"
+             value="{{ form.contact_person or '' }}" required>
+      <span class="hint">Name of the doctor, nurse, or administrator submitting this application — even if affiliated with the same facility as a previous applicant.</span>
     </label>
 
     <label>Contact phone number *

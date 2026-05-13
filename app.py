@@ -403,6 +403,7 @@ def _run_column_migrations():
         "ALTER TABLE payment_record ADD COLUMN IF NOT EXISTS dispute_at TIMESTAMP",
         "ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS old_value VARCHAR(500)",
         "ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS new_value VARCHAR(500)",
+        "ALTER TABLE verified_provider ADD COLUMN IF NOT EXISTS contact_person VARCHAR(150)",
         "ALTER TABLE user_login_history ADD COLUMN IF NOT EXISTS user_agent VARCHAR(300)",
         "ALTER TABLE support_ticket ADD COLUMN IF NOT EXISTS priority VARCHAR(10) DEFAULT 'medium'",
         """CREATE TABLE IF NOT EXISTS support_ticket (
@@ -765,15 +766,16 @@ def register_provider():
 @app.route('/apply-provider', methods=['GET', 'POST'])
 def apply_provider():
     if request.method == 'POST':
-        provider_name = request.form.get('provider_name', '').strip()
-        phone = request.form.get('phone', '').strip()
+        provider_name    = request.form.get('provider_name', '').strip()
+        contact_person   = request.form.get('contact_person', '').strip()
+        phone            = request.form.get('phone', '').strip()
         provider_wallet_number = request.form.get('provider_wallet_number', '').strip()
         business_license = request.form.get('business_license', '').strip()
-        location = request.form.get('location', '').strip()
-        payment_type = request.form.get('payment_type', '').strip()
-        notes = request.form.get('notes', '').strip()
+        location         = request.form.get('location', '').strip()
+        payment_type     = request.form.get('payment_type', '').strip()
+        notes            = request.form.get('notes', '').strip()
 
-        if not all([provider_name, phone, provider_wallet_number, business_license, location, payment_type]):
+        if not all([provider_name, contact_person, phone, provider_wallet_number, business_license, location, payment_type]):
             form = request.form
             return render_template('apply_provider.html', submitted=False,
                                    error='All required fields must be filled in.', form=form)
@@ -786,6 +788,7 @@ def apply_provider():
 
         vp = VerifiedProvider(
             provider_name=provider_name,
+            contact_person=contact_person,
             phone=phone,
             provider_wallet_number=provider_wallet_number,
             business_license=business_license,
@@ -1325,6 +1328,7 @@ def admin_verified_providers():
 def apply_verified_provider():
     vp = VerifiedProvider(
         provider_name=request.form.get('provider_name', '').strip(),
+        contact_person=request.form.get('contact_person', '').strip() or None,
         phone=request.form.get('phone', '').strip().lstrip('+'),
         provider_wallet_number=request.form.get('provider_wallet_number', '').strip(),
         business_license=request.form.get('business_license', '').strip(),
@@ -1351,27 +1355,27 @@ def admin_verify_provider_application(app_id):
         vp.reviewed_at = datetime.utcnow()
         vp.reviewed_by = session['user_id']
 
-        # Generate a clean provider code from the clinic name if not already in Provider table
+        # Always create a NEW Provider record per individual so codes are unique.
+        # Use the facility name as the prefix for sequential numbering so that
+        # multiple people from the same clinic get e.g. MUTUNGOC001, MUTUNGOC002, …
         import re
-        base_code = re.sub(r'[^A-Z0-9]', '', vp.provider_name.upper())[:8] or 'CLINIC'
-        existing = Provider.query.filter_by(provider_code=base_code).first()
-        if existing:
-            provider = existing
-            provider.verified = True
-        else:
-            provider = Provider(
-                name=vp.provider_name,
-                provider_code=base_code,
-                payment_type='mobile_money',
-                payment_details=vp.provider_wallet_number or '',
-                verified=True,
-                contact_name=vp.provider_name,
-                contact_phone=vp.phone,
-            )
-            db.session.add(provider)
+        prefix = re.sub(r'[^A-Z0-9]', '', vp.provider_name.upper())[:8] or 'CLINIC'
+        new_code = _generate_sequential_code(prefix)
+        individual_name = getattr(vp, 'contact_person', None) or vp.provider_name
+        provider = Provider(
+            name=vp.provider_name,
+            provider_code=new_code,
+            payment_type='mobile_money',
+            payment_details=vp.provider_wallet_number or '',
+            verified=True,
+            contact_name=individual_name,
+            contact_phone=vp.phone,
+        )
+        db.session.add(provider)
 
         db.session.commit()
-        logger.info("Provider application approved: vp_id={} code={}", vp.id, provider.provider_code)
+        logger.info("Provider application approved: vp_id={} individual={} code={}",
+                    vp.id, individual_name, provider.provider_code)
         notify_provider_approved(vp.phone, vp.provider_name, provider.provider_code)
 
     elif action == 'reject':
