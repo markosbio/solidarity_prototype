@@ -61,12 +61,12 @@ STRINGS = {
         'new_balance':   "New balance: KES {bal}",
         'invalid_amount':"Invalid amount. Please enter a number, e.g. 500",
         'reg_name':      "Enter your full name:",
-        'reg_pin':       "Choose a 4-digit PIN:",
+        'reg_pin':       "Choose a 4–6 digit PIN:",
         'reg_referrer':  "Enter referrer phone (or 0 to skip):",
         'reg_success':   "Registration successful!\nWelcome, {name}.\nDial again to access your account.",
         'already_reg':   "You are already registered. Dial again to log in.",
         'blank_name':    "Name cannot be blank. Please try again.",
-        'pin_4digits':   "PIN must be exactly 4 digits. Dial again.",
+        'pin_4digits':   "PIN must be 4–6 digits. Dial again.",
         'care_ceiling':  "Your draw ceiling: KES {ceiling:.0f}\nThis is the max you can request from the pool.\nEnter amount needed (KES):",
         'care_exceed':   "Amount exceeds your ceiling.\nYour draw ceiling is KES {ceiling:.0f}.\nPlease enter a lower amount or build your trust score.",
         'care_provider': "Enter provider code (e.g. MULAGO001):",
@@ -156,12 +156,12 @@ STRINGS = {
         'new_balance':   "Omuwendo ogupya: KES {bal}",
         'invalid_amount':"Omuwendo gutali wa ntuufu. Yita nate.",
         'reg_name':      "Yingiza erinnya lyo lyonna:",
-        'reg_pin':       "Londa PIN y'emiwendo ena:",
+        'reg_pin':       "Londa PIN y'emiwendo ena okutuuka mukaaga:",
         'reg_referrer':  "Yingiza simu y'oyo yakuzannyisa (oba 0 okusula):",
         'reg_success':   "Okyusiddwa nayee!\nTukusubirira, {name}.\nYita nate okugera akaawunti yo.",
         'already_reg':   "Wakyusiddwa. Yita nate okuyingira.",
         'blank_name':    "Erinnya tikisibwe. Gezaako nate.",
-        'pin_4digits':   "PIN erina emiwendo ena bukafu. Yita nate.",
+        'pin_4digits':   "PIN erina emiwendo ena okutuuka mukaaga. Yita nate.",
         'care_ceiling':  "Obukulu bwo: KES {ceiling:.0f}\nOno we obukulu bw'okusaba.\nYingiza omuwendo ogwetaaga (KES):",
         'care_exceed':   "Omuwendo ousei obukulu bwo.\nObukulu bwo bwa KES {ceiling:.0f}.\nYingiza omuwendo omuto oba yongera ddaala lyo.",
         'care_provider': "Yingiza koodi ya clinic (eg. MULAGO001):",
@@ -251,12 +251,12 @@ STRINGS = {
         'new_balance':   "Salio jipya: KES {bal}",
         'invalid_amount':"Kiasi si sahihi. Ingiza nambari, mfano 500",
         'reg_name':      "Ingiza jina lako kamili:",
-        'reg_pin':       "Chagua PIN ya nambari 4:",
+        'reg_pin':       "Chagua PIN ya nambari 4–6:",
         'reg_referrer':  "Ingiza nambari ya mkurugenzi (au 0 kuruka):",
         'reg_success':   "Usajili umefanikiwa!\nKaribu, {name}.\nPiga tena kuingia akaunti yako.",
         'already_reg':   "Umesajiliwa tayari. Piga tena kuingia.",
         'blank_name':    "Jina haliwezi kuwa tupu. Jaribu tena.",
-        'pin_4digits':   "PIN lazima iwe nambari 4 hasa. Piga tena.",
+        'pin_4digits':   "PIN lazima iwe nambari 4 hadi 6. Piga tena.",
         'care_ceiling':  "Kikomo chako: KES {ceiling:.0f}\nHiki ndicho kiasi unachoweza kuomba.\nIngiza kiasi unachohitaji (KES):",
         'care_exceed':   "Kiasi kinazidi kikomo chako.\nKikomo chako ni KES {ceiling:.0f}.\nIngiza kiasi kidogo zaidi au ongeza alama yako.",
         'care_provider': "Ingiza nambari ya kliniki (mfano MULAGO001):",
@@ -493,7 +493,7 @@ def _register_flow(phone: str, steps: list, level: int, lang: str) -> str:
         return f"CON {t('reg_pin', lang)}"
 
     pin = steps[2].strip()
-    if not pin.isdigit() or len(pin) != 4:
+    if not pin.isdigit() or not (4 <= len(pin) <= 6):
         return f"END {t('pin_4digits', lang)}"
 
     if level == 3:

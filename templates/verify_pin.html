@@ -33,9 +33,9 @@
 
   <form method="POST">
     <input type="hidden" name="next" value="{{ next }}">
-    <label for="pin">Enter your 4-digit PIN</label>
-    <input type="password" name="pin" id="pin" maxlength="4" inputmode="numeric"
-           pattern="[0-9]{4}" placeholder="••••" autofocus required>
+    <label for="pin">Enter your PIN (4–6 digits)</label>
+    <input type="password" name="pin" id="pin" maxlength="6" inputmode="numeric"
+           pattern="[0-9]{4,6}" placeholder="••••••" autofocus required>
     <button type="submit">Confirm →</button>
   </form>
 

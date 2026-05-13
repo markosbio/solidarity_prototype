@@ -24,7 +24,7 @@
 </head>
 <body>
 <h2>Change PIN</h2>
-<p class="subtitle">Update your 4-digit security PIN.</p>
+<p class="subtitle">Update your 4–6 digit security PIN.</p>
 
 <div class="card">
   {% if error %}
@@ -36,16 +36,16 @@
 
   <form method="POST">
     <label>Current PIN
-      <input type="password" name="current_pin" maxlength="4" inputmode="numeric"
-             pattern="[0-9]{4}" placeholder="••••" autofocus required>
+      <input type="password" name="current_pin" maxlength="6" inputmode="numeric"
+             pattern="[0-9]{4,6}" placeholder="••••••" autofocus required>
     </label>
     <label>New PIN
-      <input type="password" name="new_pin" maxlength="4" inputmode="numeric"
-             pattern="[0-9]{4}" placeholder="••••" required>
+      <input type="password" name="new_pin" maxlength="6" inputmode="numeric"
+             pattern="[0-9]{4,6}" placeholder="••••••" required>
     </label>
     <label>Confirm New PIN
-      <input type="password" name="confirm_pin" maxlength="4" inputmode="numeric"
-             pattern="[0-9]{4}" placeholder="••••" required>
+      <input type="password" name="confirm_pin" maxlength="6" inputmode="numeric"
+             pattern="[0-9]{4,6}" placeholder="••••••" required>
     </label>
     <button type="submit">Update PIN →</button>
   </form>

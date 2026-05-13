@@ -1804,7 +1804,7 @@ def ussd():
         if step == 1 and choice == "1":
             return r("Enter your full name:")
         if step == 2 and raw_inputs[0] == "1":
-            return r("Choose a 4-digit PIN:")
+            return r("Choose a 4–6 digit PIN:")
         if step == 3 and raw_inputs[0] == "1":
             name = inputs[1]
             pin = inputs[2].strip()
@@ -2349,7 +2349,7 @@ def ussd():
             entered = inputs[1].strip()
             if entered != (user.pin or '1234'):
                 return r("Incorrect current PIN. Dial again.", end=True)
-            return r("Enter your new 4-digit PIN:")
+            return r("Enter your new 4–6 digit PIN:")
         if step == 3:
             new_pin = inputs[2].strip()
             if not new_pin.isdigit() or not (4 <= len(new_pin) <= 6):
