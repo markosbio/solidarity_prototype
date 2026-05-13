@@ -123,6 +123,7 @@
     <tr>
       <th>Ref</th>
       <th>Member</th>
+      <th>Provider</th>
       <th>Amount</th>
       <th>Payment State</th>
       <th>Dispute Status</th>
@@ -142,6 +143,19 @@
         {% else %}#{{ d.user_id }}{% endif %}
         {% if d._reporter and d._reporter.id != d.user_id %}
           <br><small style="color:#aaa">Filed by {{ d._reporter.name }}</small>
+        {% endif %}
+      </td>
+      <td>
+        {% if d._provider %}
+          <a href="/admin/provider/{{ d._provider.id }}" style="font-size:0.84rem;font-weight:600;">{{ d._provider.name }}</a><br>
+          <code style="font-size:0.76rem;">{{ d._provider.provider_code }}</code><br>
+          {% if d._provider.verified %}
+            <span style="color:#155724;font-size:0.74rem;">✓ verified</span>
+          {% else %}
+            <span style="color:#721c24;font-size:0.74rem;">⛔ suspended</span>
+          {% endif %}
+        {% else %}
+          <span style="color:#aaa;font-size:0.82rem;">No provider</span>
         {% endif %}
       </td>
       <td><strong>UGX {{ '{:,.0f}'.format(d.amount) }}</strong></td>

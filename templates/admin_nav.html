@@ -126,7 +126,7 @@
   {% endif %}
 
   {% if role in ('super_admin', 'support') %}
-  <a href="/admin/verified-providers" {% if request.path == '/admin/verified-providers' %}class="active"{% endif %}>
+  <a href="/admin/providers" {% if request.path.startswith('/admin/provider') %}class="active"{% endif %}>
     🏥 Providers
     {% if c.get('pending_providers', 0) > 0 %}<span class="nav-badge nav-badge-amber">{{ c.pending_providers }}</span>{% endif %}
   </a>

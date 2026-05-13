@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>{{ provider.name }} – Provider – Admin – SolidarityPool</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: sans-serif; max-width: 1200px; margin: 40px auto; padding: 0 16px; background: #f5f6fa; color: #222; }
+  h2  { margin: 0 0 4px; }
+
+  /* Header card */
+  .provider-header { background: #fff; border-radius: 10px; padding: 22px 24px;
+                     box-shadow: 0 1px 4px rgba(0,0,0,0.08); margin-bottom: 20px;
+                     display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+  .provider-info { flex: 1; min-width: 200px; }
+  .provider-info h2 { font-size: 1.4rem; }
+  .provider-info .sub { color: #666; font-size: 0.88rem; margin: 4px 0; }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 10px; font-size: 0.78rem; font-weight: 700; }
+  .badge-ok  { background: #d4edda; color: #155724; }
+  .badge-bad { background: #f8d7da; color: #721c24; }
+
+  /* Stats row */
+  .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+               gap: 12px; margin-bottom: 20px; }
+  .stat-card { background: #fff; border-radius: 8px; padding: 14px 18px;
+               box-shadow: 0 1px 3px rgba(0,0,0,0.06); text-align: center; }
+  .stat-card .num { font-size: 1.6rem; font-weight: 700; color: #2d7dd2; }
+  .stat-card .num.red { color: #dc3545; }
+  .stat-card .num.amber { color: #fd7e14; }
+  .stat-card .lbl { font-size: 0.78rem; color: #888; margin-top: 2px; }
+
+  /* Action cards */
+  .actions-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+                  gap: 16px; margin-bottom: 24px; }
+  .action-card { background: #fff; border-radius: 8px; padding: 18px 20px;
+                 box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
+  .action-card h4 { margin: 0 0 12px; font-size: 0.95rem; color: #333; }
+  .action-card label { display: block; font-size: 0.8rem; color: #555; margin: 8px 0 3px; }
+  .action-card input, .action-card select {
+    width: 100%; box-sizing: border-box; padding: 7px 10px;
+    border: 1px solid #ddd; border-radius: 4px; font-size: 0.85rem; }
+  .action-card input:focus, .action-card select:focus { border-color: #2d7dd2; outline: none; }
+  .action-card .btn-row { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .suspend-card { border-left: 4px solid #dc3545; }
+  .verify-card  { border-left: 4px solid #28a745; }
+  .contact-card { border-left: 4px solid #2d7dd2; }
+  .code-card    { border-left: 4px solid #fd7e14; }
+
+  /* Buttons */
+  .btn { display: inline-block; padding: 7px 14px; border-radius: 4px; font-size: 0.82rem;
+         border: none; cursor: pointer; text-decoration: none; white-space: nowrap; }
+  .btn-danger    { background: #dc3545; color: #fff; }
+  .btn-success   { background: #28a745; color: #fff; }
+  .btn-primary   { background: #2d7dd2; color: #fff; }
+  .btn-warning   { background: #fd7e14; color: #fff; }
+  .btn-secondary { background: #6c757d; color: #fff; }
+  .btn-sm { padding: 4px 10px; font-size: 0.78rem; }
+  .btn:hover { opacity: 0.88; }
+
+  /* Tables */
+  .section { background: #fff; border-radius: 8px; overflow: hidden;
+             box-shadow: 0 1px 4px rgba(0,0,0,0.07); margin-bottom: 20px; }
+  .section-header { padding: 14px 18px; border-bottom: 1px solid #eee;
+                    display: flex; justify-content: space-between; align-items: center; }
+  .section-header h3 { margin: 0; font-size: 1rem; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid #eee; vertical-align: top; }
+  th { background: #f8f8f8; font-weight: 600; color: #555; }
+  tr:hover td { background: #fafafa; }
+
+  .status-pill { display: inline-block; padding: 2px 7px; border-radius: 8px;
+                 font-size: 0.74rem; font-weight: 700; }
+  .pill-sent     { background: #e3f2fd; color: #0d47a1; }
+  .pill-received { background: #e8f5e9; color: #1b5e20; }
+  .pill-started  { background: #f3e5f5; color: #4a148c; }
+  .pill-reversed { background: #e0e0e0; color: #424242; }
+  .pill-dispute  { background: #fff3e0; color: #e65100; }
+  .pill-held     { background: #e3f2fd; color: #01579b; }
+
+  .empty { text-align: center; color: #888; padding: 30px 0; font-size: 0.88rem; }
+  code { background: #f0f0f0; padding: 1px 5px; border-radius: 3px; font-size: 0.8rem; }
+
+  .info-row { display: flex; gap: 20px; flex-wrap: wrap; font-size: 0.87rem; color: #444; }
+  .info-row span { display: flex; gap: 5px; align-items: center; }
+  .info-row .lbl { color: #999; font-size: 0.78rem; }
+</style>
+</head>
+<body>
+
+{% include 'admin_nav.html' %}
+
+<!-- ── Header ──────────────────────────────────────────────────────────── -->
+<div class="provider-header">
+  <div class="provider-info">
+    <div style="margin-bottom:8px;">
+      {% if provider.verified %}
+        <span class="badge badge-ok">✓ Verified</span>
+      {% else %}
+        <span class="badge badge-bad">⛔ Suspended / Unverified</span>
+      {% endif %}
+    </div>
+    <h2>{{ provider.name }}</h2>
+    <div class="sub">Code: <code>{{ provider.provider_code }}</code></div>
+    <div class="sub">Registered: {{ provider.created_at.strftime('%d %b %Y') }}</div>
+    {% if provider.contact_name %}<div class="sub">Contact: {{ provider.contact_name }}</div>{% endif %}
+    {% if provider.contact_phone %}<div class="sub">Phone: {{ provider.contact_phone }}</div>{% endif %}
+    {% if provider.payment_type %}
+    <div class="sub">Payment: {{ provider.payment_type }}{% if provider.payment_details %} — <strong>{{ provider.payment_details }}</strong>{% endif %}</div>
+    {% endif %}
+  </div>
+
+  {% if vp_app %}
+  <div style="font-size:0.82rem; color:#555; background:#f8f8f8; border-radius:6px; padding:12px 14px; min-width:200px;">
+    <strong>Verification application</strong><br>
+    Status: <span class="badge {% if vp_app.verification_status == 'verified' %}badge-ok{% elif vp_app.verification_status == 'pending' %}badge-warn{% else %}badge-bad{% endif %}" style="font-size:0.72rem;">{{ vp_app.verification_status }}</span><br>
+    {% if vp_app.location %}Location: {{ vp_app.location }}<br>{% endif %}
+    {% if vp_app.business_license %}Licence: {{ vp_app.business_license }}<br>{% endif %}
+    {% if vp_app.provider_wallet_number %}Wallet: {{ vp_app.provider_wallet_number }}<br>{% endif %}
+    {% if vp_app.review_notes %}<em>Notes: {{ vp_app.review_notes }}</em>{% endif %}
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── Stats ──────────────────────────────────────────────────────────── -->
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="num">{{ total_payments }}</div>
+    <div class="lbl">Total payments</div>
+  </div>
+  <div class="stat-card">
+    <div class="num">UGX {{ '{:,.0f}'.format(total_amount) }}</div>
+    <div class="lbl">Total paid out</div>
+  </div>
+  <div class="stat-card">
+    <div class="num {% if open_disputes > 0 %}red{% endif %}">{{ open_disputes }}</div>
+    <div class="lbl">Open disputes</div>
+  </div>
+  <div class="stat-card">
+    <div class="num {% if reversed_count > 0 %}amber{% endif %}">{{ reversed_count }}</div>
+    <div class="lbl">Payments reversed</div>
+  </div>
+  <div class="stat-card">
+    <div class="num {% if held_count > 0 %}amber{% endif %}">{{ held_count }}</div>
+    <div class="lbl">Payments on hold</div>
+  </div>
+</div>
+
+<!-- ── Actions ─────────────────────────────────────────────────────────── -->
+<div class="actions-grid">
+
+  {# Verify / Suspend (super_admin only) #}
+  {% if admin_counts.get('role') == 'super_admin' %}
+  {% if provider.verified %}
+  <div class="action-card suspend-card">
+    <h4>⛔ Suspend Provider</h4>
+    <p style="font-size:0.82rem;color:#555;margin:0 0 10px;">
+      Suspending prevents new care payments from being sent to {{ provider.name }}.
+      Existing payments are not affected — use the Disputes page to reverse individual payments.
+    </p>
+    <form method="POST" action="/admin/provider/{{ provider.id }}/toggle-verified"
+          onsubmit="return confirm('Suspend {{ provider.name }}? They will not receive new payments until reinstated.')">
+      <input type="hidden" name="action" value="suspend">
+      <label>Reason <span style="color:#dc3545">*</span></label>
+      <input type="text" name="reason" placeholder="Reason for suspension" required>
+      <div class="btn-row"><button type="submit" class="btn btn-danger">Suspend Provider</button></div>
+    </form>
+  </div>
+  {% else %}
+  <div class="action-card verify-card">
+    <h4>✅ Reinstate Provider</h4>
+    <p style="font-size:0.82rem;color:#555;margin:0 0 10px;">
+      Re-verifying {{ provider.name }} allows them to receive care payments again.
+    </p>
+    <form method="POST" action="/admin/provider/{{ provider.id }}/toggle-verified">
+      <input type="hidden" name="action" value="verify">
+      <label>Reason <span style="color:#dc3545">*</span></label>
+      <input type="text" name="reason" placeholder="Reason for reinstatement" required>
+      <div class="btn-row"><button type="submit" class="btn btn-success">Reinstate Provider</button></div>
+    </form>
+  </div>
+  {% endif %}
+  {% endif %}
+
+  {# Update contact / payment details #}
+  <div class="action-card contact-card">
+    <h4>✏️ Update Contact &amp; Payment Details</h4>
+    <form method="POST" action="/admin/provider/{{ provider.id }}/update-contact">
+      <label>Contact name</label>
+      <input type="text" name="contact_name" value="{{ provider.contact_name or '' }}" placeholder="e.g. Dr. Amara Osei">
+      <label>Contact phone</label>
+      <input type="text" name="contact_phone" value="{{ provider.contact_phone or '' }}" placeholder="e.g. 256712345678">
+      <label>Payment type</label>
+      <select name="payment_type">
+        <option value="">— No change —</option>
+        <option value="mobile_money" {% if provider.payment_type == 'mobile_money' %}selected{% endif %}>Mobile Money</option>
+        <option value="bank_transfer" {% if provider.payment_type == 'bank_transfer' %}selected{% endif %}>Bank Transfer</option>
+        <option value="cash" {% if provider.payment_type == 'cash' %}selected{% endif %}>Cash</option>
+      </select>
+      <label>Payment details (wallet / account number)</label>
+      <input type="text" name="payment_details" value="{{ provider.payment_details or '' }}" placeholder="e.g. 0712345678 (Airtel)">
+      <label>Reason <span style="color:#dc3545">*</span></label>
+      <input type="text" name="reason" placeholder="Brief reason for change" required>
+      <div class="btn-row"><button type="submit" class="btn btn-primary">Save Changes</button></div>
+    </form>
+  </div>
+
+  {# Change provider code #}
+  <div class="action-card code-card">
+    <h4>🔑 Change Provider Code</h4>
+    <p style="font-size:0.82rem;color:#555;margin:0 0 10px;">
+      Current code: <code>{{ provider.provider_code }}</code><br>
+      Members and clinics use this code when submitting care requests.
+    </p>
+    <form method="POST" action="/admin/provider/{{ provider.id }}/code">
+      <input type="hidden" name="mode" value="manual">
+      <label>New code (2–20 uppercase alphanumeric)</label>
+      <input type="text" name="new_code" placeholder="e.g. MULAGO002" style="text-transform:uppercase;" maxlength="20">
+      <label>Reason <span style="color:#dc3545">*</span></label>
+      <input type="text" name="reason" placeholder="Brief reason" required>
+      <div class="btn-row">
+        <button type="submit" class="btn btn-warning">Change Code</button>
+        <a href="/admin/provider/{{ provider.id }}/code-history" class="btn btn-secondary">History</a>
+      </div>
+    </form>
+  </div>
+
+</div>
+
+<!-- ── Payment Records ────────────────────────────────────────────────── -->
+<div class="section">
+  <div class="section-header">
+    <h3>💳 Payment Records <span style="font-weight:400;color:#888;font-size:0.85rem;">(last 60)</span></h3>
+    {% if open_disputes > 0 %}
+    <a href="/admin/disputes?status=open" class="btn btn-primary btn-sm">View open disputes →</a>
+    {% endif %}
+  </div>
+  {% if payments %}
+  <table>
+    <thead>
+      <tr>
+        <th>Reference</th>
+        <th>Member</th>
+        <th>Amount</th>
+        <th>Payment State</th>
+        <th>Dispute</th>
+        <th>Date</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in payments %}
+      <tr>
+        <td><code>{{ p.reference_code }}</code></td>
+        <td>
+          {% if p._user %}
+            <a href="/admin/user/{{ p.user_id }}" style="font-size:0.85rem;">{{ p._user.name }}</a><br>
+            <small style="color:#aaa;">{{ p._user.phone }}</small>
+          {% else %}#{{ p.user_id }}{% endif %}
+          {% if p._care_req %}
+            <br><small style="color:#aaa;">Care #{{ p._care_req.id }}</small>
+          {% endif %}
+        </td>
+        <td><strong>UGX {{ '{:,.0f}'.format(p.amount) }}</strong></td>
+        <td>
+          <span class="status-pill pill-{{ p.status }}">{{ p.status }}</span>
+          {% if p.on_hold %}<br><span class="status-pill pill-held">HELD</span>{% endif %}
+          {% if p.reversed %}<br><span class="status-pill pill-reversed">REVERSED</span>{% endif %}
+        </td>
+        <td>
+          {% if p.dispute_status %}
+            <span class="status-pill pill-dispute">{{ p.dispute_status }}</span>
+            {% if p.dispute_note %}
+              <br><small style="color:#888;font-size:0.76rem;">{{ p.dispute_note[:60] }}</small>
+            {% endif %}
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          <span style="font-size:0.8rem;">{{ p.created_at.strftime('%d %b %Y') }}</span><br>
+          <small style="color:#aaa;">{{ p.created_at.strftime('%H:%M') }}</small>
+        </td>
+        <td>
+          {% if p.dispute_status == 'open' or p.on_hold or not p.reversed %}
+          <a href="/admin/disputes?status=all" class="btn btn-secondary btn-sm">Dispute →</a>
+          {% endif %}
+          {% if p._user %}
+          <a href="/admin/user/{{ p.user_id }}" class="btn btn-primary btn-sm">Member →</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">No payment records for this provider yet.</div>
+  {% endif %}
+</div>
+
+<!-- ── Withdrawal Requests ────────────────────────────────────────────── -->
+{% if withdrawals %}
+<div class="section">
+  <div class="section-header">
+    <h3>💰 Withdrawal Requests</h3>
+    <a href="/admin/provider-withdrawals" class="btn btn-primary btn-sm">Manage withdrawals →</a>
+  </div>
+  <table>
+    <thead>
+      <tr><th>Amount</th><th>Method</th><th>Details</th><th>Status</th><th>Requested</th></tr>
+    </thead>
+    <tbody>
+      {% for w in withdrawals %}
+      <tr>
+        <td><strong>UGX {{ '{:,.0f}'.format(w.amount) }}</strong></td>
+        <td>{{ w.payment_method or '—' }}</td>
+        <td style="font-size:0.8rem;">{{ w.payment_details or '—' }}</td>
+        <td><span class="badge {% if w.status == 'approved' %}badge-ok{% elif w.status == 'pending' %}badge-warn{% else %}badge-bad{% endif %}">{{ w.status }}</span></td>
+        <td style="font-size:0.8rem;">{{ w.requested_at.strftime('%d %b %Y') }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<!-- ── Code History ───────────────────────────────────────────────────── -->
+{% if code_history %}
+<div class="section">
+  <div class="section-header"><h3>🔑 Code Change History</h3></div>
+  <table>
+    <thead>
+      <tr><th>Old Code</th><th>New Code</th><th>Changed By</th><th>Reason</th><th>Date</th></tr>
+    </thead>
+    <tbody>
+      {% for h in code_history %}
+      <tr>
+        <td><code>{{ h.old_code }}</code></td>
+        <td><code>{{ h.new_code }}</code></td>
+        <td>{% if h._admin %}{{ h._admin.name }}{% else %}—{% endif %}</td>
+        <td style="font-size:0.82rem;color:#555;">{{ h.reason or '—' }}</td>
+        <td style="font-size:0.8rem;">{{ h.changed_at.strftime('%d %b %Y %H:%M') }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<p style="margin-top:20px;font-size:0.85rem;">
+  <a href="/admin/providers">← All Providers</a> &nbsp;|&nbsp;
+  <a href="/admin/disputes?status=open">Open Disputes</a> &nbsp;|&nbsp;
+  <a href="/admin/audit-log">Audit Log</a>
+</p>
+
+</body>
+</html>

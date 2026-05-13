@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Provider Management – Admin – SolidarityPool</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: sans-serif; max-width: 1200px; margin: 40px auto; padding: 0 16px; background: #f5f6fa; }
+  h2  { margin-bottom: 4px; }
+  .page-header p { color: #666; font-size: 0.9rem; margin: 4px 0 14px; }
+
+  .top-bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 20px; }
+  .search-form { display: flex; gap: 8px; flex: 1; min-width: 240px; }
+  .search-form input { flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.88rem; }
+  .search-form button { padding: 8px 16px; background: #2d7dd2; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 0.88rem; }
+
+  .tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+  .tab { padding: 6px 16px; border-radius: 4px; font-size: 0.86rem; text-decoration: none;
+         background: #f0f0f0; color: #444; border: 1px solid #ddd; }
+  .tab.active { background: #2d7dd2; color: #fff; border-color: #2d7dd2; }
+
+  .pending-banner { background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px;
+                    padding: 10px 16px; margin-bottom: 18px; font-size: 0.88rem; color: #856404; }
+  .pending-banner a { color: #856404; font-weight: bold; }
+
+  .card-wrap { background: #fff; border-radius: 8px; overflow: hidden;
+               box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #eee; vertical-align: middle; }
+  th { background: #f8f8f8; font-weight: 600; color: #555; border-bottom: 2px solid #ddd; }
+  tr:hover td { background: #fafafa; }
+
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.74rem; font-weight: 700; }
+  .badge-ok  { background: #d4edda; color: #155724; }
+  .badge-bad { background: #f8d7da; color: #721c24; }
+  .badge-warn{ background: #fff3cd; color: #856404; }
+
+  .stat-pill { display: inline-block; background: #f0f4ff; color: #2d7dd2;
+               padding: 1px 7px; border-radius: 8px; font-size: 0.78rem; font-weight: 600; }
+  .stat-pill.red { background: #fdecea; color: #c0392b; }
+
+  .btn { display: inline-block; padding: 4px 10px; border-radius: 4px; font-size: 0.78rem;
+         border: none; cursor: pointer; text-decoration: none; white-space: nowrap; }
+  .btn-primary { background: #2d7dd2; color: #fff; }
+  .btn:hover { opacity: 0.88; }
+
+  .empty { text-align: center; color: #888; padding: 50px 0; }
+  code { background: #f0f0f0; padding: 1px 5px; border-radius: 3px; font-size: 0.82rem; }
+</style>
+</head>
+<body>
+
+{% include 'admin_nav.html' %}
+
+<div class="page-header">
+  <h2>🏥 Provider Management</h2>
+  <p>All registered healthcare providers. Click a provider to see their full payment history, disputes, and management options.</p>
+</div>
+
+{% if pending_apps > 0 %}
+<div class="pending-banner">
+  ⚠️ <strong>{{ pending_apps }} verification application{{ 's' if pending_apps != 1 }} pending review.</strong>
+  <a href="/admin/verified-providers">Review verification queue →</a>
+</div>
+{% endif %}
+
+<div class="top-bar">
+  <form class="search-form" method="get" action="/admin/providers">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search by name, code, phone…">
+    <input type="hidden" name="status" value="{{ status }}">
+    <button type="submit">Search</button>
+  </form>
+  <a href="/admin/verified-providers" class="btn btn-primary">+ Verify Applications</a>
+</div>
+
+<div class="tabs">
+  <a href="?status=all{% if q %}&q={{ q }}{% endif %}"       class="tab {% if status == 'all' %}active{% endif %}">All ({{ providers|length }})</a>
+  <a href="?status=verified{% if q %}&q={{ q }}{% endif %}"  class="tab {% if status == 'verified' %}active{% endif %}">Verified</a>
+  <a href="?status=suspended{% if q %}&q={{ q }}{% endif %}" class="tab {% if status == 'suspended' %}active{% endif %}">Suspended</a>
+</div>
+
+{% if providers %}
+<div class="card-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Provider</th>
+      <th>Code</th>
+      <th>Contact</th>
+      <th>Payment Method</th>
+      <th>Status</th>
+      <th>Payments</th>
+      <th>Total Paid</th>
+      <th>Open Disputes</th>
+      <th>Withdrawals</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in providers %}
+    <tr>
+      <td>
+        <strong>{{ p.name }}</strong><br>
+        <small style="color:#aaa;">Added {{ p.created_at.strftime('%d %b %Y') }}</small>
+      </td>
+      <td><code>{{ p.provider_code }}</code></td>
+      <td>
+        {% if p.contact_name %}<span style="font-size:0.82rem;">{{ p.contact_name }}</span><br>{% endif %}
+        {% if p.contact_phone %}<small style="color:#555;">{{ p.contact_phone }}</small>{% else %}<small style="color:#bbb;">No phone</small>{% endif %}
+      </td>
+      <td>
+        <span style="font-size:0.82rem;">{{ p.payment_type or '—' }}</span><br>
+        <small style="color:#888; word-break:break-all;">{{ p.payment_details or '' }}</small>
+      </td>
+      <td>
+        {% if p.verified %}
+          <span class="badge badge-ok">✓ Verified</span>
+        {% else %}
+          <span class="badge badge-bad">Suspended</span>
+        {% endif %}
+      </td>
+      <td><span class="stat-pill">{{ p._payment_count }}</span></td>
+      <td>UGX {{ '{:,.0f}'.format(p._total_paid) }}</td>
+      <td>
+        {% if p._open_disputes > 0 %}
+          <span class="stat-pill red">{{ p._open_disputes }} open</span>
+        {% else %}
+          <span style="color:#aaa; font-size:0.8rem;">None</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if p._pending_withdrawals > 0 %}
+          <span class="badge badge-warn">{{ p._pending_withdrawals }} pending</span>
+        {% else %}—{% endif %}
+      </td>
+      <td>
+        <a href="/admin/provider/{{ p.id }}" class="btn btn-primary">View →</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="card-wrap">
+  <div class="empty">No providers found{% if q %} matching "{{ q }}"{% endif %}.</div>
+</div>
+{% endif %}
+
+<p style="margin-top:20px;font-size:0.85rem;"><a href="/admin">← Back to Admin</a></p>
+
+</body>
+</html>

@@ -4,7 +4,7 @@ from models import (db, User, Transaction, Community, CommunityMembership, Provi
                     CareRequest, SystemState, PaymentRecord, MpesaTopup,
                     MobileMoneyTransaction, VerifiedProvider, FraudAlert, PlatformRevenue,
                     TrustEvent, AdminAuditLog, GlobalAdmin, UserLoginHistory, ProviderCodeHistory,
-                    PinResetOTP, AdminSetting, PlatformWithdrawal,
+                    PinResetOTP, AdminSetting, PlatformWithdrawal, ProviderWithdrawal,
                     SupportTicket, SupportMessage)
 from trust_graph import compute_draw_ceiling
 from witness import select_witnesses
@@ -3141,8 +3141,9 @@ def admin_disputes():
         query = query.filter(PaymentRecord.dispute_status == status_filter)
     disputes = query.order_by(PaymentRecord.dispute_at.desc()).all()
     for d in disputes:
-        d._user = db.session.get(User, d.user_id) if d.user_id else None
+        d._user     = db.session.get(User, d.user_id) if d.user_id else None
         d._reporter = db.session.get(User, d.dispute_by_user_id) if d.dispute_by_user_id else None
+        d._provider = db.session.get(Provider, d.provider_id) if d.provider_id else None
     return render_template('admin_disputes.html', user=admin_user, disputes=disputes,
                            status_filter=status_filter)
 
@@ -3217,6 +3218,146 @@ def admin_provider_code_history(provider_id):
         h.admin_user = User.query.get(h.changed_by) if h.changed_by else None
     return render_template('admin_provider_code_history.html',
                            user=admin_user, provider=provider, history=history)
+
+
+# ── Admin: Provider management hub ────────────────────────────────────────────
+
+@app.route('/admin/providers')
+@admin_required
+def admin_providers_list():
+    admin_user = db.session.get(User, session['user_id'])
+    q      = request.args.get('q', '').strip()
+    status = request.args.get('status', 'all')
+
+    query = Provider.query
+    if q:
+        query = query.filter(db.or_(
+            Provider.name.ilike(f'%{q}%'),
+            Provider.provider_code.ilike(f'%{q}%'),
+            Provider.contact_phone.ilike(f'%{q}%'),
+            Provider.contact_name.ilike(f'%{q}%'),
+        ))
+    if status == 'verified':
+        query = query.filter_by(verified=True)
+    elif status == 'suspended':
+        query = query.filter_by(verified=False)
+
+    providers = query.order_by(Provider.created_at.desc()).all()
+    for p in providers:
+        p._payment_count  = PaymentRecord.query.filter_by(provider_id=p.id).count()
+        p._total_paid     = (db.session.query(db.func.sum(PaymentRecord.amount))
+                             .filter_by(provider_id=p.id).scalar() or 0)
+        p._open_disputes  = (PaymentRecord.query.filter_by(provider_id=p.id)
+                             .filter(PaymentRecord.dispute_status == 'open').count())
+        p._pending_withdrawals = (ProviderWithdrawal.query
+                                  .filter_by(provider_id=p.id, status='pending').count())
+
+    pending_apps = VerifiedProvider.query.filter_by(verification_status='pending').count()
+    return render_template('admin_providers_list.html', user=admin_user,
+                           providers=providers, q=q, status=status,
+                           pending_apps=pending_apps)
+
+
+@app.route('/admin/provider/<int:provider_id>')
+@admin_required
+def admin_provider_detail(provider_id):
+    admin_user = db.session.get(User, session['user_id'])
+    provider   = Provider.query.get_or_404(provider_id)
+
+    payments = (PaymentRecord.query
+                .filter_by(provider_id=provider_id)
+                .order_by(PaymentRecord.created_at.desc())
+                .limit(60).all())
+    for p in payments:
+        p._user        = db.session.get(User, p.user_id)
+        p._care_req    = db.session.get(CareRequest, p.care_request_id) if p.care_request_id else None
+
+    total_payments   = PaymentRecord.query.filter_by(provider_id=provider_id).count()
+    total_amount     = (db.session.query(db.func.sum(PaymentRecord.amount))
+                        .filter_by(provider_id=provider_id).scalar() or 0)
+    open_disputes    = (PaymentRecord.query.filter_by(provider_id=provider_id)
+                        .filter(PaymentRecord.dispute_status == 'open').count())
+    reversed_count   = PaymentRecord.query.filter_by(provider_id=provider_id, reversed=True).count()
+    held_count       = PaymentRecord.query.filter_by(provider_id=provider_id, on_hold=True).count()
+
+    code_history = (ProviderCodeHistory.query
+                    .filter_by(provider_id=provider_id)
+                    .order_by(ProviderCodeHistory.changed_at.desc())
+                    .limit(10).all())
+    for h in code_history:
+        h._admin = db.session.get(User, h.changed_by) if h.changed_by else None
+
+    vp_app = None
+    if provider.contact_phone:
+        vp_app = VerifiedProvider.query.filter_by(phone=provider.contact_phone).first()
+    if not vp_app:
+        vp_app = (VerifiedProvider.query
+                  .filter(VerifiedProvider.provider_name.ilike(f'%{provider.name}%'))
+                  .first())
+
+    withdrawals = (ProviderWithdrawal.query
+                   .filter_by(provider_id=provider_id)
+                   .order_by(ProviderWithdrawal.requested_at.desc())
+                   .limit(10).all())
+
+    return render_template('admin_provider_detail.html',
+                           user=admin_user, provider=provider,
+                           payments=payments,
+                           total_payments=total_payments,
+                           total_amount=total_amount,
+                           open_disputes=open_disputes,
+                           reversed_count=reversed_count,
+                           held_count=held_count,
+                           code_history=code_history,
+                           vp_app=vp_app,
+                           withdrawals=withdrawals)
+
+
+@app.route('/admin/provider/<int:provider_id>/toggle-verified', methods=['POST'])
+@admin_required
+@super_admin_required
+def admin_provider_toggle_verified(provider_id):
+    provider = Provider.query.get_or_404(provider_id)
+    action   = request.form.get('action', 'suspend')
+    reason   = request.form.get('reason', '').strip()
+    if not reason:
+        flash('A reason is required.', 'error')
+        return _admin_redirect(url_for('admin_provider_detail', provider_id=provider_id))
+    if action == 'verify':
+        provider.verified = True
+        db.session.commit()
+        _log_admin_action(session['user_id'], 'provider_verified',
+                          details=f'Provider #{provider_id} "{provider.name}" verified. Reason: {reason}')
+        flash(f'{provider.name} is now verified and can receive payments.', 'success')
+    else:
+        provider.verified = False
+        db.session.commit()
+        _log_admin_action(session['user_id'], 'provider_suspended',
+                          details=f'Provider #{provider_id} "{provider.name}" suspended. Reason: {reason}')
+        flash(f'{provider.name} has been suspended — they will not receive new payments.', 'success')
+    return _admin_redirect(url_for('admin_provider_detail', provider_id=provider_id))
+
+
+@app.route('/admin/provider/<int:provider_id>/update-contact', methods=['POST'])
+@admin_required
+def admin_provider_update_contact(provider_id):
+    provider = Provider.query.get_or_404(provider_id)
+    reason   = request.form.get('reason', '').strip()
+    if not reason:
+        flash('Reason is required.', 'error')
+        return _admin_redirect(url_for('admin_provider_detail', provider_id=provider_id))
+    old = (f'contact={provider.contact_name}/{provider.contact_phone}, '
+           f'pay={provider.payment_type}/{provider.payment_details}')
+    for field, col in [('contact_name', 'contact_name'), ('contact_phone', 'contact_phone'),
+                       ('payment_type', 'payment_type'), ('payment_details', 'payment_details')]:
+        val = request.form.get(field, '').strip()
+        if val:
+            setattr(provider, col, val.lstrip('+') if field == 'contact_phone' else val)
+    db.session.commit()
+    _log_admin_action(session['user_id'], 'provider_contact_updated',
+                      details=f'Provider #{provider_id} "{provider.name}": {old} — Reason: {reason}')
+    flash(f'Contact/payment details updated for {provider.name}.', 'success')
+    return _admin_redirect(url_for('admin_provider_detail', provider_id=provider_id))
 
 
 # ── Admin: Bulk SMS ────────────────────────────────────────────────────────────
