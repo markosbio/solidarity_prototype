@@ -128,8 +128,8 @@
       </div>
       <div>
         <label>New PIN <span style="font-weight:normal; color:#888;">(leave blank to keep current)</span></label>
-        <input type="text" name="pin" maxlength="4" placeholder="e.g. 5678">
-        <div class="hint">Must be exactly 4 digits if changing.</div>
+        <input type="text" name="pin" maxlength="6" inputmode="numeric" placeholder="e.g. 5678">
+        <div class="hint">4–6 digits. Leave blank to keep current PIN.</div>
       </div>
     </div>
     <label>Reason for change <span style="color:#dc3545;">*</span></label>
@@ -226,7 +226,7 @@
   <h3>🔑 Reset PIN</h3>
   <form method="POST" action="{{ url_for('admin_user_pin_reset', target_id=target.id) }}" id="form-pin">
     <label>New PIN <span style="color:#dc3545;">*</span></label>
-    <input type="text" name="new_pin" maxlength="4" placeholder="4-digit PIN" required>
+    <input type="text" name="new_pin" maxlength="6" inputmode="numeric" placeholder="4–6 digit PIN" required>
     <label>Reason <span style="color:#dc3545;">*</span></label>
     <input type="text" name="reason" placeholder="Reason for PIN reset" required>
     <div style="margin-top:12px;">

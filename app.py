@@ -1580,8 +1580,8 @@ def change_pin():
         confirm_pin = request.form.get('confirm_pin', '').strip()
         if current_pin != (user.pin or '1234'):
             return render_template('change_pin.html', error='Current PIN is incorrect.', success=None)
-        if not new_pin.isdigit() or len(new_pin) != 4:
-            return render_template('change_pin.html', error='New PIN must be exactly 4 digits.', success=None)
+        if not new_pin.isdigit() or not (4 <= len(new_pin) <= 6):
+            return render_template('change_pin.html', error='New PIN must be 4–6 digits.', success=None)
         if _is_weak_pin(new_pin):
             return render_template('change_pin.html', error='That PIN is too easy to guess. Choose a less predictable PIN.', success=None)
         if new_pin != confirm_pin:
@@ -1793,8 +1793,8 @@ def ussd():
         if step == 3 and raw_inputs[0] == "1":
             name = inputs[1]
             pin = inputs[2].strip()
-            if not pin.isdigit() or len(pin) != 4:
-                return r("PIN must be exactly 4 digits. Dial again.", end=True)
+            if not pin.isdigit() or not (4 <= len(pin) <= 6):
+                return r("PIN must be 4–6 digits. Dial again.", end=True)
             new_user = User(phone=phone, name=name, pin=pin, sub_wallet_balance=0.0, trust_score=0.5)
             db.session.add(new_user)
             db.session.commit()
@@ -2337,8 +2337,8 @@ def ussd():
             return r("Enter your new 4-digit PIN:")
         if step == 3:
             new_pin = inputs[2].strip()
-            if not new_pin.isdigit() or len(new_pin) != 4:
-                return r("PIN must be exactly 4 digits. Dial again.", end=True)
+            if not new_pin.isdigit() or not (4 <= len(new_pin) <= 6):
+                return r("PIN must be 4–6 digits. Dial again.", end=True)
             return r("Confirm new PIN:")
         if step == 4:
             new_pin = inputs[2].strip()
@@ -2844,8 +2844,8 @@ def admin_user_edit(target_id):
         changes.append(f'phone: {target.phone!r} → {new_phone!r}')
         target.phone = new_phone
     if new_pin:
-        if not new_pin.isdigit() or len(new_pin) != 4:
-            flash('PIN must be exactly 4 digits.', 'error')
+        if not new_pin.isdigit() or not (4 <= len(new_pin) <= 6):
+            flash('PIN must be 4–6 digits.', 'error')
             return _admin_redirect(url_for('admin_user_detail', target_id=target_id))
         changes.append('pin: [changed]')
         target.pin = new_pin
@@ -2976,8 +2976,8 @@ def admin_user_pin_reset(target_id):
     if not reason:
         flash('Reason is required to reset a PIN.', 'error')
         return _admin_redirect(url_for('admin_user_detail', target_id=target_id))
-    if not new_pin or not new_pin.isdigit() or len(new_pin) != 4:
-        flash('New PIN must be exactly 4 digits.', 'error')
+    if not new_pin or not new_pin.isdigit() or not (4 <= len(new_pin) <= 6):
+        flash('New PIN must be 4–6 digits.', 'error')
         return _admin_redirect(url_for('admin_user_detail', target_id=target_id))
     target.pin = new_pin
     db.session.commit()
@@ -3462,9 +3462,9 @@ def forgot_pin():
             if not otp_rec:
                 return render_template('forgot_pin.html', step='request',
                                        error='Session expired. Please start again.')
-            if not new_pin.isdigit() or len(new_pin) != 4:
+            if not new_pin.isdigit() or not (4 <= len(new_pin) <= 6):
                 return render_template('forgot_pin.html', step='set_pin', token=token,
-                                       error='PIN must be exactly 4 digits.')
+                                       error='PIN must be 4–6 digits.')
             if _is_weak_pin(new_pin):
                 return render_template('forgot_pin.html', step='set_pin', token=token,
                                        error='That PIN is too easy to guess. Please choose a less predictable PIN.')

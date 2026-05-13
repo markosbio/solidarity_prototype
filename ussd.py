@@ -16,6 +16,7 @@ Test using the AT simulator at:
   https://developers.africastalking.com/simulator
 """
 import os
+from datetime import datetime
 from flask import Blueprint, request
 from loguru import logger
 from models import db, User, SystemState, MpesaTopup, Transaction
@@ -118,9 +119,9 @@ STRINGS = {
         'support_my_none':  "No support tickets found for your account.",
         'support_my_title': "Your recent tickets:",
         'more_menu':     "More Options\n1. Provider payment check\n2. M-Pesa top-up\n3. Change language\n0. Back",
-        'more_menu_admin': "More Options\n1. Provider payment check\n2. M-Pesa top-up\n3. Change language\n4. Admin summary\n0. Back",
+        'more_menu_admin': "More Options\n1. Provider payment check\n2. M-Pesa top-up\n3. Change language\n4. Admin panel\n0. Back",
         'admin_not_auth':"Admin access not authorized for this account.",
-        'admin_summary': "Admin Summary [{role}]\nCare pending: {care}\nFraud alerts: {fraud}\nProvider apps: {prov}\nOpen support: {sup}\nDisputes: {dis}",
+        'admin_summary': "Platform Stats [{role}]\nCare pending: {care}\nFraud alerts: {fraud}\nProviders: {prov}\nSupport: {sup}\nDisputes: {dis}",
     },
     'lg': {
         'welcome_back':  "Tukusubirira nate, {name}",
@@ -215,7 +216,7 @@ STRINGS = {
         'more_menu':     "Ebirala\n1. Kebera payment ya clinic\n2. M-Pesa\n3. Kyusa olulimi\n0. Subira",
         'more_menu_admin': "Ebirala\n1. Kebera payment\n2. M-Pesa\n3. Kyusa olulimi\n4. Ssaawo panel\n0. Subira",
         'admin_not_auth':"Obutaali kw'okuyingira ssaawo.",
-        'admin_summary': "Ssaawo [{role}]\nOkusaba: {care}\nEbibogo: {fraud}\nAbapedde: {prov}\nObuyambi: {sup}\nObutatuukiridde: {dis}",
+        'admin_summary': "Mawulire ga Pletifoomu [{role}]\nOkusaba: {care}\nEbibogo: {fraud}\nAbapedde: {prov}\nObuyambi: {sup}\nObutatuukiridde: {dis}",
     },
     'sw': {
         'welcome_back':  "Karibu tena, {name}",
@@ -1101,34 +1102,165 @@ def _more_options_flow(user, phone: str, steps: list, level: int, lang: str) -> 
         return _language_flow(user, phone, steps[1:], level - 1, lang)
 
     if choice == '4' and is_admin:
-        # Admin summary panel
-        return _admin_summary_ussd(user, lang)
+        # Full interactive admin panel — pass remaining steps through
+        return _admin_panel_flow(user, steps[2:] if len(steps) > 2 else [], lang)
 
     return f"END {t('invalid_opt', lang)}"
 
 
-# ── admin summary via USSD ─────────────────────────────────────────────────────
+# ── USSD admin panel (interactive, multi-level) ────────────────────────────────
 
-def _admin_summary_ussd(user: 'User', lang: str) -> str:
-    """Show a compact admin task-count summary over USSD."""
-    from models import GlobalAdmin, CareRequest, FraudAlert, SupportTicket, PaymentRecord
-    try:
-        from models import VerifiedProvider
-        prov_count = VerifiedProvider.query.filter_by(verification_status='pending').count()
-    except Exception:
-        prov_count = 0
+def _admin_panel_flow(user: 'User', steps: list, lang: str) -> str:
+    """
+    Interactive admin panel via USSD.
+    Reached via More Options (9) → 4.
+
+    Sub-menu options:
+      1. Review & approve/reject the oldest pending care request
+      2. Fraud alert summary
+      3. Platform stats (counts)
+      0. Exit
+    """
+    from models import GlobalAdmin, CareRequest, FraudAlert, SupportTicket, PaymentRecord, User as UserModel
 
     ga = GlobalAdmin.query.filter_by(user_id=user.id).first()
     if not ga:
         return f"END {t('admin_not_auth', lang)}"
 
-    role = ga.role or 'admin'
-    care = CareRequest.query.filter_by(status='pending_admin').count()
-    fraud = FraudAlert.query.filter_by(resolved=False).count()
-    sup = SupportTicket.query.filter_by(status='open').count()
+    role = (ga.role or 'support').replace('_', ' ')
+
+    # ── No choice yet → show main admin panel menu ────────────────────────────
+    if not steps or steps[0] == '':
+        care  = CareRequest.query.filter_by(status='pending_admin').count()
+        fraud = FraudAlert.query.filter_by(resolved=False).count()
+        sup   = SupportTicket.query.filter_by(status='open').count()
+        try:
+            dis = PaymentRecord.query.filter(
+                PaymentRecord.dispute_status == 'open').count()
+        except Exception:
+            dis = 0
+        return (
+            f"CON Admin Panel [{role}]\n"
+            f"Care: {care}  Fraud: {fraud}\n"
+            f"Support: {sup}  Disputes: {dis}\n"
+            "1. Review care request\n"
+            "2. Fraud alerts\n"
+            "3. Platform stats\n"
+            "0. Exit"
+        )
+
+    choice    = steps[0].strip()
+    sub_steps = steps[1:] if len(steps) > 1 else []
+
+    if choice == '0':
+        return f"END {t('goodbye', lang)}"
+
+    # ── Option 1: Care request review ─────────────────────────────────────────
+    if choice == '1':
+        pending = CareRequest.query.filter_by(
+            status='pending_admin').order_by(CareRequest.id).first()
+        if not pending:
+            return "END No care requests pending.\nAll caught up!"
+
+        # First entry — show care request details
+        if not sub_steps:
+            member = UserModel.query.get(pending.user_id)
+            name = (member.name[:14] if member else f'#{pending.user_id}')
+            return (
+                f"CON Care #{pending.id}\n"
+                f"Member: {name}\n"
+                f"Amt: UGX {pending.amount_needed:,.0f}\n"
+                f"Provider: {pending.provider_code or 'N/A'}\n"
+                "1. Approve\n"
+                "2. Reject\n"
+                "0. Skip"
+            )
+
+        action = sub_steps[0].strip()
+        if action == '0':
+            return f"END {t('goodbye', lang)}"
+
+        if action == '1':
+            pending.status = 'approved'
+            pending.admin_id = user.id
+            db.session.commit()
+            _log_admin_action_ussd(user.id, 'ussd_approve_care',
+                                   target_user_id=pending.user_id,
+                                   details=f'Care #{pending.id} approved via USSD by {user.name}')
+            member = UserModel.query.get(pending.user_id)
+            return (
+                f"END Care #{pending.id} APPROVED\n"
+                f"Member: {member.name if member else pending.user_id}\n"
+                f"UGX {pending.amount_needed:,.0f} authorised."
+            )
+
+        if action == '2':
+            pending.status = 'rejected'
+            pending.admin_id = user.id
+            db.session.commit()
+            _log_admin_action_ussd(user.id, 'ussd_reject_care',
+                                   target_user_id=pending.user_id,
+                                   details=f'Care #{pending.id} rejected via USSD by {user.name}')
+            return f"END Care #{pending.id} REJECTED.\nMember will be notified."
+
+        return f"END {t('invalid_opt', lang)}"
+
+    # ── Option 2: Fraud alert summary ─────────────────────────────────────────
+    if choice == '2':
+        alerts = FraudAlert.query.filter_by(resolved=False).limit(4).all()
+        if not alerts:
+            return "END No open fraud alerts.\nPlatform looks clean!"
+        lines = [f"END Fraud Alerts ({len(alerts)} open):"]
+        for fa in alerts:
+            u = UserModel.query.get(fa.user_id)
+            name = (u.name[:12] if u else f'#{fa.user_id}')
+            lines.append(f"- {name}: {getattr(fa, 'risk_level', 'medium') or 'medium'}")
+        lines.append("\nResolve at: /admin/fraud-alerts")
+        return "\n".join(lines)
+
+    # ── Option 3: Platform stats ───────────────────────────────────────────────
+    if choice == '3':
+        return _admin_stats_ussd(user, role, lang)
+
+    return f"END {t('invalid_opt', lang)}"
+
+
+def _admin_stats_ussd(user: 'User', role: str, lang: str) -> str:
+    """Compact platform stat read-out (END screen)."""
+    from models import CareRequest, FraudAlert, SupportTicket, PaymentRecord
     try:
-        dis = PaymentRecord.query.filter(PaymentRecord.dispute_status == 'open').count()
+        from models import VerifiedProvider
+        prov_count = VerifiedProvider.query.filter_by(
+            verification_status='pending').count()
+    except Exception:
+        prov_count = 0
+
+    care  = CareRequest.query.filter_by(status='pending_admin').count()
+    fraud = FraudAlert.query.filter_by(resolved=False).count()
+    sup   = SupportTicket.query.filter_by(status='open').count()
+    try:
+        dis = PaymentRecord.query.filter(
+            PaymentRecord.dispute_status == 'open').count()
     except Exception:
         dis = 0
 
     return f"END {t('admin_summary', lang, role=role, care=care, fraud=fraud, prov=prov_count, sup=sup, dis=dis)}"
+
+
+def _log_admin_action_ussd(admin_id: int, action: str,
+                            target_user_id=None, details='') -> None:
+    """Write an audit log row directly (avoids circular import with app.py)."""
+    try:
+        from models import AdminAuditLog
+        log = AdminAuditLog(
+            admin_id=admin_id,
+            target_user_id=target_user_id,
+            action=action,
+            details=details,
+            ip='ussd',
+            timestamp=datetime.utcnow(),
+        )
+        db.session.add(log)
+        db.session.commit()
+    except Exception as exc:
+        logger.warning(f"USSD admin audit log failed: {exc}")
