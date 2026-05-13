@@ -1304,7 +1304,7 @@ def mobile_money_callback():
 
 @app.route('/admin/verified-providers')
 @admin_required
-@roles_required('super_admin', 'support')
+@roles_required('super_admin', 'operator', 'support')
 def admin_verified_providers():
     applications = VerifiedProvider.query.order_by(VerifiedProvider.created_at.desc()).all()
     # Build lookup maps for attaching Provider records
