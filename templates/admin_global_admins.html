@@ -86,47 +86,29 @@
       <thead>
         <tr>
           <th>Permission</th>
-          <th title="Branch Manager level — full platform authority including financial controls and admin management">Super Admin</th>
-          <th title="Operations Officer — processes care requests, onboards providers, investigates fraud">Operator</th>
-          <th title="Customer Service Rep — read-only account inquiry and member support, no approvals">Support</th>
+          <th title="Full platform access including financial controls and admin management">Super Admin</th>
+          <th title="Care queue, provider verification, fraud alerts and quality reports">Operator</th>
+          <th title="View panels and member lookup only — no approval actions">Support</th>
         </tr>
       </thead>
       <tbody>
-        <tr>
-          <td colspan="4" style="background:#f8f8f8;font-size:0.72rem;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.05em;padding:5px 10px;">
-            Read Access
-          </td>
-        </tr>
-        <tr><td>View all admin panels &amp; platform monitor</td> <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
-        <tr><td>Member account &amp; transaction lookup</td>      <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
-        <tr><td>View audit log</td>                               <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
-        <tr><td>View verified provider list</td>                  <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
-        <tr>
-          <td colspan="4" style="background:#f8f8f8;font-size:0.72rem;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.05em;padding:5px 10px;">
-            Operational — Care &amp; Providers
-          </td>
-        </tr>
-        <tr><td>Handle member support tickets</td>                <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
-        <tr><td>Approve / reject care fund requests</td>          <td class="yes">✓</td><td class="yes">✓</td><td class="no">—</td></tr>
-        <tr><td>Verify / suspend healthcare providers</td>        <td class="yes">✓</td><td class="yes">✓</td><td class="no">—</td></tr>
-        <tr><td>Investigate &amp; resolve fraud alerts</td>       <td class="yes">✓</td><td class="yes">✓</td><td class="no">—</td></tr>
-        <tr>
-          <td colspan="4" style="background:#f8f8f8;font-size:0.72rem;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.05em;padding:5px 10px;">
-            Financial &amp; Compliance — Senior Authority Only
-          </td>
-        </tr>
-        <tr><td>Edit member balances &amp; profile data</td>      <td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
-        <tr><td>Lock / unlock / deactivate accounts</td>          <td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
-        <tr><td>Override trust scores</td>                        <td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
-        <tr><td>Restore pool funds / reverse payments</td>        <td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
-        <tr><td>Manage platform fee rate</td>                     <td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
-        <tr><td>Send bulk SMS</td>                                <td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
-        <tr><td>Export CSV reports</td>                           <td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
-        <tr><td>Add / remove / change admin roles</td>            <td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
+        <tr><td>View panels &amp; audit log</td>               <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+        <tr><td>Look up member profiles</td>                   <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+        <tr><td>Approve / reject care requests</td>            <td class="yes">✓</td><td class="yes">✓</td><td class="no">—</td></tr>
+        <tr><td>Verify / suspend providers</td>                <td class="yes">✓</td><td class="yes">✓</td><td class="no">—</td></tr>
+        <tr><td>Resolve fraud alerts</td>                      <td class="yes">✓</td><td class="yes">✓</td><td class="no">—</td></tr>
+        <tr><td>Manage care quality reports</td>               <td class="yes">✓</td><td class="yes">✓</td><td class="no">—</td></tr>
+        <tr><td>Edit user balances &amp; profiles</td>         <td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
+        <tr><td>Lock / unlock / deactivate accounts</td>       <td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
+        <tr><td>Override trust scores</td>                     <td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
+        <tr><td>Restore pool funds / reverse payments</td>     <td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
+        <tr><td>Manage platform fee rate</td>                  <td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
+        <tr><td>Send bulk SMS / export CSV</td>                <td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
+        <tr><td>Add / remove / change admin roles</td>         <td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
       </tbody>
     </table>
     <p style="font-size:0.78rem; color:#888; margin:8px 0 0;">
-      Modelled on banking segregation of duties. Role changes take effect immediately.
+      Role changes take effect immediately. Admins can only perform actions their role permits.
     </p>
   </div>
 </details>
@@ -156,9 +138,9 @@
       {% if is_super_admin and ga.user_id != current_user_id %}
       <form class="role-form" method="POST" action="{{ url_for('admin_global_admins_role', ga_id=ga.id) }}">
         <select name="role" class="role-sel" onchange="this.form.submit()">
-          <option value="super_admin" {% if (ga.role or 'super_admin') == 'super_admin' %}selected{% endif %}>Super Admin (Branch Manager)</option>
-          <option value="operator"    {% if (ga.role or '') == 'operator'    %}selected{% endif %}>Operator (Operations Officer)</option>
-          <option value="support"     {% if (ga.role or '') == 'support'     %}selected{% endif %}>Support (Customer Service Rep)</option>
+          <option value="super_admin" {% if (ga.role or 'super_admin') == 'super_admin' %}selected{% endif %}>Super Admin</option>
+          <option value="operator"    {% if (ga.role or '') == 'operator'    %}selected{% endif %}>Operator</option>
+          <option value="support"     {% if (ga.role or '') == 'support'     %}selected{% endif %}>Support</option>
         </select>
       </form>
       {% else %}
@@ -208,9 +190,9 @@
       <div>
         <label>Role</label>
         <select name="role">
-          <option value="operator">Operator (Operations Officer) — care queue, providers &amp; fraud</option>
-          <option value="support">Support (Customer Service Rep) — read-only inquiry &amp; tickets</option>
-          <option value="super_admin">Super Admin (Branch Manager) — full authority</option>
+          <option value="operator">Operator — care queue, providers &amp; fraud alerts</option>
+          <option value="support">Support — view panels &amp; member lookup only</option>
+          <option value="super_admin">Super Admin — full access</option>
         </select>
       </div>
       <div>
