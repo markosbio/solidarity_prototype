@@ -1304,7 +1304,7 @@ def mobile_money_callback():
 
 @app.route('/admin/verified-providers')
 @admin_required
-@roles_required('super_admin', 'operator', 'support')
+@roles_required('super_admin', 'operator')
 def admin_verified_providers():
     applications = VerifiedProvider.query.order_by(VerifiedProvider.created_at.desc()).all()
     # Build lookup maps for attaching Provider records
@@ -3049,10 +3049,10 @@ def admin_reverse_payment(pr_id):
     reason = request.form.get('reason', '').strip()
     if not reason:
         flash('Reason is required to reverse a payment.', 'error')
-        return redirect(request.referrer or url_for('admin_disputes'))
+        return redirect(request.referrer or url_for('admin_care'))
     if getattr(pr, 'reversed', False):
         flash('This payment has already been reversed.', 'error')
-        return redirect(request.referrer or url_for('admin_disputes'))
+        return redirect(request.referrer or url_for('admin_care'))
     # Compensating ledger entry: restore pool balance
     if pr.community_id:
         community = Community.query.get(pr.community_id)
@@ -3077,7 +3077,7 @@ def admin_reverse_payment(pr_id):
                       new_value=f'reversed=True,reason={reason[:80]}',
                       details=f'Payment #{pr.id} ref={pr.reference_code} amt={pr.amount:,.0f} reversed. Pool restored. Reason: {reason}')
     flash(f'Payment {pr.reference_code} reversed and pool balance restored.', 'success')
-    return redirect(request.referrer or url_for('admin_disputes'))
+    return redirect(request.referrer or url_for('admin_care'))
 
 
 @app.route('/admin/payment/<int:pr_id>/hold', methods=['POST'])
@@ -3097,14 +3097,14 @@ def admin_hold_payment(pr_id):
     else:
         if not reason:
             flash('Reason is required to place a hold.', 'error')
-            return redirect(request.referrer or url_for('admin_disputes'))
+            return redirect(request.referrer or url_for('admin_care'))
         pr.on_hold = True
         pr.on_hold_reason = reason
         db.session.commit()
         _log_admin_action(session['user_id'], 'hold_payment', target_user_id=pr.user_id,
                           details=f'Payment #{pr.id} ref={pr.reference_code} placed on hold. Reason: {reason}')
         flash(f'Payment {pr.reference_code} placed on hold.', 'success')
-    return redirect(request.referrer or url_for('admin_disputes'))
+    return redirect(request.referrer or url_for('admin_care'))
 
 
 @app.route('/report-care/<ref>', methods=['GET', 'POST'])
@@ -3155,20 +3155,8 @@ def file_dispute_legacy(ref):
 
 @app.route('/admin/disputes')
 @admin_required
-@roles_required('super_admin', 'operator')
 def admin_disputes():
-    admin_user = db.session.get(User, session['user_id'])
-    status_filter = request.args.get('status', 'open')
-    query = PaymentRecord.query.filter(PaymentRecord.dispute_status.isnot(None))
-    if status_filter in ('open', 'resolved', 'dismissed'):
-        query = query.filter(PaymentRecord.dispute_status == status_filter)
-    disputes = query.order_by(PaymentRecord.dispute_at.desc()).all()
-    for d in disputes:
-        d._user     = db.session.get(User, d.user_id) if d.user_id else None
-        d._reporter = db.session.get(User, d.dispute_by_user_id) if d.dispute_by_user_id else None
-        d._provider = db.session.get(Provider, d.provider_id) if d.provider_id else None
-    return render_template('admin_disputes.html', user=admin_user, disputes=disputes,
-                           status_filter=status_filter)
+    return redirect(url_for('admin_care'))
 
 
 @app.route('/admin/dispute/<int:pr_id>/resolve', methods=['POST'])
@@ -3210,7 +3198,7 @@ def admin_dispute_resolve(pr_id):
     else:
         flash('Unknown action.', 'error')
 
-    return redirect(url_for('admin_disputes'))
+    return redirect(request.referrer or url_for('admin_care'))
 
 
 # ── Admin: Provider code management ───────────────────────────────────────────

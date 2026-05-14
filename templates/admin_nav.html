@@ -125,7 +125,7 @@
   <a href="/admin/users" {% if request.path.startswith('/admin/users') or request.path.startswith('/admin/user/') %}class="active"{% endif %}>👥 Users</a>
   {% endif %}
 
-  {% if role in ('super_admin', 'support') %}
+  {% if role in ('super_admin', 'operator') %}
   <a href="/admin/providers" {% if request.path.startswith('/admin/provider') %}class="active"{% endif %}>
     🏥 Providers
     {% if c.get('pending_providers', 0) > 0 %}<span class="nav-badge nav-badge-amber">{{ c.pending_providers }}</span>{% endif %}
@@ -139,19 +139,10 @@
   </a>
   {% endif %}
 
-  {% if role == 'super_admin' %}
-  <a href="/admin/disputes" {% if request.path == '/admin/disputes' %}class="active"{% endif %}>
-    ⚖️ Disputes
-    {% if c.get('open_disputes', 0) > 0 %}<span class="nav-badge nav-badge-amber">{{ c.open_disputes }}</span>{% endif %}
-  </a>
-  {% endif %}
-
-  {% if role in ('super_admin', 'support') %}
   <a href="/admin/support" {% if request.path.startswith('/admin/support') %}class="active"{% endif %}>
     💬 Support
     {% if c.get('open_support', 0) > 0 %}<span class="nav-badge nav-badge-red" id="nav-support-badge">{{ c.open_support }}</span>{% endif %}
   </a>
-  {% endif %}
 
   <a href="/admin/view-user" {% if request.path == '/admin/view-user' %}class="active"{% endif %}>🔍 Lookup</a>
   <a href="/admin/audit-log" {% if request.path == '/admin/audit-log' %}class="active"{% endif %}>📜 Audit</a>

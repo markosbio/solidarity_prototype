@@ -165,13 +165,6 @@
     <div class="pc-sub">{{ 'Open tickets' if n_sup > 0 else 'All clear' }}</div>
   </a>
 
-  {% set n_disp = c.get('open_disputes', 0) %}
-  <a href="{{ url_for('admin_disputes') }}" class="pending-card {{ 'pc-amber' if n_disp > 0 else 'pc-ok' }}">
-    <div class="pc-icon">⚖️</div>
-    <div class="pc-count" id="pt-disp">{{ n_disp }}</div>
-    <div class="pc-label">Disputes</div>
-    <div class="pc-sub">{{ 'Needs resolution' if n_disp > 0 else 'All clear' }}</div>
-  </a>
 </div>
 
 <!-- ── Service Status ─────────────────────────────────────────── -->
