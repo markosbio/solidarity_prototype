@@ -156,6 +156,21 @@ def notify_treatment_started(user, provider_name: str) -> None:
     _send_sms(user.phone, msg)
 
 
+def notify_community_admin_new_request(admin_phones: list, member_name: str,
+                                       amount: float, care_req_id: int,
+                                       community_name: str) -> None:
+    """Alert community admins when a new care request needs their review."""
+    msg = (
+        f"[SolidarityPool] New care request in {community_name}: "
+        f"#{care_req_id} by {member_name} for UGX {amount:,.0f}. "
+        f"Log in to approve or reject: /community"
+    )
+    logger.info("Community admin care-pending alert: req={} community={} member={} amount={:.0f}",
+                care_req_id, community_name, member_name, amount)
+    for phone in admin_phones:
+        _send_sms(phone, msg)
+
+
 def notify_admin_care_pending(admin_phones: list, user_name: str,
                               amount: float, care_req_id: int) -> None:
     """Alert all admins when a care request moves to pending_admin review."""

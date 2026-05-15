@@ -180,6 +180,61 @@ def _get_admin_phones():
         return list(ADMIN_PHONES)
 
 
+def _reverse_care_request_financials(care_req) -> None:
+    """Reverse all financial side-effects of a pending care request on rejection.
+
+    Restores: user sub_wallet, community pool, global reserve, and social credit.
+    Call before setting status='rejected' and before db.session.commit().
+    """
+    try:
+        req_user = User.query.get(care_req.user_id)
+        if req_user:
+            sub = float(care_req.amount_from_sub or 0.0)
+            if sub > 0:
+                req_user.sub_wallet_balance = round(req_user.sub_wallet_balance + sub, 2)
+            sc = float(care_req.social_credit or 0.0)
+            if sc > 0:
+                req_user.total_social_credit = round(
+                    max(0.0, (req_user.total_social_credit or 0.0) - sc), 2)
+        pool_amt = float(care_req.amount_from_pool or 0.0)
+        if pool_amt > 0 and care_req.community_id:
+            comm = Community.query.get(care_req.community_id)
+            if comm and not comm.is_global_reserve:
+                comm.pool_balance = round(comm.pool_balance + pool_amt, 2)
+        reserve_amt = float(care_req.amount_from_reserve or 0.0)
+        if reserve_amt > 0:
+            reserve = Community.query.filter_by(is_global_reserve=True).first()
+            if reserve:
+                reserve.pool_balance = round(reserve.pool_balance + reserve_amt, 2)
+    except Exception as exc:
+        from loguru import logger as _log
+        _log.error("Failed to reverse care request #{} financials: {}", care_req.id, exc)
+
+
+def _notify_community_admins_care_pending(care_req, member_user) -> None:
+    """SMS all community admins when a new care request needs their review."""
+    if not care_req.community_id:
+        return
+    comm = Community.query.get(care_req.community_id)
+    if not comm:
+        return
+    admin_ms = CommunityMembership.query.filter(
+        CommunityMembership.community_id == comm.id,
+        CommunityMembership.role.in_(['admin', 'coadmin'])
+    ).all()
+    phones = []
+    for m in admin_ms:
+        u = User.query.get(m.user_id)
+        if u and u.phone:
+            phones.append(u.phone)
+    if phones:
+        from notifications import notify_community_admin_new_request
+        notify_community_admin_new_request(
+            phones, member_user.name,
+            float(care_req.amount_needed or 0),
+            care_req.id, comm.name)
+
+
 def _community_pending_count(user_id: int) -> int:
     """Count pending_community_admin care requests in communities where user is admin/coadmin."""
     try:
@@ -1044,6 +1099,11 @@ def community_care_action(comm_id, request_id, action):
         care_req.status = 'admin_approved'
         care_req.admin_approved = True
         care_req.admin_id = user.id
+        # Update net_support_balance
+        _cu = User.query.get(care_req.user_id)
+        if _cu:
+            _cu.net_support_balance = round(
+                (_cu.net_support_balance or 0.0) - float(care_req.amount_needed or 0), 2)
         db.session.commit()
         try:
             pool_amount = care_req.amount_from_pool or 0.0
@@ -1057,16 +1117,34 @@ def community_care_action(comm_id, request_id, action):
                     db.session.commit()
         except Exception:
             pass
+        try:
+            from notifications import notify_member_care_approved
+            _cu2 = User.query.get(care_req.user_id)
+            _prov = VerifiedProvider.query.get(care_req.provider_id) if care_req.provider_id else None
+            if _cu2:
+                notify_member_care_approved(
+                    _cu2, float(care_req.amount_needed or 0),
+                    _prov.name if _prov else 'your provider')
+        except Exception:
+            pass
         _log_admin_action(user.id, 'community_care_approve',
                           details=f'community={comm_id} request=#{request_id}')
         flash(f'Request #{request_id} approved — payment triggered.', 'success')
     elif action == 'reject':
+        _reverse_care_request_financials(care_req)
         care_req.status = 'rejected'
         care_req.admin_id = user.id
         db.session.commit()
+        try:
+            from notifications import notify_member_care_rejected
+            _cu3 = User.query.get(care_req.user_id)
+            if _cu3:
+                notify_member_care_rejected(_cu3)
+        except Exception:
+            pass
         _log_admin_action(user.id, 'community_care_reject',
                           details=f'community={comm_id} request=#{request_id}')
-        flash(f'Request #{request_id} rejected.', 'success')
+        flash(f'Request #{request_id} rejected — funds returned to member.', 'success')
     else:
         flash('Invalid action.', 'error')
     return redirect(url_for('community_dashboard', comm_id=comm_id))
@@ -1402,12 +1480,10 @@ def request_care():
                 and fraud_score < 0.3
                 and not care_req.fraud_flagged):
             tier = 1
-        elif (needed_amount <= 200_000
-              and fraud_score < 0.6
-              and not care_req.fraud_flagged):
-            tier = 2
+        elif care_req.fraud_flagged:
+            tier = 3  # fraud → system admin only
         else:
-            tier = 3
+            tier = 2  # all others (including large/emergency) → community admin
 
         care_req.risk_tier = tier
 
@@ -1435,6 +1511,10 @@ def request_care():
         elif tier == 2:
             care_req.status = 'pending_community_admin'
             db.session.commit()
+            try:
+                _notify_community_admins_care_pending(care_req, user)
+            except Exception:
+                pass
 
         else:
             care_req.status = 'pending_admin'
@@ -1975,8 +2055,16 @@ def admin_care_action(request_id):
     elif action == 'deny':
         old_status = care_req.status
         reason = request.form.get('reason', '')
+        _reverse_care_request_financials(care_req)
         care_req.status = 'rejected'
         db.session.commit()
+        try:
+            from notifications import notify_member_care_rejected
+            _deny_user = User.query.get(care_req.user_id)
+            if _deny_user:
+                notify_member_care_rejected(_deny_user, reason)
+        except Exception:
+            pass
         _log_admin_action(user.id, 'care_request_denied',
                           target_user_id=care_req.user_id,
                           details=f'Care request #{care_req.id}. Reason: {reason[:200]}',
@@ -2001,7 +2089,7 @@ def verify_witness(request_id, response):
     yes_count = sum(1 for v in votes if v.endswith('accept'))
     total_witnesses = len(care_req.witness_ids.split(','))
     if yes_count >= 2:
-        need_admin = (care_req.amount_needed > 180000) or care_req.is_emergency
+        need_admin = bool(care_req.fraud_flagged)
         if need_admin:
             care_req.status = 'pending_admin'
             try:
@@ -2787,7 +2875,7 @@ def ussd():
             yes_count = sum(1 for v in votes if v.endswith('accept'))
             total = len(care_req.witness_ids.split(','))
             if yes_count >= 2:
-                need_admin = (care_req.amount_needed > 180000) or care_req.is_emergency
+                need_admin = bool(care_req.fraud_flagged)
                 if need_admin:
                     care_req.status = 'pending_admin'
                 else:
