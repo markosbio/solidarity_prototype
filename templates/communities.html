@@ -30,6 +30,17 @@
             font-family: monospace; }
   .primary-label { font-size: 0.78em; background: #d4edda; color: #155724;
                    padding: 2px 8px; border-radius: 10px; }
+  .leave-pending { font-size: 0.8em; color: #856404; background: #fff3cd;
+                   border: 1px solid #ffc107; padding: 4px 10px; border-radius: 6px; }
+  .leave-rejected { font-size: 0.8em; color: #721c24; background: #f8d7da;
+                    border: 1px solid #f5c6cb; padding: 4px 10px; border-radius: 6px; }
+  .leave-blocked { font-size: 0.8em; color: #495057; background: #e9ecef;
+                   border: 1px solid #dee2e6; padding: 4px 10px; border-radius: 6px; }
+  .alert-error { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24;
+                 padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 0.9em; }
+  .empty-state { text-align: center; padding: 28px 16px; background: #f8f9fa;
+                 border: 2px dashed #dee2e6; border-radius: 8px; margin-bottom: 20px; }
+  .empty-state p { color: #666; margin: 0 0 12px 0; }
 </style>
 </head>
 <body>
@@ -39,53 +50,80 @@
   <a class="btn btn-primary" href="{{ url_for('communities.create_community') }}">+ Create Community</a>
 </div>
 
-{% for m in my_memberships %}
-{% set c = m.community %}
-{% if c and not c.is_global_reserve %}
-<div class="card mine {% if c.id == user.primary_community_id %}primary{% endif %}">
-  <h3>{{ c.name }}
-    <span class="role-badge role-{{ m.role }}">{{ m.role }}</span>
-    {% if c.id == user.primary_community_id %}
-      <span class="primary-label">Primary</span>
-    {% endif %}
-  </h3>
-  <div class="meta">
-    {{ c.description or '' }}<br>
-    Pool: <span class="pool-amount">UGX {{ "{:,.0f}".format(c.pool_balance) }}</span> ·
-    Invite code: <span class="invite">{{ c.invite_code }}</span>
-  </div>
-
-  <form class="contribute-form" method="POST"
-        action="{{ url_for('communities.contribute', community_id=c.id) }}">
-    <input type="number" name="amount" step="1" min="1" placeholder="UGX"
-           max="{{ user.sub_wallet_balance }}">
-    <button class="btn btn-success btn-sm" type="submit">Contribute to Pool</button>
-  </form>
-
-  <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
-    {% if c.id != user.primary_community_id %}
-    <form method="POST" action="{{ url_for('communities.set_primary', community_id=c.id) }}"
-          style="display:inline;">
-      <button class="btn btn-sm" style="background:#6c757d;color:white;">Set as Primary</button>
-    </form>
-    {% endif %}
-
-    {% if m.leave_requested_at %}
-      <span style="font-size:0.8em;color:#888;padding:4px 0;">Leave requested — pending approval</span>
-    {% else %}
-      <form method="POST" action="{{ url_for('communities.request_leave', community_id=c.id) }}"
-            style="display:inline;"
-            onsubmit="return confirm('Request to leave {{ c.name }}? An admin will review it.');">
-        <button class="btn btn-sm" style="background:#dc3545;color:white;">Request Leave</button>
-      </form>
-    {% endif %}
-  </div>
-</div>
+{% if error %}
+<div class="alert-error">{{ error }}</div>
 {% endif %}
-{% endfor %}
 
-{% if not my_memberships %}
-<p style="color:#888; font-style:italic;">You're not in any community yet. Create one or join with an invite code.</p>
+{% set visible_memberships = my_memberships | selectattr('community') | list %}
+
+{% if visible_memberships %}
+  {% for m in visible_memberships %}
+  {% set c = m.community %}
+  <div class="card mine {% if c.id == user.primary_community_id %}primary{% endif %}">
+    <h3>{{ c.name }}
+      <span class="role-badge role-{{ m.role }}">{{ m.role }}</span>
+      {% if c.id == user.primary_community_id %}
+        <span class="primary-label">Primary</span>
+      {% endif %}
+    </h3>
+    <div class="meta">
+      {{ c.description or '' }}<br>
+      Pool: <span class="pool-amount">UGX {{ "{:,.0f}".format(c.pool_balance) }}</span> ·
+      Invite code: <span class="invite">{{ c.invite_code }}</span>
+    </div>
+
+    <form class="contribute-form" method="POST"
+          action="{{ url_for('communities.contribute', community_id=c.id) }}">
+      <input type="number" name="amount" step="1" min="1" placeholder="UGX"
+             max="{{ user.sub_wallet_balance }}">
+      <button class="btn btn-success btn-sm" type="submit">Contribute to Pool</button>
+    </form>
+
+    <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+      {% if c.id != user.primary_community_id %}
+      <form method="POST" action="{{ url_for('communities.set_primary', community_id=c.id) }}"
+            style="display:inline;">
+        <button class="btn btn-sm" style="background:#6c757d;color:white;">Set as Primary</button>
+      </form>
+      {% endif %}
+
+      {# Leave section #}
+      {% if m.leave_status == 'pending' %}
+        <span class="leave-pending">⏳ Leave requested — pending admin review</span>
+      {% elif m.leave_status == 'rejected' %}
+        <div>
+          <span class="leave-rejected">✗ Leave request denied</span>
+          {% if m.leave_rejection_reason %}
+            <div style="font-size:0.78em; color:#555; margin-top:4px;">
+              Reason: {{ m.leave_rejection_reason }}
+            </div>
+          {% endif %}
+          <form method="POST" action="{{ url_for('communities.request_leave', community_id=c.id) }}"
+                style="display:inline; margin-left:8px;"
+                onsubmit="return confirm('Re-submit leave request for {{ c.name }}?');">
+            <button class="btn btn-sm" style="background:#dc3545;color:white;">Re-request Leave</button>
+          </form>
+        </div>
+      {% elif c.id in sole_admin_ids %}
+        <span class="leave-blocked" title="Promote another member to admin first">
+          🔒 Sole admin — promote another member before leaving
+        </span>
+      {% else %}
+        <form method="POST" action="{{ url_for('communities.request_leave', community_id=c.id) }}"
+              style="display:inline;"
+              onsubmit="return confirm('Request to leave {{ c.name }}?\nA community admin will review your request.');">
+          <button class="btn btn-sm" style="background:#dc3545;color:white;">Request Leave</button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+  <div class="empty-state">
+    <p>You are not in any community yet.</p>
+    <a class="btn btn-primary" href="{{ url_for('communities.create_community') }}">Create a community</a>
+    &nbsp;or join one below with an invite code.
+  </div>
 {% endif %}
 
 <h2 style="font-size:1.1rem; margin-top:28px;">Join a Community</h2>

@@ -413,6 +413,8 @@ def _run_column_migrations():
         "ALTER TABLE community ADD COLUMN IF NOT EXISTS is_global_reserve BOOLEAN DEFAULT FALSE",
         "ALTER TABLE community ADD COLUMN IF NOT EXISTS liquidity_health_score FLOAT DEFAULT 1.0",
         "ALTER TABLE community_membership ADD COLUMN IF NOT EXISTS leave_requested_at TIMESTAMP",
+        "ALTER TABLE community_membership ADD COLUMN IF NOT EXISTS leave_status VARCHAR(20)",
+        "ALTER TABLE community_membership ADD COLUMN IF NOT EXISTS leave_rejection_reason VARCHAR(300)",
         "ALTER TABLE care_request ADD COLUMN IF NOT EXISTS risk_tier INTEGER DEFAULT 0",
         "ALTER TABLE care_request ADD COLUMN IF NOT EXISTS amount_from_reserve FLOAT DEFAULT 0.0",
         "UPDATE community SET is_global_reserve = TRUE WHERE invite_code = 'GLOBAL001'",
@@ -544,6 +546,9 @@ def home():
     if 'user_id' in session:
         user = User.query.get(session['user_id'])
         primary_comm = Community.query.get(user.primary_community_id) if user.primary_community_id else None
+        # Never show the global reserve pool on the personal dashboard
+        if primary_comm and primary_comm.is_global_reserve:
+            primary_comm = None
         membership = None
         if primary_comm:
             membership = CommunityMembership.query.filter_by(user_id=user.id, community_id=primary_comm.id).first()
@@ -1571,21 +1576,40 @@ def admin_leave_action(membership_id):
     action = request.form.get('action')
     member = User.query.get(mem.user_id)
     community = Community.query.get(mem.community_id)
+    reason = request.form.get('reason', '').strip()
     if action == 'approve':
-        # If this was their primary community, clear it
+        # Reassign primary community — pick any other community they belong to
         if member and member.primary_community_id == mem.community_id:
-            member.primary_community_id = None
+            other = (CommunityMembership.query
+                     .filter(CommunityMembership.user_id == member.id,
+                             CommunityMembership.community_id != mem.community_id,
+                             CommunityMembership.id != mem.id)
+                     .join(Community, CommunityMembership.community_id == Community.id)
+                     .filter(Community.is_global_reserve == False)
+                     .first())
+            member.primary_community_id = other.community_id if other else None
             member.primary_community_changed_at = datetime.utcnow()
+        comm_name = community.name if community else '?'
+        comm_id   = mem.community_id
+        user_id   = mem.user_id
         db.session.delete(mem)
+        db.session.flush()
+        # Recalculate draw ceiling after leave
+        try:
+            compute_draw_ceiling(user_id)
+        except Exception:
+            pass
         _log_admin_action(admin_user.id, 'leave_approved',
-                          target_user_id=mem.user_id,
-                          details=f'Leave from community #{mem.community_id} ({community.name if community else "?"})')
-        flash(f'Leave approved — {member.name if member else "user"} removed from {community.name if community else "community"}.')
+                          target_user_id=user_id,
+                          details=f'Leave from community #{comm_id} ({comm_name})' + (f' — {reason}' if reason else ''))
+        flash(f'Leave approved — {member.name if member else "user"} removed from {comm_name}.')
     elif action == 'deny':
         mem.leave_requested_at = None
+        mem.leave_status = 'rejected'
+        mem.leave_rejection_reason = reason or 'Request denied by admin.'
         _log_admin_action(admin_user.id, 'leave_denied',
                           target_user_id=mem.user_id,
-                          details=f'Leave denied for community #{mem.community_id}')
+                          details=f'Leave denied for community #{mem.community_id}' + (f' — reason: {reason}' if reason else ''))
         flash('Leave request denied.')
     db.session.commit()
     return redirect(url_for('admin_leave_requests'))

@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from flask import Blueprint, render_template, request, redirect, url_for, abort, session
+from flask import Blueprint, render_template, request, redirect, url_for, abort, session, flash
 from loguru import logger
 
 from models import db, Community, CommunityMembership, User
@@ -14,6 +14,38 @@ def _get_current_user():
     return User.query.get(session['user_id'])
 
 
+def _leave_pre_checks(user, community):
+    """Return an error string if the user cannot leave, or None if OK."""
+    from models import CareRequest, FraudAlert, PaymentRecord
+
+    # Outstanding social credit
+    if user.total_social_credit > 0:
+        return 'Cannot request leave — you have outstanding social credit to repay first.'
+
+    # Active care request
+    active_care = (CareRequest.query
+                   .filter_by(user_id=user.id)
+                   .filter(CareRequest.status.in_(['pending_witness', 'pending_admin', 'approved']))
+                   .first())
+    if active_care:
+        return 'Cannot request leave — you have an active care request in progress.'
+
+    # Open fraud investigation
+    open_fraud = FraudAlert.query.filter_by(user_id=user.id, resolved=False).first()
+    if open_fraud:
+        return 'Cannot request leave — your account is under a fraud investigation.'
+
+    # Unresolved dispute
+    open_dispute = (PaymentRecord.query
+                    .filter_by(user_id=user.id)
+                    .filter(PaymentRecord.dispute_status.in_(['open', 'pending']))
+                    .first())
+    if open_dispute:
+        return 'Cannot request leave — you have an unresolved payment dispute.'
+
+    return None
+
+
 @communities_bp.route('/')
 def list_communities():
     user = _get_current_user()
@@ -25,12 +57,25 @@ def list_communities():
     my_memberships = [m for m in all_my if m.community and not m.community.is_global_reserve]
     my_community_ids = {m.community_id for m in my_memberships}
     all_communities = Community.query.filter_by(is_global_reserve=False).order_by(Community.name).all()
+
+    # Precompute communities where this user is the SOLE admin (blocks leave)
+    sole_admin_ids = set()
+    for m in my_memberships:
+        if m.role == 'admin':
+            other_admins = (CommunityMembership.query
+                            .filter_by(community_id=m.community_id, role='admin')
+                            .filter(CommunityMembership.user_id != user.id)
+                            .count())
+            if other_admins == 0:
+                sole_admin_ids.add(m.community_id)
+
     return render_template(
         'communities.html',
         user=user,
         my_memberships=my_memberships,
         my_community_ids=my_community_ids,
         all_communities=all_communities,
+        sole_admin_ids=sole_admin_ids,
         error=error,
     )
 
@@ -156,17 +201,43 @@ def request_leave(community_id):
     user = _get_current_user()
     if not user:
         return redirect(url_for('register'))
+
     membership = CommunityMembership.query.filter_by(
         user_id=user.id, community_id=community_id
     ).first()
     if not membership:
         return redirect(url_for('communities.list_communities', error='Not a member.'))
+
     community = Community.query.get_or_404(community_id)
+
     if community.is_global_reserve:
-        return redirect(url_for('communities.list_communities', error='Cannot leave the global reserve.'))
-    if membership.leave_requested_at:
-        return redirect(url_for('communities.list_communities', error='Leave already requested.'))
+        return redirect(url_for('communities.list_communities',
+                                error='Cannot leave the global reserve.'))
+
+    # Already pending
+    if membership.leave_requested_at and membership.leave_status == 'pending':
+        return redirect(url_for('communities.list_communities',
+                                error='Leave already requested — awaiting admin review.'))
+
+    # Block sole admin
+    if membership.role == 'admin':
+        other_admins = (CommunityMembership.query
+                        .filter_by(community_id=community_id, role='admin')
+                        .filter(CommunityMembership.user_id != user.id)
+                        .count())
+        if other_admins == 0:
+            return redirect(url_for('communities.list_communities',
+                                    error=f'You are the only admin of "{community.name}". '
+                                          f'Promote another member to admin first.'))
+
+    # Automatic pre-checks
+    block_reason = _leave_pre_checks(user, community)
+    if block_reason:
+        return redirect(url_for('communities.list_communities', error=block_reason))
+
     membership.leave_requested_at = datetime.utcnow()
+    membership.leave_status = 'pending'
+    membership.leave_rejection_reason = None
     db.session.commit()
     logger.info("User {} requested to leave community {}", user.id, community_id)
     return redirect(url_for('communities.list_communities'))

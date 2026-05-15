@@ -12,7 +12,7 @@
   .nav a:hover { text-decoration: underline; }
   .card { border: 1px solid #ddd; border-radius: 8px; padding: 18px; margin-bottom: 14px; background: #fafafa; }
   .card h3 { margin: 0 0 8px 0; font-size: 1rem; }
-  .meta { font-size: 0.87em; color: #444; line-height: 1.7; }
+  .meta { font-size: 0.87em; color: #444; line-height: 1.8; }
   .meta strong { color: #111; }
   .btn { display: inline-block; padding: 7px 18px; border-radius: 4px; font-size: 0.88rem;
          border: none; cursor: pointer; margin-right: 8px; text-decoration: none; }
@@ -21,6 +21,14 @@
   .empty { color: #888; font-style: italic; padding: 20px 0; }
   .flash { background: #d4edda; border: 1px solid #c3e6cb; color: #155724;
            padding: 10px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 0.9em; }
+  .warn-tag { display: inline-block; font-size: 0.75em; padding: 2px 7px; border-radius: 8px;
+              background: #fff3cd; color: #856404; border: 1px solid #ffc107; margin-left: 6px; }
+  .block-tag { display: inline-block; font-size: 0.75em; padding: 2px 7px; border-radius: 8px;
+               background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; margin-left: 6px; }
+  textarea.reason-input { width: 100%; padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px;
+                          font-size: 0.86em; margin-top: 8px; resize: vertical; box-sizing: border-box; }
+  .action-row { margin-top: 14px; display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
+  .approve-form, .deny-form { display: flex; flex-direction: column; gap: 6px; }
 </style>
 </head>
 <body>
@@ -47,33 +55,59 @@
   {% set member = mem.user %}
   {% set community = mem.community %}
   <div class="card">
-    <h3>{{ member.name if member else 'Unknown user' }} → {{ community.name if community else 'Unknown community' }}</h3>
+    <h3>
+      {{ member.name if member else 'Unknown user' }}
+      → {{ community.name if community else 'Unknown community' }}
+    </h3>
     <div class="meta">
       <strong>Member phone:</strong> {{ member.phone if member else '—' }}<br>
       <strong>Community:</strong> {{ community.name if community else '—' }}
       {% if community %} · Invite code: <code>{{ community.invite_code }}</code>{% endif %}<br>
-      <strong>Role:</strong> {{ mem.role }}<br>
+      <strong>Role:</strong> {{ mem.role }}
+      {% if mem.role == 'admin' %}
+        <span class="warn-tag">⚠ Admin</span>
+      {% endif %}<br>
+
+      {% if member %}
+        <strong>Outstanding credit:</strong>
+        {% if member.total_social_credit > 0 %}
+          <span style="color:#dc3545; font-weight:bold;">UGX {{ "{:,.0f}".format(member.total_social_credit) }}</span>
+          <span class="block-tag">Has debt</span>
+        {% else %}
+          <span style="color:#28a745;">None</span>
+        {% endif %}<br>
+      {% endif %}
+
       <strong>Is primary community:</strong>
-        {% if member and member.primary_community_id == (community.id if community else -1) %}
-          <span style="color:#dc3545; font-weight:bold;">YES — primary will be cleared on approval</span>
+        {% if member and community and member.primary_community_id == community.id %}
+          <span style="color:#856404; font-weight:bold;">YES
+            <span class="warn-tag">Will be reassigned on approval</span>
+          </span>
         {% else %}
           No
         {% endif %}<br>
-      <strong>Requested:</strong> {{ mem.leave_requested_at.strftime('%Y-%m-%d %H:%M') if mem.leave_requested_at else '—' }}
+      <strong>Requested:</strong>
+        {{ mem.leave_requested_at.strftime('%Y-%m-%d %H:%M') if mem.leave_requested_at else '—' }}
     </div>
-    <div style="margin-top:12px;">
-      <form method="POST" action="{{ url_for('admin_leave_action', membership_id=mem.id) }}"
-            style="display:inline;">
+
+    <div class="action-row">
+      <form class="approve-form" method="POST"
+            action="{{ url_for('admin_leave_action', membership_id=mem.id) }}">
         <input type="hidden" name="action" value="approve">
+        <textarea class="reason-input" name="reason" rows="2"
+                  placeholder="Optional note for approval…"></textarea>
         <button class="btn btn-approve"
                 onclick="return confirm('Approve leave? This will permanently remove the member.')">
-          Approve Leave
+          ✓ Approve Leave
         </button>
       </form>
-      <form method="POST" action="{{ url_for('admin_leave_action', membership_id=mem.id) }}"
-            style="display:inline;">
+
+      <form class="deny-form" method="POST"
+            action="{{ url_for('admin_leave_action', membership_id=mem.id) }}">
         <input type="hidden" name="action" value="deny">
-        <button class="btn btn-deny">Deny</button>
+        <textarea class="reason-input" name="reason" rows="2"
+                  placeholder="Reason for denial (shown to member)…"></textarea>
+        <button class="btn btn-deny">✗ Deny</button>
       </form>
     </div>
   </div>

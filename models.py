@@ -87,6 +87,8 @@ class CommunityMembership(db.Model):
     joined_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     leave_requested_at = db.Column(db.DateTime, nullable=True)
+    leave_status = db.Column(db.String(20), nullable=True)
+    leave_rejection_reason = db.Column(db.String(300), nullable=True)
 
     user = db.relationship('User', backref='community_memberships')
     community = db.relationship('Community', back_populates='members')

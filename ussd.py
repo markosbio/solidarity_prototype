@@ -109,10 +109,18 @@ STRINGS = {
         'witness_item':  "Request from {name}\nAmount: UGX {amount:,.0f}\n1. Approve\n2. Reject\n0. Skip",
         'witness_voted': "Vote recorded. Thank you for supporting your community!",
         'community_none':"You have no community yet.\n1. Browse communities\n0. Back",
-        'community_info':"{name}\nPool: UGX {pool:,.0f} ({pct:.0f}% full)\nMembers: {members}\n0. Back",
+        'community_info':"{name}\nPool: UGX {pool:,.0f} ({pct:.0f}% full)\nMembers: {members}\n1. Request leave\n0. Back",
         'community_join_prompt': "Type community name to join:",
         'community_join_ok': "Joined {name}! Save together with your community.",
         'community_join_fail': "Community '{name}' not found. Check the name and try again.",
+        'leave_confirm':    "Request to leave {name}?\n1. Yes, request leave\n2. Cancel",
+        'leave_requested':  "Leave request submitted.\nA community admin will review it.",
+        'leave_already':    "Leave already requested.\nAwaiting admin review.",
+        'leave_blocked_admin':   "Cannot leave — you are the sole admin.\nPromote another member first.",
+        'leave_blocked_credit':  "Cannot leave — outstanding social credit.\nRepay first (option 8).",
+        'leave_blocked_care':    "Cannot leave — active care request in progress.",
+        'leave_blocked_fraud':   "Cannot leave — account under fraud review.",
+        'leave_blocked_dispute': "Cannot leave — unresolved payment dispute.",
         'support_menu':  "Support & Help\n1. Open a support ticket\n2. My tickets\n3. FAQ\n0. Back",
         'support_new_prompt': "Describe your issue (your message will be sent to support):",
         'support_submitted': "Ticket #{id} submitted! Support team will reply soon.",
@@ -204,10 +212,18 @@ STRINGS = {
         'witness_item':  "Okusaba okuva {name}\nOmuwendo: UGX {amount:,.0f}\n1. Kiriza\n2. Gaana\n0. Ssula",
         'witness_voted': "Eddembe lyo lyateereddwayo. Webale okuyamba ekibiina!",
         'community_none':"Tolina kibiina kati.\n1. Laba ebibiina\n0. Subira",
-        'community_info':"{name}\nEkisumuluzo: UGX {pool:,.0f} ({pct:.0f}%)\nAbagattiddwa: {members}\n0. Subira",
+        'community_info':"{name}\nEkisumuluzo: UGX {pool:,.0f} ({pct:.0f}%)\nAbagattiddwa: {members}\n1. Saba okuva\n0. Subira",
         'community_join_prompt': "Wandiika erinnya ly'ekibiina ky'oyagala kuyingira:",
         'community_join_ok': "Wayingira {name}! Teeka ssente n'ekibiina kyo.",
         'community_join_fail': "Ekibiina '{name}' tekizuulwa. Kebera erinnya n'ogezeeko.",
+        'leave_confirm':    "Saba okuva mu {name}?\n1. Yee, saba okuva\n2. Ssuula",
+        'leave_requested':  "Okusaba okuvamu kwatumibwa.\nMuteeka-muteeka wa kibiina alabiridde.",
+        'leave_already':    "Wasaba okuva dda.\nWeetaagisa okukkirizibwa.",
+        'leave_blocked_admin':   "Toyinza kuva — oli ssaawo wo yekka.\nSimula omuntu omulala okusooka.",
+        'leave_blocked_credit':  "Toyinza kuva — olina obulemu.\nZza okusooka (londa 8).",
+        'leave_blocked_care':    "Toyinza kuva — olina okusaba kwa bujjanjabi okutali kutuukiridde.",
+        'leave_blocked_fraud':   "Toyinza kuva — akaawunti yo eri mu nsaka ya ebibogo.",
+        'leave_blocked_dispute': "Toyinza kuva — olina obutatuukiridde bw'okuwa.",
         'support_menu':  "Obuyambi\n1. Saba obuyambi\n2. Okusaba kwange\n3. Ebibuuzo\n0. Subira",
         'support_new_prompt': "Wandiika obuzibu bwo (butumibwe ku ssaawo):",
         'support_submitted': "Okusaba #{id} kwatumibwa! Bazaamu mangu.",
@@ -299,10 +315,18 @@ STRINGS = {
         'witness_item':  "Ombi kutoka {name}\nKiasi: UGX {amount:,.0f}\n1. Kubali\n2. Kataa\n0. Ruka",
         'witness_voted': "Kura imerekodiwa. Asante kwa kusaidia jamii!",
         'community_none':"Huna jamii bado.\n1. Tazama jamii\n0. Rudi",
-        'community_info':"{name}\nMfuko: UGX {pool:,.0f} ({pct:.0f}%)\nWanachama: {members}\n0. Rudi",
+        'community_info':"{name}\nMfuko: UGX {pool:,.0f} ({pct:.0f}%)\nWanachama: {members}\n1. Omba kuondoka\n0. Rudi",
         'community_join_prompt': "Andika jina la jamii unayotaka kujiunga:",
         'community_join_ok': "Umejiunga na {name}! Okoa pamoja.",
         'community_join_fail': "Jamii '{name}' haipatikani. Angalia jina na jaribu tena.",
+        'leave_confirm':    "Omba kuondoka {name}?\n1. Ndiyo, omba kuondoka\n2. Ghairi",
+        'leave_requested':  "Ombi la kuondoka limewasilishwa.\nMsimamizi wa jamii ataangalia.",
+        'leave_already':    "Umekwisha omba kuondoka.\nSubiri idhini.",
+        'leave_blocked_admin':   "Huwezi kuondoka — wewe ni msimamizi pekee.\nTeua mwingine kwanza.",
+        'leave_blocked_credit':  "Huwezi kuondoka — una deni.\nLipa kwanza (chaguo 8).",
+        'leave_blocked_care':    "Huwezi kuondoka — una ombi la matibabu inayoendelea.",
+        'leave_blocked_fraud':   "Huwezi kuondoka — akaunti yako iko chini ya uchunguzi.",
+        'leave_blocked_dispute': "Huwezi kuondoka — una mgogoro ambao haujatatuliwa.",
         'support_menu':  "Msaada & FAQ\n1. Fungua tiketi\n2. Tiketi zangu\n3. Maswali\n0. Rudi",
         'support_new_prompt': "Elezea tatizo lako (ujumbe utumwa kwa timu):",
         'support_submitted': "Tiketi #{id} imewasilishwa! Timu itajibu hivi karibuni.",
@@ -926,20 +950,108 @@ def _witness_flow(user: 'User', steps: list, level: int, lang: str) -> str:
 
 # ── communities flow (option 6) ────────────────────────────────────────────────
 
+def _ussd_leave_checks(user, comm, membership):
+    """Return a string key for the blocking reason, or None if leave is allowed."""
+    from models import CareRequest, FraudAlert, PaymentRecord
+
+    # Sole admin
+    if membership.role == 'admin':
+        from models import CommunityMembership as CM
+        other_admins = (CM.query
+                        .filter_by(community_id=comm.id, role='admin')
+                        .filter(CM.user_id != user.id)
+                        .count())
+        if other_admins == 0:
+            return 'leave_blocked_admin'
+
+    if user.total_social_credit > 0:
+        return 'leave_blocked_credit'
+
+    active_care = (CareRequest.query
+                   .filter_by(user_id=user.id)
+                   .filter(CareRequest.status.in_(['pending_witness', 'pending_admin', 'approved']))
+                   .first())
+    if active_care:
+        return 'leave_blocked_care'
+
+    open_fraud = FraudAlert.query.filter_by(user_id=user.id, resolved=False).first()
+    if open_fraud:
+        return 'leave_blocked_fraud'
+
+    open_dispute = (PaymentRecord.query
+                    .filter_by(user_id=user.id)
+                    .filter(PaymentRecord.dispute_status.in_(['open', 'pending']))
+                    .first())
+    if open_dispute:
+        return 'leave_blocked_dispute'
+
+    return None
+
+
 def _communities_flow(user: 'User', steps: list, level: int, lang: str) -> str:
-    """Option 6: View user's community pool info or join a community."""
+    """Option 6: View user's community pool info, join, or request leave."""
     from models import Community, CommunityMembership
 
-    if level == 1:
-        if user.primary_community_id:
-            comm = Community.query.get(user.primary_community_id)
-            if comm:
-                target = comm.pool_target or 1
-                pct = min(100.0, comm.pool_balance / target * 100)
-                member_count = CommunityMembership.query.filter_by(community_id=comm.id).count()
+    # ── User already has a primary community ──────────────────────────────────
+    if user.primary_community_id:
+        comm = Community.query.get(user.primary_community_id)
+        # Hide global reserve — treat as no community
+        if comm and comm.is_global_reserve:
+            comm = None
+
+        if comm:
+            membership = CommunityMembership.query.filter_by(
+                user_id=user.id, community_id=comm.id
+            ).first()
+            target = comm.pool_target or 1
+            pct = min(100.0, comm.pool_balance / target * 100)
+            member_count = CommunityMembership.query.filter_by(community_id=comm.id).count()
+
+            if level == 1:
                 return f"CON {t('community_info', lang, name=comm.name, pool=comm.pool_balance, pct=pct, members=member_count)}"
-        # No community — list top 5
-        comms = Community.query.limit(5).all()
+
+            choice = steps[1].strip()
+
+            if level == 2:
+                if choice == '0':
+                    return f"END {t('goodbye', lang)}"
+                if choice == '1':
+                    # Request leave — show confirmation
+                    if membership and membership.leave_status == 'pending':
+                        return f"END {t('leave_already', lang)}"
+                    if membership:
+                        block = _ussd_leave_checks(user, comm, membership)
+                        if block:
+                            return f"END {t(block, lang)}"
+                    return f"CON {t('leave_confirm', lang, name=comm.name)}"
+                return f"END {t('goodbye', lang)}"
+
+            if level == 3:
+                choice3 = steps[2].strip()
+                if choice3 == '1' and steps[1].strip() == '1':
+                    # Confirmed — submit leave request
+                    if not membership:
+                        return f"END {t('session_err', lang)}"
+                    if membership.leave_status == 'pending':
+                        return f"END {t('leave_already', lang)}"
+                    block = _ussd_leave_checks(user, comm, membership)
+                    if block:
+                        return f"END {t(block, lang)}"
+                    membership.leave_requested_at = datetime.utcnow()
+                    membership.leave_status = 'pending'
+                    membership.leave_rejection_reason = None
+                    db.session.commit()
+                    logger.info("USSD leave request: user_id={} community_id={}", user.id, comm.id)
+                    return f"END {t('leave_requested', lang)}"
+                # 2 = cancel, or any other input
+                return f"END {t('goodbye', lang)}"
+
+            return f"END {t('session_err', lang)}"
+
+    # ── No community — browse and join ────────────────────────────────────────
+    comms = Community.query.filter_by(is_global_reserve=False).limit(5).all()
+
+    if level == 1:
         if comms:
             names = '\n'.join(f"  {i+1}. {c.name}" for i, c in enumerate(comms))
             return f"CON {t('community_none', lang)}\n{names}"
@@ -950,11 +1062,6 @@ def _communities_flow(user: 'User', steps: list, level: int, lang: str) -> str:
     if level == 2:
         if choice == '0':
             return f"END {t('goodbye', lang)}"
-        if user.primary_community_id:
-            # Already in a community — only valid option is 0 (back)
-            return f"END {t('goodbye', lang)}"
-        # No community — user is trying to pick one by number or will type name
-        comms = Community.query.limit(5).all()
         idx = None
         try:
             idx = int(choice) - 1
@@ -962,27 +1069,29 @@ def _communities_flow(user: 'User', steps: list, level: int, lang: str) -> str:
             pass
         if idx is not None and 0 <= idx < len(comms):
             comm = comms[idx]
-            existing = CommunityMembership.query.filter_by(user_id=user.id, community_id=comm.id).first()
+            existing = CommunityMembership.query.filter_by(
+                user_id=user.id, community_id=comm.id
+            ).first()
             if not existing:
                 db.session.add(CommunityMembership(user_id=user.id, community_id=comm.id))
                 user.primary_community_id = comm.id
                 db.session.commit()
             logger.info("USSD community join: user_id={} community_id={}", user.id, comm.id)
             return f"END {t('community_join_ok', lang, name=comm.name)}"
-        # Treat input as a name search prompt
         return f"CON {t('community_join_prompt', lang)}"
 
     if level == 3:
-        if user.primary_community_id:
-            return f"END {t('goodbye', lang)}"
         community_name = steps[2].strip()
         from sqlalchemy import func as _func
         comm = Community.query.filter(
+            Community.is_global_reserve == False,
             _func.lower(Community.name).contains(community_name.lower())
         ).first()
         if not comm:
             return f"END {t('community_join_fail', lang, name=community_name)}"
-        existing = CommunityMembership.query.filter_by(user_id=user.id, community_id=comm.id).first()
+        existing = CommunityMembership.query.filter_by(
+            user_id=user.id, community_id=comm.id
+        ).first()
         if not existing:
             db.session.add(CommunityMembership(user_id=user.id, community_id=comm.id))
             if not user.primary_community_id:
