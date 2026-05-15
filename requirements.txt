@@ -7,3 +7,12 @@ python-dotenv==1.2.2
 requests==2.33.1
 gunicorn==21.2.0
 psycopg2-binary==2.9.9
+flask
+flask-limiter
+flask-login
+flask-sqlalchemy
+gunicorn
+loguru
+psycopg2-binary
+python-dotenv
+requests
