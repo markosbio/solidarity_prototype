@@ -9,7 +9,7 @@ process_fee_contribution() is the single entry point:
   - Calculates solidarity_amount = normal_fee * (solidarity_percent / 100)
   - Optionally rounds to nearest 10 UGX
   - Splits solidarity_amount using the existing 70/20/10 wallet/pool/fee split
-  - Updates sub_wallet_balance, community pool_balance, and records Transactions
+  - Updates sub_wallet_balance, ALL community pool_balances equally, and records Transactions
   - Records the platform fee portion as a PlatformRevenue row
   - Returns solidarity_amount
 """
@@ -20,7 +20,7 @@ from datetime import datetime
 
 from loguru import logger
 
-from models import db, User, Transaction, Community, SystemState, PlatformRevenue
+from models import db, User, Transaction, Community, CommunityMembership, SystemState, PlatformRevenue
 
 
 def _get_solidarity_percent() -> float:
@@ -79,15 +79,25 @@ def process_fee_contribution(user_id: int, normal_fee: float,
         )
         db.session.add(wallet_tx)
 
-        primary_comm = Community.query.get(user.primary_community_id) if user.primary_community_id else None
-        if primary_comm and to_pool > 0:
-            primary_comm.pool_balance += to_pool
-            db.session.add(Transaction(
-                user_id=user_id,
-                amount=to_pool,
-                type='solidarity_pool',
-                description=f'Solidarity contribution pool share (fee UGX {normal_fee:.0f})',
-            ))
+        # Split pool share equally across ALL communities the user belongs to
+        if to_pool > 0:
+            memberships = CommunityMembership.query.filter_by(user_id=user_id).all()
+            comm_ids = [m.community_id for m in memberships]
+            communities = Community.query.filter(Community.id.in_(comm_ids)).all() if comm_ids else []
+            if communities:
+                share = round(to_pool / len(communities), 4)
+                for comm in communities:
+                    comm.pool_balance += share
+                    db.session.add(Transaction(
+                        user_id=user_id,
+                        amount=share,
+                        type='solidarity_pool',
+                        description=f'Solidarity pool share ({comm.name}) (fee UGX {normal_fee:.0f})',
+                    ))
+            # If user belongs to no community, pool share is held as platform revenue
+            else:
+                to_fee += to_pool
+                to_pool = 0.0
 
         fee_tx = None
         if to_fee > 0:
@@ -101,7 +111,6 @@ def process_fee_contribution(user_id: int, normal_fee: float,
 
         db.session.flush()
 
-        # Record platform revenue
         if to_fee > 0:
             rev = PlatformRevenue(
                 amount=to_fee,

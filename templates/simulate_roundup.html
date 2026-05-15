@@ -24,11 +24,6 @@
   .balance-row { display: flex; justify-content: space-between; margin-top: 12px;
                  font-size: 0.88rem; color: #555; }
   .hint { font-size: 0.78rem; color: #888; margin-top: 5px; }
-  .split-pills { display: flex; gap: 6px; margin: 12px 0 4px; flex-wrap: wrap; }
-  .pill { padding: 4px 10px; border-radius: 12px; font-size: 0.78rem; font-weight: bold; }
-  .pill-wallet { background: #d4edda; color: #155724; }
-  .pill-pool   { background: #cce5ff; color: #004085; }
-  .pill-fee    { background: #f8d7da; color: #721c24; }
   .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem;
            background: #00a550; color: white; vertical-align: middle; margin-left: 6px; }
   .divider { display: flex; align-items: center; margin: 4px 0 16px; color: #aaa; font-size: 0.8rem; }
@@ -71,19 +66,9 @@
   <h2>Simulate a Fee Contribution</h2>
   <p class="card-desc">
     Enter the normal operator fee from a mobile money transaction. A solidarity
-    contribution is calculated from that fee and split between your wallet and
-    the community health pool.
+    contribution is calculated from that fee and credited to your health wallet
+    and community pools.
   </p>
-
-  <div class="split-pills">
-    <span class="pill pill-wallet">{{ wallet_pct }}% your wallet</span>
-    <span class="pill pill-pool">{{ pool_pct }}% community pool</span>
-    <span class="pill pill-fee">{{ fee_pct }}% platform fee</span>
-  </div>
-  <div class="hint" style="margin-bottom:8px;">
-    Your contribution is automatically split between your personal health savings,
-    the communal pool, and platform operations.
-  </div>
 
   <form method="POST" id="fee-form">
     <label>Normal fee (UGX)
@@ -93,9 +78,14 @@
     </label>
 
     <div class="preview-box" id="preview">
-      <div class="preview-row"><span class="label">Solidarity contribution</span><span class="val" id="p-solidarity">—</span></div>
-      <div class="preview-row"><span class="label">Your wallet gets</span><span class="val" id="p-wallet">—</span></div>
-      <div class="preview-row"><span class="label">Community pool gets</span><span class="val" id="p-pool">—</span></div>
+      <div class="preview-row">
+        <span class="label">Solidarity contribution</span>
+        <span class="val" id="p-solidarity">—</span>
+      </div>
+      <div class="preview-row">
+        <span class="label">Added to your health wallet</span>
+        <span class="val" id="p-wallet">—</span>
+      </div>
     </div>
 
     <button class="btn btn-green" type="submit">Contribute &amp; Save</button>
@@ -116,9 +106,8 @@
 <script>
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/static/sw.js');
 
-const pct = {{ solidarity_pct }};
+const solidarityPct = {{ solidarity_pct }};
 const walletPct = {{ wallet_pct }} / 100;
-const poolPct = {{ pool_pct }} / 100;
 
 function fmt(n) { return 'UGX ' + Math.round(n).toLocaleString(); }
 function roundTo10(n) { return Math.round(n / 10) * 10; }
@@ -126,12 +115,10 @@ function roundTo10(n) { return Math.round(n / 10) * 10; }
 document.getElementById('fee-input').addEventListener('input', function () {
   const fee = parseFloat(this.value) || 0;
   if (fee <= 0) { document.getElementById('preview').style.display = 'none'; return; }
-  const solidarity = roundTo10(fee * pct / 100);
+  const solidarity = roundTo10(fee * solidarityPct / 100);
   const wallet = Math.round(solidarity * walletPct);
-  const pool = Math.round(solidarity * poolPct);
   document.getElementById('p-solidarity').textContent = fmt(solidarity);
   document.getElementById('p-wallet').textContent = fmt(wallet);
-  document.getElementById('p-pool').textContent = fmt(pool);
   document.getElementById('preview').style.display = 'block';
 });
 </script>

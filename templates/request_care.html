@@ -21,7 +21,7 @@
                       border-radius: 0 6px 6px 0; margin-bottom: 20px; }
     .ceiling-banner .big { font-size: 1.4rem; font-weight: bold; color: #2d7dd2; }
     .ceiling-banner .sub { font-size: 0.82rem; color: #2c4a6e; margin-top: 2px; }
-    .wallet-row { display: flex; gap: 12px; margin-bottom: 4px; }
+    .wallet-row { display: flex; gap: 12px; margin-bottom: 16px; }
     .wallet-chip { flex: 1; background: #f0f8f0; border: 1px solid #c3e6cb; border-radius: 6px;
                    padding: 8px 12px; font-size: 0.85rem; }
     .wallet-chip .wlabel { color: #777; font-size: 0.75rem; }
@@ -30,11 +30,26 @@
     .emergency-row { margin-top: 14px; display: flex; align-items: flex-start; gap: 8px; }
     .emergency-row input[type=checkbox] { width: auto; margin-top: 3px; }
     .emergency-row label { font-weight: normal; margin: 0; }
+    .wallet-only-box { background: #f0f8f0; border: 1px solid #c3e6cb; border-radius: 8px;
+                       padding: 14px 16px; margin-top: 16px; }
+    .wallet-only-box .wo-header { display: flex; align-items: center; gap: 8px; }
+    .wallet-only-box .wo-header input[type=checkbox] { width: auto; margin: 0; }
+    .wallet-only-box .wo-header label { font-weight: bold; margin: 0; font-size: 0.95rem; color: #155724; }
+    .wallet-only-box .wo-desc { font-size: 0.8rem; color: #555; margin-top: 6px; }
+    .wallet-only-box .wo-balance { font-size: 0.85rem; color: #28a745; font-weight: bold; margin-top: 4px; }
+    .pool-section { transition: opacity 0.2s; }
+    .pool-section.dimmed { opacity: 0.4; pointer-events: none; }
+    .error-box { background: #f8d7da; border-left: 4px solid #dc3545; padding: 10px 14px;
+                 border-radius: 0 6px 6px 0; margin-bottom: 16px; font-size: 0.88rem; color: #721c24; }
   </style>
 </head>
 <body>
   <h2>Request Financial Support</h2>
   <p class="subtitle">Funds go directly to the provider — never to your wallet.</p>
+
+  {% if error %}
+  <div class="error-box">{{ error }}</div>
+  {% endif %}
 
   <div class="ceiling-banner">
     <div class="big">UGX {{ "{:,.0f}".format(ceiling) }}</div>
@@ -44,7 +59,7 @@
 
   <div class="wallet-row">
     <div class="wallet-chip">
-      <div class="wlabel">Your sub-wallet</div>
+      <div class="wlabel">Your health wallet</div>
       <div class="wval">UGX {{ "{:,.0f}".format(user.sub_wallet_balance) }}</div>
     </div>
     <div class="wallet-chip">
@@ -53,23 +68,44 @@
     </div>
   </div>
 
-  <form method="POST">
-    <label>Community — which pool to draw from
-      <select name="community_id" required>
-        {% for comm in communities %}
-          <option value="{{ comm.id }}">{{ comm.name }} (pool UGX {{ "{:,.0f}".format(comm.pool_balance) }})</option>
-        {% endfor %}
-      </select>
-    </label>
+  <form method="POST" id="care-form">
+
+    <!-- Wallet-only option -->
+    <div class="wallet-only-box">
+      <div class="wo-header">
+        <input type="checkbox" name="wallet_only" id="wallet_only">
+        <label for="wallet_only">Pay from my wallet only</label>
+      </div>
+      <div class="wo-desc">No witnesses or admin approval needed — payment goes to the provider instantly.</div>
+      <div class="wo-balance">Available: UGX {{ "{:,.0f}".format(user.sub_wallet_balance) }}</div>
+    </div>
 
     <label>Amount needed (UGX)
       <input type="number" step="1" min="1"
-             max="{{ "%.0f"|format(ceiling) }}"
-             name="needed_amount"
-             placeholder="Enter amount up to UGX {{ "{:,.0f}".format(ceiling) }}"
+             name="needed_amount" id="needed_amount"
+             placeholder="Enter amount"
              required>
-      <span class="hint">Maximum from pool: UGX {{ "{:,.0f}".format(ceiling) }} · Your wallet also contributes first.</span>
+      <span class="hint" id="amount-hint">Your wallet contributes first; any remainder is drawn from the pool.</span>
     </label>
+
+    <!-- Pool-only fields (hidden when wallet-only is checked) -->
+    <div class="pool-section" id="pool-section">
+      <label>Community — which pool to draw from
+        <select name="community_id" id="community_id">
+          {% for comm in communities %}
+            <option value="{{ comm.id }}">{{ comm.name }} (pool UGX {{ "{:,.0f}".format(comm.pool_balance) }})</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <div class="emergency-row">
+        <input type="checkbox" name="is_emergency" id="emerg">
+        <label for="emerg">This is a life-threatening emergency
+          <span class="hint">Emergency requests get priority witness review. Admins are alerted immediately.
+            Auto-approved after 2 hours if no admin responds.</span>
+        </label>
+      </div>
+    </div>
 
     <label>Provider (hospital / clinic)
       <select name="provider_id" required>
@@ -79,23 +115,43 @@
       </select>
     </label>
 
-    <div class="emergency-row">
-      <input type="checkbox" name="is_emergency" id="emerg">
-      <label for="emerg">This is a life-threatening emergency
-        <span class="hint">Emergency requests get priority witness review. Admins are alerted immediately.
-          Auto-approved after 2 hours if no admin responds.</span>
-      </label>
-    </div>
-
-    <button type="submit">Submit Request →</button>
+    <button type="submit" id="submit-btn">Submit Request →</button>
   </form>
 
-  <p class="note">Requests over UGX 180,000 or marked emergency require admin approval after witness verification.<br>
+  <p class="note" id="pool-note">Requests over UGX 180,000 or marked emergency require admin approval after witness verification.<br>
     Not in any community? <a href="{{ url_for('communities.list_communities') }}">Join one first →</a></p>
   <p><a href="/">← Back to dashboard</a></p>
 
 <script>
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/static/sw.js');
+
+const walletBalance = {{ user.sub_wallet_balance }};
+const walletOnlyChk = document.getElementById('wallet_only');
+const poolSection = document.getElementById('pool-section');
+const communitySelect = document.getElementById('community_id');
+const poolNote = document.getElementById('pool-note');
+const submitBtn = document.getElementById('submit-btn');
+const amountHint = document.getElementById('amount-hint');
+
+function updateForm() {
+  const isWalletOnly = walletOnlyChk.checked;
+  if (isWalletOnly) {
+    poolSection.classList.add('dimmed');
+    communitySelect.removeAttribute('required');
+    poolNote.style.display = 'none';
+    submitBtn.textContent = 'Pay from Wallet →';
+    amountHint.textContent = 'Must not exceed your wallet balance (UGX ' + walletBalance.toLocaleString() + ').';
+  } else {
+    poolSection.classList.remove('dimmed');
+    communitySelect.setAttribute('required', '');
+    poolNote.style.display = '';
+    submitBtn.textContent = 'Submit Request →';
+    amountHint.textContent = 'Your wallet contributes first; any remainder is drawn from the pool.';
+  }
+}
+
+walletOnlyChk.addEventListener('change', updateForm);
+updateForm();
 </script>
 </body>
 </html>

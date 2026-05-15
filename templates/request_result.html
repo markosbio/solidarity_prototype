@@ -22,6 +22,8 @@
   .val.blue  { color: #2d7dd2; }
   .info-box { background: #e8f4f8; border-left: 4px solid #2d7dd2; padding: 12px 16px;
               border-radius: 0 6px 6px 0; font-size: 0.87rem; color: #2c4a6e; margin-bottom: 20px; }
+  .success-box { background: #d4edda; border-left: 4px solid #28a745; padding: 12px 16px;
+                 border-radius: 0 6px 6px 0; font-size: 0.87rem; color: #155724; margin-bottom: 20px; }
   .ceiling-box { background: #f0f8f0; border-left: 4px solid #28a745; padding: 10px 14px;
                  border-radius: 0 6px 6px 0; font-size: 0.85rem; margin-bottom: 16px; }
   .btn { display: inline-block; padding: 10px 24px; background: #2d7dd2; color: white;
@@ -32,6 +34,28 @@
 </head>
 <body>
 
+{% if wallet_only %}
+<div class="check">✅</div>
+<h1>Payment Sent</h1>
+<p style="color:#666; margin-bottom:20px;">Request #{{ request_id }} — paid directly from your wallet.</p>
+
+<div class="card">
+  <div class="row">
+    <span class="label">Amount paid</span>
+    <span class="val green">UGX {{ "{:,.0f}".format(needed) }}</span>
+  </div>
+  <div class="row">
+    <span class="label">Paid from</span>
+    <span class="val">Your health wallet</span>
+  </div>
+</div>
+
+<div class="success-box">
+  <strong>Payment confirmed.</strong><br>
+  Funds have been sent directly to the provider. No witnesses or admin approval needed.
+</div>
+
+{% else %}
 <div class="check">✅</div>
 <h1>Care Request Submitted</h1>
 <p style="color:#666; margin-bottom:20px;">Request #{{ request_id }} is pending witness verification.</p>
@@ -41,21 +65,25 @@
     <span class="label">Total needed</span>
     <span class="val">UGX {{ "{:,.0f}".format(needed) }}</span>
   </div>
+  {% if from_sub > 0 %}
   <div class="row">
-    <span class="label">From your sub-wallet</span>
+    <span class="label">From your wallet</span>
     <span class="val green">UGX {{ "{:,.0f}".format(from_sub) }}</span>
   </div>
+  {% endif %}
+  {% if from_pool > 0 %}
   <div class="row">
     <span class="label">From community pool</span>
-    <span class="val {% if from_pool > 0 %}green{% else %}amber{% endif %}">UGX {{ "{:,.0f}".format(from_pool) }}</span>
+    <span class="val green">UGX {{ "{:,.0f}".format(from_pool) }}</span>
   </div>
+  {% endif %}
   {% if social_credit > 0 %}
   <div class="row">
     <span class="label">Social credit incurred</span>
     <span class="val red">UGX {{ "{:,.0f}".format(social_credit) }}</span>
   </div>
   {% endif %}
-  {% if ceiling_remaining is defined %}
+  {% if ceiling_remaining is defined and ceiling_remaining is not none %}
   <div class="row">
     <span class="label">Remaining draw ceiling</span>
     <span class="val blue">UGX {{ "{:,.0f}".format(ceiling_remaining) }}</span>
@@ -63,7 +91,7 @@
   {% endif %}
 </div>
 
-{% if ceiling_remaining is defined %}
+{% if ceiling_remaining is defined and ceiling_remaining is not none %}
 <div class="ceiling-box">
   You have <strong>UGX {{ "{:,.0f}".format(ceiling_remaining) }}</strong> of your draw ceiling remaining.
   Increase it by contributing more round-ups or witnessing requests for others.
@@ -81,6 +109,7 @@
   This is marked as an emergency — if no admin responds within 2 hours, it will be auto-approved.
   {% endif %}
 </div>
+{% endif %}
 
 <a class="btn" href="{{ url_for('home') }}">← Return to dashboard</a>
 <p class="ref">Request ID: {{ request_id }}</p>
