@@ -79,7 +79,13 @@
 
   <div class="emg-banner">
     <div class="big">UGX {{ "{:,.0f}".format(emergency_ceiling) }}</div>
-    <div class="sub">Emergency ceiling — only for verified medical emergencies. Requires additional review.</div>
+    <div class="sub">
+      Emergency ceiling for your trust tier
+      {% if emg_tier == 'low' %}<strong>({{ emg_mult }}× · low trust)</strong>
+      {% elif emg_tier == 'high' %}<strong>({{ emg_mult }}× · high trust)</strong>
+      {% else %}<strong>({{ emg_mult }}× · mid trust)</strong>{% endif %}
+      — only for genuine medical emergencies. Goes to admin review.
+    </div>
   </div>
 
   <div class="stat-row">

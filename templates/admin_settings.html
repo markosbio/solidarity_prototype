@@ -82,9 +82,8 @@
 <!-- ── Emergency Request Settings ────────────────────────────── -->
 <div class="card" style="border-color:#fcd34d; background:#fffbeb; margin-bottom:20px;">
   <h3>🚨 Emergency Care Request Settings</h3>
-  <p style="font-size:0.85rem; color:#555; margin:0 0 14px;">
-    When a member marks a request as an emergency, their ceiling is temporarily raised to
-    <code>normal_ceiling × multiplier</code>, capped at the hard cap. All emergency requests go to admin review.
+  <p style="font-size:0.85rem; color:#555; margin:0 0 6px;">
+    Emergency ceilings are <strong>trust-score tiered</strong>: lower-trust members get a smaller boost, higher-trust members get more. The hard cap always applies.
   </p>
 
   {% with msgs = get_flashed_messages(with_categories=true) %}
@@ -97,29 +96,78 @@
     {% endfor %}
   {% endwith %}
 
+  <!-- Tier visualiser -->
+  <div style="display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap;">
+    <div style="flex:1; min-width:130px; background:#fef3c7; border:1px solid #fcd34d; border-radius:6px; padding:8px 12px; font-size:0.82rem; text-align:center;">
+      <div style="font-weight:bold; color:#92400e;">🟡 Low Trust</div>
+      <div style="color:#555;">score &lt; {{ emg.emg_tier_low_max }}</div>
+      <div style="font-size:1.1rem; font-weight:bold; color:#b45309; margin-top:2px;">{{ emg.emg_mult_low }}×</div>
+    </div>
+    <div style="flex:1; min-width:130px; background:#fff7ed; border:1px solid #fdba74; border-radius:6px; padding:8px 12px; font-size:0.82rem; text-align:center;">
+      <div style="font-weight:bold; color:#c2410c;">🟠 Mid Trust</div>
+      <div style="color:#555;">{{ emg.emg_tier_low_max }} – {{ emg.emg_tier_high_min }}</div>
+      <div style="font-size:1.1rem; font-weight:bold; color:#c2410c; margin-top:2px;">{{ emg.emg_mult_mid }}×</div>
+    </div>
+    <div style="flex:1; min-width:130px; background:#ecfdf5; border:1px solid #6ee7b7; border-radius:6px; padding:8px 12px; font-size:0.82rem; text-align:center;">
+      <div style="font-weight:bold; color:#065f46;">🟢 High Trust</div>
+      <div style="color:#555;">score ≥ {{ emg.emg_tier_high_min }}</div>
+      <div style="font-size:1.1rem; font-weight:bold; color:#065f46; margin-top:2px;">{{ emg.emg_mult_high }}×</div>
+    </div>
+    <div style="flex:1; min-width:130px; background:#f8fafc; border:1px solid #cbd5e1; border-radius:6px; padding:8px 12px; font-size:0.82rem; text-align:center;">
+      <div style="font-weight:bold; color:#334155;">🔒 Hard Cap</div>
+      <div style="color:#555;">All tiers</div>
+      <div style="font-size:0.95rem; font-weight:bold; color:#334155; margin-top:2px;">UGX {{ "{:,.0f}".format(emg.emergency_hard_cap) }}</div>
+    </div>
+  </div>
+
   <form method="POST" action="{{ url_for('admin_settings') }}">
     <input type="hidden" name="action" value="save_emergency">
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+
+    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:12px;">
       <div>
-        <label>Emergency Multiplier</label>
-        <input type="number" name="emergency_multiplier" step="0.1" min="1.0" max="5.0"
-               value="{{ emergency_multiplier }}" required>
-        <div class="hint">e.g. 1.5 = 50% above normal ceiling. Range: 1.0 – 5.0</div>
+        <label>Low-trust multiplier</label>
+        <input type="number" name="emg_mult_low" step="0.1" min="1.0" max="5.0"
+               value="{{ emg.emg_mult_low }}" required>
+        <div class="hint">e.g. 1.2 (score below low threshold)</div>
+      </div>
+      <div>
+        <label>Mid-trust multiplier</label>
+        <input type="number" name="emg_mult_mid" step="0.1" min="1.0" max="5.0"
+               value="{{ emg.emg_mult_mid }}" required>
+        <div class="hint">e.g. 1.5 (between thresholds)</div>
+      </div>
+      <div>
+        <label>High-trust multiplier</label>
+        <input type="number" name="emg_mult_high" step="0.1" min="1.0" max="5.0"
+               value="{{ emg.emg_mult_high }}" required>
+        <div class="hint">e.g. 2.0 (score above high threshold)</div>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px;">
+      <div>
+        <label>Low threshold (max)</label>
+        <input type="number" name="emg_tier_low_max" step="0.05" min="0.05" max="0.95"
+               value="{{ emg.emg_tier_low_max }}" required>
+        <div class="hint">Score below this → low tier. e.g. 0.4</div>
+      </div>
+      <div>
+        <label>High threshold (min)</label>
+        <input type="number" name="emg_tier_high_min" step="0.05" min="0.05" max="0.95"
+               value="{{ emg.emg_tier_high_min }}" required>
+        <div class="hint">Score at/above this → high tier. e.g. 0.7</div>
       </div>
       <div>
         <label>Hard Cap (UGX)</label>
         <input type="number" name="emergency_hard_cap" step="1000" min="10000"
-               value="{{ emergency_hard_cap|int }}" required>
-        <div class="hint">Absolute maximum regardless of multiplier. e.g. 200000</div>
+               value="{{ emg.emergency_hard_cap|int }}" required>
+        <div class="hint">Absolute max, all tiers. e.g. 200000</div>
       </div>
     </div>
-    <div style="margin-top:12px; background:#fef3c7; border-radius:6px; padding:10px 12px; font-size:0.83rem; color:#92400e;">
-      Current: <strong>{{ emergency_multiplier }}×</strong> multiplier &nbsp;·&nbsp;
-      hard cap <strong>UGX {{ "{:,.0f}".format(emergency_hard_cap) }}</strong>
-    </div>
-    <div style="margin-top:12px;">
+
+    <div style="margin-top:14px;">
       <button type="button" class="btn btn-primary"
-        onclick="if(confirm('Update emergency ceiling settings?')){this.closest('form').submit();}">
+        onclick="if(confirm('Update emergency tier settings?')){this.closest('form').submit();}">
         Save Emergency Settings
       </button>
     </div>

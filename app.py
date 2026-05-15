@@ -441,6 +441,10 @@ def _run_column_migrations():
         )""",
         "ALTER TABLE system_state ADD COLUMN IF NOT EXISTS emergency_multiplier FLOAT DEFAULT 1.5",
         "ALTER TABLE system_state ADD COLUMN IF NOT EXISTS emergency_hard_cap FLOAT DEFAULT 200000.0",
+        "ALTER TABLE system_state ADD COLUMN IF NOT EXISTS emg_mult_low FLOAT DEFAULT 1.2",
+        "ALTER TABLE system_state ADD COLUMN IF NOT EXISTS emg_mult_high FLOAT DEFAULT 2.0",
+        "ALTER TABLE system_state ADD COLUMN IF NOT EXISTS emg_tier_low_max FLOAT DEFAULT 0.4",
+        "ALTER TABLE system_state ADD COLUMN IF NOT EXISTS emg_tier_high_min FLOAT DEFAULT 0.7",
     ]
     try:
         with db.engine.connect() as conn:
@@ -518,17 +522,58 @@ def _pool_health(pool_balance: float) -> dict:
     return {'pct': round(pct, 1), 'label': label, 'color': color}
 
 
-def _get_emergency_settings():
-    """Return (emergency_multiplier, emergency_hard_cap) from SystemState."""
+def _get_emergency_multiplier(trust_score: float) -> tuple:
+    """Return (multiplier, hard_cap, tier_label) based on the user's trust score.
+
+    Three tiers (all thresholds and multipliers configurable by super admin):
+      low   trust_score < tier_low_max   → emg_mult_low   (default 1.2×)
+      mid   tier_low_max ≤ score < tier_high_min → emergency_multiplier (default 1.5×)
+      high  trust_score ≥ tier_high_min  → emg_mult_high  (default 2.0×)
+    Hard cap always applies regardless of tier.
+    """
     try:
         state = SystemState.query.first()
         if state:
-            mult = getattr(state, 'emergency_multiplier', None) or 1.5
-            cap  = getattr(state, 'emergency_hard_cap', None) or 200_000.0
-            return float(mult), float(cap)
+            cap        = float(getattr(state, 'emergency_hard_cap',  None) or 200_000.0)
+            tier_low   = float(getattr(state, 'emg_tier_low_max',    None) or 0.4)
+            tier_high  = float(getattr(state, 'emg_tier_high_min',   None) or 0.7)
+            mult_low   = float(getattr(state, 'emg_mult_low',        None) or 1.2)
+            mult_mid   = float(getattr(state, 'emergency_multiplier', None) or 1.5)
+            mult_high  = float(getattr(state, 'emg_mult_high',       None) or 2.0)
+            if trust_score < tier_low:
+                return mult_low, cap, 'low'
+            elif trust_score >= tier_high:
+                return mult_high, cap, 'high'
+            else:
+                return mult_mid, cap, 'mid'
     except Exception:
         pass
-    return 1.5, 200_000.0
+    if trust_score < 0.4:
+        return 1.2, 200_000.0, 'low'
+    elif trust_score >= 0.7:
+        return 2.0, 200_000.0, 'high'
+    return 1.5, 200_000.0, 'mid'
+
+
+def _get_all_emergency_settings() -> dict:
+    """Return all emergency tier config as a dict for admin display."""
+    try:
+        state = SystemState.query.first()
+        if state:
+            return {
+                'emg_mult_low':      float(getattr(state, 'emg_mult_low',        None) or 1.2),
+                'emg_mult_mid':      float(getattr(state, 'emergency_multiplier', None) or 1.5),
+                'emg_mult_high':     float(getattr(state, 'emg_mult_high',       None) or 2.0),
+                'emg_tier_low_max':  float(getattr(state, 'emg_tier_low_max',    None) or 0.4),
+                'emg_tier_high_min': float(getattr(state, 'emg_tier_high_min',   None) or 0.7),
+                'emergency_hard_cap':float(getattr(state, 'emergency_hard_cap',  None) or 200_000.0),
+            }
+    except Exception:
+        pass
+    return {
+        'emg_mult_low': 1.2, 'emg_mult_mid': 1.5, 'emg_mult_high': 2.0,
+        'emg_tier_low_max': 0.4, 'emg_tier_high_min': 0.7, 'emergency_hard_cap': 200_000.0,
+    }
 
 
 def _check_emergency_auto_approvals():
@@ -1115,7 +1160,7 @@ def request_care():
     except Exception:
         ceiling = 0.0
 
-    emg_mult, emg_cap = _get_emergency_settings()
+    emg_mult, emg_cap, emg_tier = _get_emergency_multiplier(user.trust_score)
     emergency_ceiling = round(min(ceiling * emg_mult, emg_cap), 2)
 
     if request.method == 'POST':
@@ -1125,6 +1170,10 @@ def request_care():
         is_emergency = 'is_emergency' in request.form
         provider = Provider.query.get(provider_id)
 
+        # Re-compute with POST-time trust score (same user, consistent)
+        emg_mult, emg_cap, emg_tier = _get_emergency_multiplier(user.trust_score)
+        emergency_ceiling = round(min(ceiling * emg_mult, emg_cap), 2)
+
         # ── Ceiling validation (non-wallet requests) ───────────────────────────
         if not wallet_only:
             if is_emergency:
@@ -1132,7 +1181,8 @@ def request_care():
                     return render_template(
                         'request_care.html', user=user, providers=providers,
                         primary_community=primary_community, ceiling=ceiling,
-                        emergency_ceiling=emergency_ceiling,
+                        emergency_ceiling=emergency_ceiling, emg_tier=emg_tier,
+                        emg_mult=emg_mult,
                         error=f'Amount exceeds your emergency ceiling of UGX {emergency_ceiling:,.0f}. '
                               'Please reduce the amount or contact support.')
             else:
@@ -1140,7 +1190,8 @@ def request_care():
                     return render_template(
                         'request_care.html', user=user, providers=providers,
                         primary_community=primary_community, ceiling=ceiling,
-                        emergency_ceiling=emergency_ceiling,
+                        emergency_ceiling=emergency_ceiling, emg_tier=emg_tier,
+                        emg_mult=emg_mult,
                         error='Your requested amount exceeds your current drawing ceiling. '
                               'Please reduce the amount or submit an Exceptional Assistance Request.')
 
@@ -1330,7 +1381,8 @@ def request_care():
 
     return render_template('request_care.html', user=user, providers=providers,
                            primary_community=primary_community, ceiling=ceiling,
-                           emergency_ceiling=emergency_ceiling)
+                           emergency_ceiling=emergency_ceiling,
+                           emg_tier=emg_tier, emg_mult=emg_mult)
 
 @app.route('/witness_dashboard')
 def witness_dashboard():
@@ -4226,20 +4278,33 @@ def admin_settings():
 
         if action == 'save_emergency':
             try:
-                new_mult = float(request.form.get('emergency_multiplier', 1.5))
-                new_cap  = float(request.form.get('emergency_hard_cap', 200000))
-                if new_mult < 1.0 or new_mult > 5.0:
-                    raise ValueError('Multiplier must be between 1.0 and 5.0')
-                if new_cap < 10000 or new_cap > 10_000_000:
+                new_mult_low  = float(request.form.get('emg_mult_low', 1.2))
+                new_mult_mid  = float(request.form.get('emg_mult_mid', 1.5))
+                new_mult_high = float(request.form.get('emg_mult_high', 2.0))
+                new_tier_low  = float(request.form.get('emg_tier_low_max', 0.4))
+                new_tier_high = float(request.form.get('emg_tier_high_min', 0.7))
+                new_cap       = float(request.form.get('emergency_hard_cap', 200000))
+                if not (1.0 <= new_mult_low <= new_mult_mid <= new_mult_high <= 5.0):
+                    raise ValueError('Multipliers must be 1.0 ≤ low ≤ mid ≤ high ≤ 5.0')
+                if not (0.0 < new_tier_low < new_tier_high < 1.0):
+                    raise ValueError('Tier thresholds must be 0 < low < high < 1')
+                if new_cap < 10_000 or new_cap > 10_000_000:
                     raise ValueError('Hard cap must be between 10,000 and 10,000,000')
                 state = SystemState.query.first()
                 if state:
-                    state.emergency_multiplier = new_mult
-                    state.emergency_hard_cap   = new_cap
+                    state.emg_mult_low       = new_mult_low
+                    state.emergency_multiplier = new_mult_mid
+                    state.emg_mult_high      = new_mult_high
+                    state.emg_tier_low_max   = new_tier_low
+                    state.emg_tier_high_min  = new_tier_high
+                    state.emergency_hard_cap = new_cap
                     db.session.commit()
                 _log_admin_action(admin_user.id, 'update_emergency_settings',
-                                  details=f'emergency_multiplier={new_mult}, emergency_hard_cap={new_cap}')
-                flash(f'Emergency settings saved: {new_mult}× multiplier, UGX {new_cap:,.0f} hard cap.', 'success')
+                                  details=(f'tiers: score<{new_tier_low}→{new_mult_low}×, '
+                                           f'<{new_tier_high}→{new_mult_mid}×, '
+                                           f'≥{new_tier_high}→{new_mult_high}×, '
+                                           f'cap=UGX {new_cap:,.0f}'))
+                flash('Emergency tier settings saved.', 'success')
             except (ValueError, TypeError) as e:
                 flash(f'Invalid value: {e}', 'error')
             return redirect(url_for('admin_settings'))
@@ -4291,9 +4356,7 @@ def admin_settings():
             flash(f'Withdrawal of UGX {amount:,.0f} recorded successfully.', 'success')
             return redirect(url_for('admin_settings'))
 
-    state = SystemState.query.first()
-    emg_mult = (getattr(state, 'emergency_multiplier', None) or 1.5) if state else 1.5
-    emg_cap  = (getattr(state, 'emergency_hard_cap', None) or 200_000.0) if state else 200_000.0
+    emg = _get_all_emergency_settings()
     return render_template('admin_settings.html',
                            user=admin_user,
                            total_revenue=total_revenue,
@@ -4302,8 +4365,7 @@ def admin_settings():
                            recent_withdrawals=recent_withdrawals,
                            payout_method=_get_setting('payout_method'),
                            payout_details=_get_setting('payout_details'),
-                           emergency_multiplier=float(emg_mult),
-                           emergency_hard_cap=float(emg_cap))
+                           emg=emg)
 
 
 # ── Admin: User deactivation (right to be forgotten) ──────────────────────────

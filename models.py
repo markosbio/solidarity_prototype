@@ -240,6 +240,10 @@ class SystemState(db.Model):
     solidarity_percent = db.Column(db.Float, default=8.0)
     emergency_multiplier = db.Column(db.Float, default=1.5)
     emergency_hard_cap = db.Column(db.Float, default=200000.0)
+    emg_mult_low = db.Column(db.Float, default=1.2)
+    emg_mult_high = db.Column(db.Float, default=2.0)
+    emg_tier_low_max = db.Column(db.Float, default=0.4)
+    emg_tier_high_min = db.Column(db.Float, default=0.7)
 
 
 class WitnessRequest(db.Model):

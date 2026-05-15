@@ -699,8 +699,23 @@ def _request_care_flow(user: User, steps: list, level: int, lang: str) -> str:
         return f"END {t('session_err', lang)}"
 
     state = SystemState.query.first()
-    emg_mult = float(getattr(state, 'emergency_multiplier', None) or 1.5) if state else 1.5
-    emg_cap  = float(getattr(state, 'emergency_hard_cap', None) or 200_000.0) if state else 200_000.0
+    if state:
+        trust = user.trust_score or 0.0
+        tier_low  = float(getattr(state, 'emg_tier_low_max',    None) or 0.4)
+        tier_high = float(getattr(state, 'emg_tier_high_min',   None) or 0.7)
+        mult_low  = float(getattr(state, 'emg_mult_low',        None) or 1.2)
+        mult_mid  = float(getattr(state, 'emergency_multiplier', None) or 1.5)
+        mult_high = float(getattr(state, 'emg_mult_high',       None) or 2.0)
+        emg_cap   = float(getattr(state, 'emergency_hard_cap',  None) or 200_000.0)
+        if trust < tier_low:
+            emg_mult = mult_low
+        elif trust >= tier_high:
+            emg_mult = mult_high
+        else:
+            emg_mult = mult_mid
+    else:
+        emg_mult = 1.5
+        emg_cap  = 200_000.0
     emergency_ceiling = round(min(ceiling * emg_mult, emg_cap), 2)
 
     if level == 1:
