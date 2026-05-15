@@ -32,7 +32,12 @@
     <p class="subtitle">
         <strong>Invite code:</strong> <code>{{ community.invite_code }}</code>
         &nbsp;·&nbsp;
-        <strong>Pool balance:</strong> UGX {{ "{:,.0f}".format(community.pool_balance) }}
+        <strong>Pool balance:</strong>
+        {% if user_role in ['admin', 'coadmin'] %}
+          UGX {{ "{:,.0f}".format(community.pool_balance) }}
+        {% else %}
+          <span style="font-family:monospace; letter-spacing:2px; color:#6c757d;">••••••</span>
+        {% endif %}
         &nbsp;·&nbsp;
         <strong>Your role:</strong>
         <span class="role-badge role-{{ user_role }}">{{ user_role }}</span>

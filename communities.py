@@ -105,15 +105,21 @@ def create_community():
             db.session.add(community)
             db.session.flush()
 
-            membership = CommunityMembership(
-                user_id=user.id,
-                community_id=community.id,
-                role='admin',
-            )
-            db.session.add(membership)
+            # Always create the admin membership — guard against double-insert
+            existing_ms = CommunityMembership.query.filter_by(
+                user_id=user.id, community_id=community.id
+            ).first()
+            if not existing_ms:
+                membership = CommunityMembership(
+                    user_id=user.id,
+                    community_id=community.id,
+                    role='admin',
+                )
+                db.session.add(membership)
 
             if not user.primary_community_id:
                 user.primary_community_id = community.id
+                user.primary_community_changed_at = datetime.utcnow()
 
             db.session.commit()
             logger.info("Community created: id={} name={} admin_id={}",
@@ -240,6 +246,7 @@ def request_leave(community_id):
     membership.leave_rejection_reason = None
     db.session.commit()
     logger.info("User {} requested to leave community {}", user.id, community_id)
+    flash(f'Leave request sent for "{community.name}" — a community admin will review it shortly.', 'success')
     return redirect(url_for('communities.list_communities'))
 
 
