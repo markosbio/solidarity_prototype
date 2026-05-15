@@ -159,12 +159,13 @@ def join_community():
     )
     db.session.add(membership)
 
-    if not user.primary_community_id:
-        user.primary_community_id = community.id
-        user.primary_community_changed_at = datetime.utcnow()
+    # Always make the newly joined community the primary
+    user.primary_community_id = community.id
+    user.primary_community_changed_at = datetime.utcnow()
 
     db.session.commit()
     logger.info("User {} joined community {}", user.id, community.id)
+    flash(f'You have joined "{community.name}" — it is now your primary community.', 'success')
     return redirect(url_for('communities.list_communities'))
 
 
@@ -241,12 +242,19 @@ def request_leave(community_id):
     if block_reason:
         return redirect(url_for('communities.list_communities', error=block_reason))
 
+    has_debt = user.total_social_credit > 0
     membership.leave_requested_at = datetime.utcnow()
     membership.leave_status = 'pending'
+    membership.leave_initiated_by = 'member'
     membership.leave_rejection_reason = None
     db.session.commit()
-    logger.info("User {} requested to leave community {}", user.id, community_id)
-    flash(f'Leave request sent for "{community.name}" — a community admin will review it shortly.', 'success')
+    logger.info("User {} requested to leave community {} (debt={})", user.id, community_id, has_debt)
+
+    if has_debt:
+        flash(f'Leave request submitted for "{community.name}". '
+              f'Because you have outstanding credit, this requires system review.', 'success')
+    else:
+        flash(f'Leave request sent for "{community.name}" — a community admin will review it shortly.', 'success')
     return redirect(url_for('communities.list_communities'))
 
 

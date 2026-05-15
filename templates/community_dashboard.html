@@ -6,14 +6,14 @@
     <meta name="theme-color" content="#2d7dd2">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        body { font-family: sans-serif; margin: 2em; max-width: 760px; }
+        body { font-family: sans-serif; margin: 2em auto; max-width: 760px; padding: 0 16px; }
         h1 { margin-bottom: 4px; }
-        .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 20px; }
-        .card { border: 1px solid #ccc; border-radius: 12px; padding: 1.5em; margin-bottom: 1.5em; }
+        .subtitle { color: #555; font-size: 0.9rem; margin-bottom: 20px; }
+        .card { border: 1px solid #ccc; border-radius: 12px; padding: 1.2em 1.5em; margin-bottom: 1.5em; }
         .badge { background: #2c7da0; color: white; padding: 4px 8px; border-radius: 20px; font-size: 0.8em; }
         table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
-        th, td { border: 1px solid #ddd; padding: 9px 10px; text-align: left; }
-        th { background: #f0f0f0; font-size: 0.8rem; color: #555; }
+        th, td { border: 1px solid #ddd; padding: 8px 10px; text-align: left; }
+        th { background: #f0f0f0; font-size: 0.78rem; color: #555; }
         .role-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.78rem; }
         .role-admin   { background: #f8d7da; color: #721c24; }
         .role-coadmin { background: #cce5ff; color: #004085; }
@@ -21,77 +21,172 @@
         .btn { display: inline-block; padding: 5px 12px; border: none; border-radius: 4px;
                font-size: 0.82rem; cursor: pointer; text-decoration: none; }
         .btn-promote { background: #28a745; color: white; }
-        .btn-promote:hover { background: #218838; }
         .btn-demote  { background: #ffc107; color: #333; }
-        .btn-demote:hover  { background: #e0a800; }
+        .btn-approve { background: #28a745; color: white; }
+        .btn-deny    { background: #dc3545; color: white; }
+        .btn-remove  { background: #dc3545; color: white; }
         .empty { color: #888; font-style: italic; }
+        .alert { padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 0.9em; }
+        .alert-success { background: #d4edda; border: 1px solid #c3e6cb; color: #155724; }
+        .alert-error   { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; }
+        .leave-card { background: #fff8e1; border: 1px solid #ffc107; border-radius: 8px;
+                      padding: 12px 14px; margin-bottom: 10px; }
+        .leave-card .name { font-weight: bold; font-size: 0.95rem; }
+        .leave-card .meta { font-size: 0.82rem; color: #555; margin: 4px 0 10px; }
+        .debt-tag { display: inline-block; background: #f8d7da; color: #721c24;
+                    border-radius: 8px; font-size: 0.75rem; padding: 2px 7px; margin-left:4px; }
+        .action-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+        .remove-form { margin-top: 6px; }
+        .remove-input { width: 100%; padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px;
+                        font-size: 0.82rem; margin-bottom: 6px; box-sizing: border-box; resize: vertical; }
+        details summary { cursor: pointer; font-size: 0.82rem; color: #dc3545; margin-top: 6px; }
+        details[open] summary { margin-bottom: 6px; }
+        code { background: #f0f0f0; padding: 2px 5px; border-radius: 3px; font-size: 0.85em; }
     </style>
 </head>
 <body>
     <h1>{{ community.name }}</h1>
     <p class="subtitle">
-        <strong>Invite code:</strong> <code>{{ community.invite_code }}</code>
-        &nbsp;·&nbsp;
-        <strong>Pool balance:</strong>
+        <strong>Pool balance:</strong> UGX {{ "{:,.0f}".format(community.pool_balance) }}
         {% if user_role in ['admin', 'coadmin'] %}
-          UGX {{ "{:,.0f}".format(community.pool_balance) }}
-        {% else %}
-          <span style="font-family:monospace; letter-spacing:2px; color:#6c757d;">••••••</span>
+        &nbsp;·&nbsp; <strong>Invite code:</strong> <code>{{ community.invite_code }}</code>
         {% endif %}
-        &nbsp;·&nbsp;
-        <strong>Your role:</strong>
+        &nbsp;·&nbsp; <strong>Your role:</strong>
         <span class="role-badge role-{{ user_role }}">{{ user_role }}</span>
     </p>
 
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in messages %}
+        <div class="alert alert-{{ 'success' if cat == 'success' else 'error' }}">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    {# ── Pending leave requests (debt-free members only) — community admin handles these ── #}
+    {% if user_role in ['admin', 'coadmin'] %}
+    {% set pending_leaves = [] %}
+    {% for m in members %}
+      {% if m.leave_status == 'pending' and m.user and m.user.total_social_credit == 0 %}
+        {% set _ = pending_leaves.append(m) %}
+      {% endif %}
+    {% endfor %}
+
+    {% if pending_leaves %}
+    <div class="card" style="border-color:#ffc107;">
+      <h2 style="margin-top:0;">⏳ Pending Leave Requests ({{ pending_leaves|length }})</h2>
+      {% for m in pending_leaves %}
+      <div class="leave-card">
+        <div class="name">{{ m.user.name }}
+          <span class="role-badge role-{{ m.role }}">{{ m.role }}</span>
+          {% if m.leave_initiated_by == 'admin' %}
+            <span class="debt-tag">Admin-initiated</span>
+          {% endif %}
+        </div>
+        <div class="meta">
+          Phone: {{ m.user.phone }}&nbsp;·&nbsp;
+          Requested: {{ m.leave_requested_at.strftime('%Y-%m-%d %H:%M') if m.leave_requested_at else '—' }}
+          {% if m.leave_reason %}
+            <br>Reason: {{ m.leave_reason }}
+          {% endif %}
+        </div>
+        <div class="action-row">
+          <form method="POST"
+                action="{{ url_for('community_leave_action', comm_id=community.id, membership_id=m.id) }}"
+                onsubmit="return confirm('Approve leave for {{ m.user.name }}? This will remove them from the community.')">
+            <input type="hidden" name="action" value="approve">
+            <button class="btn btn-approve">✓ Approve</button>
+          </form>
+          <form method="POST"
+                action="{{ url_for('community_leave_action', comm_id=community.id, membership_id=m.id) }}"
+                style="display:flex; gap:6px; align-items:center;">
+            <input type="hidden" name="action" value="deny">
+            <input type="text" name="reason" placeholder="Reason for denial…"
+                   style="padding:4px 8px; border:1px solid #ccc; border-radius:4px; font-size:0.82rem; width:200px;">
+            <button class="btn btn-deny">✗ Deny</button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% endif %}
+
+    {# ── Members table ── #}
     <div class="card">
-        <h2>Members ({{ members|length }})</h2>
+        <h2 style="margin-top:0;">Members ({{ members|length }})</h2>
         <table>
             <thead>
                 <tr>
                     <th>Name</th>
                     <th>Role</th>
                     <th>Joined</th>
-                    {% if user_role == 'admin' %}<th>Actions</th>{% endif %}
+                    <th>Status</th>
+                    {% if user_role in ['admin', 'coadmin'] %}<th>Actions</th>{% endif %}
                 </tr>
             </thead>
             <tbody>
             {% for m in members %}
+            {% if m.user %}
             <tr>
                 <td>{{ m.user.name }}</td>
+                <td><span class="role-badge role-{{ m.role }}">{{ m.role }}</span></td>
+                <td>{{ m.joined_at.strftime('%Y-%m-%d') if m.joined_at else '—' }}</td>
                 <td>
-                    <span class="role-badge role-{{ m.role }}">{{ m.role }}</span>
+                  {% if m.leave_status == 'pending' %}
+                    <span style="color:#856404; font-size:0.8rem;">⏳ Leave pending</span>
+                  {% elif m.user.total_social_credit > 0 %}
+                    <span style="color:#dc3545; font-size:0.8rem;">Has debt</span>
+                  {% else %}
+                    <span style="color:#28a745; font-size:0.8rem;">Active</span>
+                  {% endif %}
                 </td>
-                <td>{{ m.joined_at.strftime('%Y-%m-%d') }}</td>
-                {% if user_role == 'admin' %}
+                {% if user_role in ['admin', 'coadmin'] %}
                 <td>
-                    {% if m.role == 'member' %}
+                    <div style="display:flex; gap:4px; flex-wrap:wrap; align-items:center;">
+                    {% if m.role == 'member' and user_role == 'admin' %}
                     <form method="POST"
                           action="{{ url_for('community_promote', comm_id=community.id, member_id=m.user_id) }}"
                           style="display:inline;">
-                        <button class="btn btn-promote" type="submit"
-                                title="Promote {{ m.user.name }} to co-admin">▲ Promote</button>
+                        <button class="btn btn-promote" type="submit">▲ Promote</button>
                     </form>
-                    {% elif m.role == 'coadmin' %}
+                    {% elif m.role == 'coadmin' and user_role == 'admin' %}
                     <form method="POST"
                           action="{{ url_for('community_demote', comm_id=community.id, member_id=m.user_id) }}"
                           style="display:inline;">
-                        <button class="btn btn-demote" type="submit"
-                                title="Demote {{ m.user.name }} to member">▼ Demote</button>
+                        <button class="btn btn-demote" type="submit">▼ Demote</button>
                     </form>
-                    {% else %}
-                        <span style="color:#888; font-size:0.8rem;">—</span>
                     {% endif %}
+
+                    {# Remove member — only show for non-admins and not self #}
+                    {% if m.role != 'admin' and m.user_id != current_user_id and m.leave_status != 'pending' %}
+                    <details class="remove-form">
+                      <summary>⊖ Remove</summary>
+                      <form method="POST"
+                            action="{{ url_for('community_remove_member', comm_id=community.id, member_id=m.user_id) }}"
+                            onsubmit="return confirm('Request removal of {{ m.user.name }}?');">
+                        <textarea class="remove-input" name="reason" rows="2"
+                                  placeholder="Reason for removal (required)…" required></textarea>
+                        <button class="btn btn-remove" type="submit">Confirm Removal</button>
+                      </form>
+                    </details>
+                    {% elif m.leave_status == 'pending' %}
+                      <span style="color:#888; font-size:0.78rem;">Pending review</span>
+                    {% elif m.role == 'admin' %}
+                      <span style="color:#888; font-size:0.8rem;">—</span>
+                    {% endif %}
+                    </div>
                 </td>
                 {% endif %}
             </tr>
+            {% endif %}
             {% endfor %}
             </tbody>
         </table>
     </div>
 
+    {# ── Pending major care requests ── #}
     {% if user_role in ['admin', 'coadmin'] %}
     <div class="card">
-        <h2>Pending Major Requests</h2>
+        <h2 style="margin-top:0;">Pending Major Requests</h2>
         {% set pending = namespace(list=[]) %}
         {% for req in community.care_requests %}
             {% if req.status == 'pending_admin' and not req.admin_approved %}
@@ -115,7 +210,8 @@
     </div>
     {% endif %}
 
-    <p><a href="/">← Back to dashboard</a></p>
+    <p><a href="{{ url_for('communities.list_communities') }}">← My Communities</a>
+       &nbsp;·&nbsp; <a href="{{ url_for('home') }}">Dashboard</a></p>
 <script>
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/static/sw.js');
 </script>

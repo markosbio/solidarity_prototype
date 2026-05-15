@@ -415,6 +415,8 @@ def _run_column_migrations():
         "ALTER TABLE community_membership ADD COLUMN IF NOT EXISTS leave_requested_at TIMESTAMP",
         "ALTER TABLE community_membership ADD COLUMN IF NOT EXISTS leave_status VARCHAR(20)",
         "ALTER TABLE community_membership ADD COLUMN IF NOT EXISTS leave_rejection_reason VARCHAR(300)",
+        "ALTER TABLE community_membership ADD COLUMN IF NOT EXISTS leave_initiated_by VARCHAR(20)",
+        "ALTER TABLE community_membership ADD COLUMN IF NOT EXISTS leave_reason TEXT",
         "ALTER TABLE care_request ADD COLUMN IF NOT EXISTS risk_tier INTEGER DEFAULT 0",
         "ALTER TABLE care_request ADD COLUMN IF NOT EXISTS amount_from_reserve FLOAT DEFAULT 0.0",
         "UPDATE community SET is_global_reserve = TRUE WHERE invite_code = 'GLOBAL001'",
@@ -549,6 +551,17 @@ def home():
         # Never show the global reserve pool on the personal dashboard
         if primary_comm and primary_comm.is_global_reserve:
             primary_comm = None
+        # Auto-heal: if primary is None but user has a real community, auto-assign it
+        if not primary_comm:
+            real_ms = (CommunityMembership.query
+                       .filter_by(user_id=user.id)
+                       .join(Community, CommunityMembership.community_id == Community.id)
+                       .filter(Community.is_global_reserve == False)
+                       .first())
+            if real_ms:
+                user.primary_community_id = real_ms.community_id
+                db.session.commit()
+                primary_comm = Community.query.get(real_ms.community_id)
         membership = None
         if primary_comm:
             membership = CommunityMembership.query.filter_by(user_id=user.id, community_id=primary_comm.id).first()
@@ -567,6 +580,7 @@ def home():
             .limit(10).all()
         )
         return render_template('dashboard.html', user=user, primary_comm=primary_comm,
+                               membership=membership,
                                is_admin=is_admin, ceiling=ceiling, pool_health=ph,
                                ceiling_multiplier=ceiling_multiplier,
                                health_contributions=health_contributions)
@@ -900,7 +914,11 @@ def community_dashboard(comm_id):
     members = CommunityMembership.query.filter_by(community_id=comm_id).all()
     for m in members:
         m.user = User.query.get(m.user_id)
-    return render_template('community_dashboard.html', community=community, members=members, user_role=membership.role)
+    return render_template('community_dashboard.html',
+                           community=community,
+                           members=members,
+                           user_role=membership.role,
+                           current_user_id=user.id)
 
 
 @app.route('/community/<int:comm_id>/promote/<int:member_id>', methods=['POST'])
@@ -1559,11 +1577,135 @@ def admin_resolve_fraud_alert(alert_id):
 def admin_leave_requests():
     user = User.query.get(session['user_id'])
     from models import CommunityMembership
-    pending = (CommunityMembership.query
-               .filter(CommunityMembership.leave_requested_at.isnot(None))
-               .order_by(CommunityMembership.leave_requested_at.asc())
-               .all())
+    # System admins only see: members WITH outstanding credit, OR admin-initiated removals where member has debt
+    all_pending = (CommunityMembership.query
+                   .filter(CommunityMembership.leave_requested_at.isnot(None),
+                           CommunityMembership.leave_status == 'pending')
+                   .order_by(CommunityMembership.leave_requested_at.asc())
+                   .all())
+    pending = [m for m in all_pending
+               if m.user and m.user.total_social_credit > 0]
     return render_template('admin_leave_requests.html', user=user, pending=pending)
+
+
+@app.route('/community/<int:comm_id>/leave-action/<int:membership_id>', methods=['POST'])
+def community_leave_action(comm_id, membership_id):
+    """Community admin approves or denies a debt-free member leave request."""
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    admin_ms = CommunityMembership.query.filter_by(
+        user_id=session['user_id'], community_id=comm_id
+    ).first()
+    if not admin_ms or admin_ms.role not in ('admin', 'coadmin'):
+        flash('Access denied — community admin only.', 'error')
+        return redirect(url_for('community_dashboard', comm_id=comm_id))
+    mem = CommunityMembership.query.get_or_404(membership_id)
+    if mem.community_id != comm_id:
+        abort(404)
+    member = User.query.get(mem.user_id)
+    community = Community.query.get(comm_id)
+    action = request.form.get('action')
+    reason = request.form.get('reason', '').strip()
+    if member and member.total_social_credit > 0:
+        flash('This member has outstanding credit — their request is handled by system admins.', 'error')
+        return redirect(url_for('community_dashboard', comm_id=comm_id))
+    if action == 'approve':
+        if member and member.primary_community_id == comm_id:
+            other = (CommunityMembership.query
+                     .filter(CommunityMembership.user_id == member.id,
+                             CommunityMembership.community_id != comm_id,
+                             CommunityMembership.id != mem.id)
+                     .join(Community, CommunityMembership.community_id == Community.id)
+                     .filter(Community.is_global_reserve == False)
+                     .first())
+            member.primary_community_id = other.community_id if other else None
+            member.primary_community_changed_at = datetime.utcnow()
+        comm_name = community.name if community else '?'
+        member_name = member.name if member else 'unknown'
+        db.session.delete(mem)
+        db.session.flush()
+        try:
+            compute_draw_ceiling(member.id)
+        except Exception:
+            pass
+        _log_admin_action(session['user_id'], 'community_leave_approved',
+                          target_user_id=member.id if member else None,
+                          details=f'Community admin approved leave from {comm_name}')
+        db.session.commit()
+        flash(f'{member_name} has been removed from {comm_name}.', 'success')
+    elif action == 'deny':
+        mem.leave_status = 'rejected'
+        mem.leave_requested_at = None
+        mem.leave_rejection_reason = reason or 'Request denied by community admin.'
+        _log_admin_action(session['user_id'], 'community_leave_denied',
+                          target_user_id=mem.user_id,
+                          details=f'Community admin denied leave from {community.name if community else "?"}')
+        db.session.commit()
+        flash('Leave request denied.', 'success')
+    return redirect(url_for('community_dashboard', comm_id=comm_id))
+
+
+@app.route('/community/<int:comm_id>/remove-member/<int:member_id>', methods=['POST'])
+def community_remove_member(comm_id, member_id):
+    """Community admin requests removal of a member with a reason."""
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    admin_ms = CommunityMembership.query.filter_by(
+        user_id=session['user_id'], community_id=comm_id
+    ).first()
+    if not admin_ms or admin_ms.role not in ('admin', 'coadmin'):
+        flash('Access denied — community admin only.', 'error')
+        return redirect(url_for('community_dashboard', comm_id=comm_id))
+    mem = CommunityMembership.query.filter_by(user_id=member_id, community_id=comm_id).first()
+    if not mem:
+        flash('Member not found in this community.', 'error')
+        return redirect(url_for('community_dashboard', comm_id=comm_id))
+    member = User.query.get(member_id)
+    community = Community.query.get(comm_id)
+    reason = request.form.get('reason', '').strip()
+    if not reason:
+        flash('A reason is required to request removal.', 'error')
+        return redirect(url_for('community_dashboard', comm_id=comm_id))
+    if mem.leave_status == 'pending':
+        flash('A leave/removal request is already pending for this member.', 'error')
+        return redirect(url_for('community_dashboard', comm_id=comm_id))
+    has_debt = member and member.total_social_credit > 0
+    mem.leave_requested_at = datetime.utcnow()
+    mem.leave_status = 'pending'
+    mem.leave_initiated_by = 'admin'
+    mem.leave_reason = reason
+    mem.leave_rejection_reason = None
+    if not has_debt:
+        # No debt — community admin removes directly
+        if member and member.primary_community_id == comm_id:
+            other = (CommunityMembership.query
+                     .filter(CommunityMembership.user_id == member.id,
+                             CommunityMembership.community_id != comm_id,
+                             CommunityMembership.id != mem.id)
+                     .join(Community, CommunityMembership.community_id == Community.id)
+                     .filter(Community.is_global_reserve == False)
+                     .first())
+            member.primary_community_id = other.community_id if other else None
+            member.primary_community_changed_at = datetime.utcnow()
+        db.session.delete(mem)
+        db.session.flush()
+        try:
+            compute_draw_ceiling(member_id)
+        except Exception:
+            pass
+        _log_admin_action(session['user_id'], 'community_member_removed',
+                          target_user_id=member_id,
+                          details=f'Removed from community #{comm_id} ({community.name if community else "?"}). Reason: {reason}')
+        db.session.commit()
+        flash(f'{member.name if member else "Member"} has been removed from the community. Reason: {reason}', 'success')
+    else:
+        # Has debt — escalate to system admin for review
+        db.session.commit()
+        _log_admin_action(session['user_id'], 'community_removal_requested',
+                          target_user_id=member_id,
+                          details=f'Community admin requested removal from #{comm_id} ({community.name if community else "?"}). Reason: {reason}. Escalated to system admin (member has debt).')
+        flash(f'Removal request submitted for {member.name if member else "member"} — escalated to system review because this member has outstanding credit.', 'success')
+    return redirect(url_for('community_dashboard', comm_id=comm_id))
 
 
 @app.route('/admin/leave-requests/<int:membership_id>', methods=['POST'])

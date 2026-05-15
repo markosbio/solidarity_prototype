@@ -43,7 +43,6 @@
   .empty-state p { color: #666; margin: 0 0 12px 0; }
   .alert-success { background: #d4edda; border: 1px solid #c3e6cb; color: #155724;
                    padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 0.9em; }
-  .masked-balance { font-family: monospace; letter-spacing: 2px; color: #6c757d; }
 </style>
 </head>
 <body>
@@ -77,13 +76,10 @@
     </h3>
     <div class="meta">
       {{ c.description or '' }}<br>
-      Pool:
+      Pool: <span class="pool-amount">UGX {{ "{:,.0f}".format(c.pool_balance) }}</span>
       {% if m.role in ['admin', 'coadmin'] %}
-        <span class="pool-amount">UGX {{ "{:,.0f}".format(c.pool_balance) }}</span>
-      {% else %}
-        <span class="masked-balance">••••••</span>
-      {% endif %}
       · Invite code: <span class="invite">{{ c.invite_code }}</span>
+      {% endif %}
     </div>
 
     <form class="contribute-form" method="POST"
@@ -99,7 +95,7 @@
          href="{{ url_for('community_dashboard', comm_id=c.id) }}">👥 Manage Members</a>
       {% endif %}
 
-      {% if c.id != user.primary_community_id %}
+      {% if c.id != user.primary_community_id and visible_memberships|length > 1 %}
       <form method="POST" action="{{ url_for('communities.set_primary', community_id=c.id) }}"
             style="display:inline;">
         <button class="btn btn-sm" style="background:#6c757d;color:white;">Set as Primary</button>

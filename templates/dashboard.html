@@ -133,9 +133,11 @@
 <div class="community-box">
   <div class="comm-name">{{ primary_comm.name }}</div>
   <div class="comm-pool">Community pool: UGX {{ "{:,.0f}".format(primary_comm.pool_balance) }}</div>
+  {% if membership and membership.role in ['admin', 'coadmin'] %}
   <div style="font-size:0.78rem; color:#555; margin-top:4px;">
     Invite code: <code>{{ primary_comm.invite_code }}</code>
   </div>
+  {% endif %}
   <div style="margin-top:10px;">
     <div class="gauge-bar">
       <div class="gauge-fill {{ pool_health.color }}" style="width:{{ pool_health.pct }}%"></div>
@@ -187,10 +189,6 @@
     <span class="desc">Clear outstanding social credit (PIN)</span>
   </a>
   {% endif %}
-  <a class="nav-btn" href="{{ url_for('witness_dashboard') }}">
-    <span class="icon">👁</span>Witness Dashboard
-    <span class="desc">Verify pending care requests</span>
-  </a>
   <a class="nav-btn" href="{{ url_for('trust_history') }}">
     <span class="icon">📊</span>Trust History
     <span class="desc">View your reputation timeline (PIN)</span>
