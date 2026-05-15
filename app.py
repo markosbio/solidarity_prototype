@@ -439,6 +439,8 @@ def _run_column_migrations():
             sent_at TIMESTAMP DEFAULT NOW(),
             read_at TIMESTAMP
         )""",
+        "ALTER TABLE system_state ADD COLUMN IF NOT EXISTS emergency_multiplier FLOAT DEFAULT 1.5",
+        "ALTER TABLE system_state ADD COLUMN IF NOT EXISTS emergency_hard_cap FLOAT DEFAULT 200000.0",
     ]
     try:
         with db.engine.connect() as conn:
@@ -514,6 +516,19 @@ def _pool_health(pool_balance: float) -> dict:
     else:
         label, color = 'Low', 'red'
     return {'pct': round(pct, 1), 'label': label, 'color': color}
+
+
+def _get_emergency_settings():
+    """Return (emergency_multiplier, emergency_hard_cap) from SystemState."""
+    try:
+        state = SystemState.query.first()
+        if state:
+            mult = getattr(state, 'emergency_multiplier', None) or 1.5
+            cap  = getattr(state, 'emergency_hard_cap', None) or 200_000.0
+            return float(mult), float(cap)
+    except Exception:
+        pass
+    return 1.5, 200_000.0
 
 
 def _check_emergency_auto_approvals():
@@ -1100,11 +1115,34 @@ def request_care():
     except Exception:
         ceiling = 0.0
 
+    emg_mult, emg_cap = _get_emergency_settings()
+    emergency_ceiling = round(min(ceiling * emg_mult, emg_cap), 2)
+
     if request.method == 'POST':
         needed_amount = float(request.form['needed_amount'])
         provider_id = int(request.form['provider_id'])
         wallet_only = 'wallet_only' in request.form
+        is_emergency = 'is_emergency' in request.form
         provider = Provider.query.get(provider_id)
+
+        # ── Ceiling validation (non-wallet requests) ───────────────────────────
+        if not wallet_only:
+            if is_emergency:
+                if needed_amount > emergency_ceiling:
+                    return render_template(
+                        'request_care.html', user=user, providers=providers,
+                        primary_community=primary_community, ceiling=ceiling,
+                        emergency_ceiling=emergency_ceiling,
+                        error=f'Amount exceeds your emergency ceiling of UGX {emergency_ceiling:,.0f}. '
+                              'Please reduce the amount or contact support.')
+            else:
+                if needed_amount > ceiling:
+                    return render_template(
+                        'request_care.html', user=user, providers=providers,
+                        primary_community=primary_community, ceiling=ceiling,
+                        emergency_ceiling=emergency_ceiling,
+                        error='Your requested amount exceeds your current drawing ceiling. '
+                              'Please reduce the amount or submit an Exceptional Assistance Request.')
 
         # ── Wallet-only path — instant, no approval ────────────────────────────
         if wallet_only:
@@ -1178,7 +1216,7 @@ def request_care():
             provider_id=provider_id,
             amount_needed=needed_amount, amount_from_sub=from_sub,
             amount_from_pool=from_pool, social_credit=social_credit,
-            is_emergency=False, status='pending_witness',
+            is_emergency=is_emergency, status='pending_witness',
         )
         if hasattr(care_req, 'amount_from_reserve'):
             care_req.amount_from_reserve = from_reserve
@@ -1291,7 +1329,8 @@ def request_care():
             wallet_only=False, risk_tier=tier, status=care_req.status)
 
     return render_template('request_care.html', user=user, providers=providers,
-                           primary_community=primary_community, ceiling=ceiling)
+                           primary_community=primary_community, ceiling=ceiling,
+                           emergency_ceiling=emergency_ceiling)
 
 @app.route('/witness_dashboard')
 def witness_dashboard():
@@ -4185,6 +4224,26 @@ def admin_settings():
     if request.method == 'POST':
         action = request.form.get('action', '')
 
+        if action == 'save_emergency':
+            try:
+                new_mult = float(request.form.get('emergency_multiplier', 1.5))
+                new_cap  = float(request.form.get('emergency_hard_cap', 200000))
+                if new_mult < 1.0 or new_mult > 5.0:
+                    raise ValueError('Multiplier must be between 1.0 and 5.0')
+                if new_cap < 10000 or new_cap > 10_000_000:
+                    raise ValueError('Hard cap must be between 10,000 and 10,000,000')
+                state = SystemState.query.first()
+                if state:
+                    state.emergency_multiplier = new_mult
+                    state.emergency_hard_cap   = new_cap
+                    db.session.commit()
+                _log_admin_action(admin_user.id, 'update_emergency_settings',
+                                  details=f'emergency_multiplier={new_mult}, emergency_hard_cap={new_cap}')
+                flash(f'Emergency settings saved: {new_mult}× multiplier, UGX {new_cap:,.0f} hard cap.', 'success')
+            except (ValueError, TypeError) as e:
+                flash(f'Invalid value: {e}', 'error')
+            return redirect(url_for('admin_settings'))
+
         if action == 'save_payout':
             payout_method = request.form.get('payout_method', '').strip()
             payout_details = request.form.get('payout_details', '').strip()
@@ -4232,6 +4291,9 @@ def admin_settings():
             flash(f'Withdrawal of UGX {amount:,.0f} recorded successfully.', 'success')
             return redirect(url_for('admin_settings'))
 
+    state = SystemState.query.first()
+    emg_mult = (getattr(state, 'emergency_multiplier', None) or 1.5) if state else 1.5
+    emg_cap  = (getattr(state, 'emergency_hard_cap', None) or 200_000.0) if state else 200_000.0
     return render_template('admin_settings.html',
                            user=admin_user,
                            total_revenue=total_revenue,
@@ -4239,7 +4301,9 @@ def admin_settings():
                            available_balance=available_balance,
                            recent_withdrawals=recent_withdrawals,
                            payout_method=_get_setting('payout_method'),
-                           payout_details=_get_setting('payout_details'))
+                           payout_details=_get_setting('payout_details'),
+                           emergency_multiplier=float(emg_mult),
+                           emergency_hard_cap=float(emg_cap))
 
 
 # ── Admin: User deactivation (right to be forgotten) ──────────────────────────

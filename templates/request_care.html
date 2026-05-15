@@ -18,9 +18,13 @@
     button:hover { background: #245f7a; }
     .note { font-size: 0.8em; color: #555; margin-top: 14px; }
     .ceiling-banner { background: #e8f4f8; border-left: 4px solid #2d7dd2; padding: 12px 16px;
-                      border-radius: 0 6px 6px 0; margin-bottom: 20px; }
+                      border-radius: 0 6px 6px 0; margin-bottom: 12px; }
     .ceiling-banner .big { font-size: 1.4rem; font-weight: bold; color: #2d7dd2; }
     .ceiling-banner .sub { font-size: 0.82rem; color: #2c4a6e; margin-top: 2px; }
+    .emg-banner { background: #fff8e1; border-left: 4px solid #f59e0b; padding: 12px 16px;
+                  border-radius: 0 6px 6px 0; margin-bottom: 20px; }
+    .emg-banner .big { font-size: 1.2rem; font-weight: bold; color: #b45309; }
+    .emg-banner .sub { font-size: 0.82rem; color: #78350f; margin-top: 2px; }
     .stat-row { display: flex; gap: 10px; margin-bottom: 18px; }
     .stat-chip { flex: 1; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px;
                   padding: 8px 12px; font-size: 0.85rem; }
@@ -28,6 +32,7 @@
     .stat-chip .sval { font-weight: bold; color: #333; }
     .sval.green { color: #28a745; }
     .hint { font-size: 0.78rem; color: #888; margin-top: 3px; }
+    .hint.warn { color: #b45309; font-weight: 600; }
     .wallet-only-box { background: #f0f8f0; border: 1px solid #c3e6cb; border-radius: 8px;
                        padding: 14px 16px; margin-top: 16px; }
     .wallet-only-box .wo-header { display: flex; align-items: center; gap: 8px; }
@@ -35,6 +40,12 @@
     .wallet-only-box .wo-header label { font-weight: bold; margin: 0; font-size: 0.95rem; color: #155724; }
     .wallet-only-box .wo-desc { font-size: 0.8rem; color: #555; margin-top: 6px; }
     .wallet-only-box .wo-balance { font-size: 0.85rem; color: #28a745; font-weight: bold; margin-top: 4px; }
+    .emg-box { background: #fff8e1; border: 1px solid #fcd34d; border-radius: 8px;
+               padding: 14px 16px; margin-top: 12px; }
+    .emg-box .emg-header { display: flex; align-items: center; gap: 8px; }
+    .emg-box .emg-header input[type=checkbox] { width: auto; margin: 0; }
+    .emg-box .emg-header label { font-weight: bold; margin: 0; font-size: 0.95rem; color: #92400e; }
+    .emg-box .emg-desc { font-size: 0.8rem; color: #78350f; margin-top: 6px; }
     .funding-chain { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px;
                      padding: 14px 16px; margin-top: 16px; }
     .funding-chain .fc-title { font-weight: bold; font-size: 0.88rem; color: #495057; margin-bottom: 8px; }
@@ -62,8 +73,13 @@
 
   <div class="ceiling-banner">
     <div class="big">UGX {{ "{:,.0f}".format(ceiling) }}</div>
-    <div class="sub">Maximum you can request from the pool right now.<br>
+    <div class="sub">Your normal drawing ceiling — maximum you can request from the pool.<br>
       Based on your trust score, contributions, and pool health.</div>
+  </div>
+
+  <div class="emg-banner">
+    <div class="big">UGX {{ "{:,.0f}".format(emergency_ceiling) }}</div>
+    <div class="sub">Emergency ceiling — only for verified medical emergencies. Requires additional review.</div>
   </div>
 
   <div class="stat-row">
@@ -119,6 +135,18 @@
       <div class="wo-balance">Available: UGX {{ "{:,.0f}".format(user.sub_wallet_balance) }}</div>
     </div>
 
+    <!-- Emergency flag -->
+    <div class="emg-box" id="emg-box">
+      <div class="emg-header">
+        <input type="checkbox" name="is_emergency" id="is_emergency">
+        <label for="is_emergency">This is a medical emergency</label>
+      </div>
+      <div class="emg-desc">
+        Check this only for genuine emergencies. Your ceiling increases to
+        <strong>UGX {{ "{:,.0f}".format(emergency_ceiling) }}</strong> but the request goes to admin review.
+      </div>
+    </div>
+
     <label>Amount needed (UGX)
       <input type="number" step="1" min="1"
              name="needed_amount" id="needed_amount"
@@ -150,18 +178,73 @@
 <script>
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/static/sw.js');
 
-const walletBalance = {{ user.sub_wallet_balance }};
-const walletOnlyChk = document.getElementById('wallet_only');
-const submitBtn = document.getElementById('submit-btn');
-const amountHint = document.getElementById('amount-hint');
+const walletBalance  = {{ user.sub_wallet_balance }};
+const normalCeiling  = {{ ceiling }};
+const emergencyCeil  = {{ emergency_ceiling }};
+const walletOnlyChk  = document.getElementById('wallet_only');
+const emergencyChk   = document.getElementById('is_emergency');
+const amountInput    = document.getElementById('needed_amount');
+const amountHint     = document.getElementById('amount-hint');
+const submitBtn      = document.getElementById('submit-btn');
+const emgBox         = document.getElementById('emg-box');
 
-walletOnlyChk.addEventListener('change', function() {
-  if (walletOnlyChk.checked) {
+function formatUGX(n) {
+  return 'UGX ' + Math.round(n).toLocaleString();
+}
+
+function updateUI() {
+  const walletOnly = walletOnlyChk.checked;
+  const isEmg      = emergencyChk.checked;
+  const amount     = parseFloat(amountInput.value) || 0;
+
+  // Hide emergency checkbox when wallet-only
+  emgBox.style.display = walletOnly ? 'none' : '';
+  if (walletOnly) emergencyChk.checked = false;
+
+  if (walletOnly) {
     submitBtn.textContent = 'Pay from Wallet →';
-    amountHint.textContent = 'Must not exceed your wallet balance (UGX ' + walletBalance.toLocaleString() + ').';
+    amountHint.className  = 'hint';
+    amountHint.textContent = 'Must not exceed your wallet balance (' + formatUGX(walletBalance) + ').';
+    return;
+  }
+
+  const effectiveCeil = isEmg ? emergencyCeil : normalCeiling;
+
+  if (amount > 0 && amount > effectiveCeil) {
+    amountHint.className  = 'hint warn';
+    if (!isEmg && amount <= emergencyCeil) {
+      amountHint.textContent = 'Amount exceeds your normal ceiling. Tick "medical emergency" above to request up to ' + formatUGX(emergencyCeil) + '.';
+    } else {
+      amountHint.textContent = 'Amount exceeds your ' + (isEmg ? 'emergency' : 'normal') + ' ceiling of ' + formatUGX(effectiveCeil) + '. Please reduce the amount.';
+    }
+  } else if (isEmg) {
+    amountHint.className  = 'hint warn';
+    amountHint.textContent = 'Emergency ceiling: ' + formatUGX(emergencyCeil) + '. Request goes to admin for review.';
   } else {
-    submitBtn.textContent = 'Submit Request →';
-    amountHint.textContent = 'Your wallet is used first, then your primary community pool, then the global reserve.';
+    amountHint.className  = 'hint';
+    amountHint.textContent = 'Normal ceiling: ' + formatUGX(normalCeiling) + '. Your wallet is used first, then pool, then global reserve.';
+  }
+
+  submitBtn.textContent = isEmg ? 'Submit Emergency Request →' : 'Submit Request →';
+}
+
+walletOnlyChk.addEventListener('change', updateUI);
+emergencyChk.addEventListener('change', updateUI);
+amountInput.addEventListener('input', updateUI);
+
+// Client-side pre-validation on submit
+document.getElementById('care-form').addEventListener('submit', function(e) {
+  const walletOnly = walletOnlyChk.checked;
+  const isEmg      = emergencyChk.checked;
+  const amount     = parseFloat(amountInput.value) || 0;
+
+  if (walletOnly) return; // server handles wallet balance check
+
+  const effectiveCeil = isEmg ? emergencyCeil : normalCeiling;
+  if (amount > effectiveCeil) {
+    e.preventDefault();
+    amountHint.className  = 'hint warn';
+    amountHint.textContent = 'Your requested amount exceeds your current drawing ceiling. Please reduce the amount or submit an Exceptional Assistance Request.';
   }
 });
 </script>

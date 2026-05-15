@@ -238,6 +238,8 @@ class SystemState(db.Model):
     id = db.Column(db.Integer, primary_key=True, default=1)
     communal_pool_balance = db.Column(db.Float, default=0.0)
     solidarity_percent = db.Column(db.Float, default=8.0)
+    emergency_multiplier = db.Column(db.Float, default=1.5)
+    emergency_hard_cap = db.Column(db.Float, default=200000.0)
 
 
 class WitnessRequest(db.Model):

@@ -79,6 +79,53 @@
   </div>
 </div>
 
+<!-- ── Emergency Request Settings ────────────────────────────── -->
+<div class="card" style="border-color:#fcd34d; background:#fffbeb; margin-bottom:20px;">
+  <h3>🚨 Emergency Care Request Settings</h3>
+  <p style="font-size:0.85rem; color:#555; margin:0 0 14px;">
+    When a member marks a request as an emergency, their ceiling is temporarily raised to
+    <code>normal_ceiling × multiplier</code>, capped at the hard cap. All emergency requests go to admin review.
+  </p>
+
+  {% with msgs = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in msgs %}
+      <div style="padding:8px 12px; border-radius:4px; margin-bottom:10px; font-size:0.88rem;
+                  background:{% if cat=='success' %}#d4edda{% else %}#f8d7da{% endif %};
+                  color:{% if cat=='success' %}#155724{% else %}#721c24{% endif %};">
+        {{ msg }}
+      </div>
+    {% endfor %}
+  {% endwith %}
+
+  <form method="POST" action="{{ url_for('admin_settings') }}">
+    <input type="hidden" name="action" value="save_emergency">
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+      <div>
+        <label>Emergency Multiplier</label>
+        <input type="number" name="emergency_multiplier" step="0.1" min="1.0" max="5.0"
+               value="{{ emergency_multiplier }}" required>
+        <div class="hint">e.g. 1.5 = 50% above normal ceiling. Range: 1.0 – 5.0</div>
+      </div>
+      <div>
+        <label>Hard Cap (UGX)</label>
+        <input type="number" name="emergency_hard_cap" step="1000" min="10000"
+               value="{{ emergency_hard_cap|int }}" required>
+        <div class="hint">Absolute maximum regardless of multiplier. e.g. 200000</div>
+      </div>
+    </div>
+    <div style="margin-top:12px; background:#fef3c7; border-radius:6px; padding:10px 12px; font-size:0.83rem; color:#92400e;">
+      Current: <strong>{{ emergency_multiplier }}×</strong> multiplier &nbsp;·&nbsp;
+      hard cap <strong>UGX {{ "{:,.0f}".format(emergency_hard_cap) }}</strong>
+    </div>
+    <div style="margin-top:12px;">
+      <button type="button" class="btn btn-primary"
+        onclick="if(confirm('Update emergency ceiling settings?')){this.closest('form').submit();}">
+        Save Emergency Settings
+      </button>
+    </div>
+  </form>
+</div>
+
 <div class="grid2">
 
 <!-- ── Payout Settings ────────────────────────────────────────── -->

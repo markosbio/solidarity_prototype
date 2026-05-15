@@ -67,8 +67,8 @@ STRINGS = {
         'already_reg':   "You are already registered. Dial again to log in.",
         'blank_name':    "Name cannot be blank. Please try again.",
         'pin_4digits':   "PIN must be 4–6 digits. Dial again.",
-        'care_ceiling':  "Your draw ceiling: KES {ceiling:.0f}\nThis is the max you can request from the pool.\nEnter amount needed (KES):",
-        'care_exceed':   "Amount exceeds your ceiling.\nYour draw ceiling is KES {ceiling:.0f}.\nPlease enter a lower amount or build your trust score.",
+        'care_ceiling':  "Your draw ceiling: KES {ceiling:.0f}\nEmergency ceiling: KES {emg_ceiling:.0f}\nEnter amount needed (KES):",
+        'care_exceed':   "Amount exceeds your emergency ceiling.\nNormal: KES {ceiling:.0f}\nEmergency max: KES {emg_ceiling:.0f}\nPlease enter a lower amount.",
         'care_provider': "Enter provider code (e.g. MULAGO001):",
         'care_bad_prov': "Invalid provider code '{code}'.\nTry: {examples}\nOr ask your clinic for their provider code.",
         'care_done':     "Care request submitted!\nFrom your wallet: KES {sub:.2f}\nFrom pool: KES {pool:.2f}\nRemaining ceiling: KES {ceil:.0f}\nRequest ID: {rid}",
@@ -170,8 +170,8 @@ STRINGS = {
         'already_reg':   "Wakyusiddwa. Yita nate okuyingira.",
         'blank_name':    "Erinnya tikisibwe. Gezaako nate.",
         'pin_4digits':   "PIN erina emiwendo ena okutuuka mukaaga. Yita nate.",
-        'care_ceiling':  "Obukulu bwo: KES {ceiling:.0f}\nOno we obukulu bw'okusaba.\nYingiza omuwendo ogwetaaga (KES):",
-        'care_exceed':   "Omuwendo ousei obukulu bwo.\nObukulu bwo bwa KES {ceiling:.0f}.\nYingiza omuwendo omuto oba yongera ddaala lyo.",
+        'care_ceiling':  "Obukulu bwo: KES {ceiling:.0f}\nOb'emateka: KES {emg_ceiling:.0f}\nYingiza omuwendo ogwetaaga (KES):",
+        'care_exceed':   "Omuwendo ousei obukulu bw'emateka.\nEkireekwa: KES {ceiling:.0f}\nOb'emateka: KES {emg_ceiling:.0f}\nYingiza omuwendo omuto.",
         'care_provider': "Yingiza koodi ya clinic (eg. MULAGO001):",
         'care_bad_prov': "Koodi '{code}' etali ya ntuufu.\nGezaako: {examples}\nYita clinic yo akuwe koodi.",
         'care_done':     "Okusaba kwayingiziddwa!\nEva mu simu yo: KES {sub:.2f}\nEva mu ekisumuluzo: KES {pool:.2f}\nObukulu obunsigadde: KES {ceil:.0f}\nOmubare: {rid}",
@@ -273,8 +273,8 @@ STRINGS = {
         'already_reg':   "Umesajiliwa tayari. Piga tena kuingia.",
         'blank_name':    "Jina haliwezi kuwa tupu. Jaribu tena.",
         'pin_4digits':   "PIN lazima iwe nambari 4 hadi 6. Piga tena.",
-        'care_ceiling':  "Kikomo chako: KES {ceiling:.0f}\nHiki ndicho kiasi unachoweza kuomba.\nIngiza kiasi unachohitaji (KES):",
-        'care_exceed':   "Kiasi kinazidi kikomo chako.\nKikomo chako ni KES {ceiling:.0f}.\nIngiza kiasi kidogo zaidi au ongeza alama yako.",
+        'care_ceiling':  "Kikomo chako: KES {ceiling:.0f}\nKikomo cha dharura: KES {emg_ceiling:.0f}\nIngiza kiasi unachohitaji (KES):",
+        'care_exceed':   "Kiasi kinazidi kikomo cha dharura.\nKawaida: KES {ceiling:.0f}\nDharura max: KES {emg_ceiling:.0f}\nIngiza kiasi kidogo zaidi.",
         'care_provider': "Ingiza nambari ya kliniki (mfano MULAGO001):",
         'care_bad_prov': "Nambari '{code}' si sahihi.\nJaribu: {examples}\nAu uliza kliniki yako nambari yake.",
         'care_done':     "Ombi limewasilishwa!\nKutoka mkononi mwako: KES {sub:.2f}\nKutoka mfukoni: KES {pool:.2f}\nKikomo kilichobaki: KES {ceil:.0f}\nNambari ya ombi: {rid}",
@@ -698,8 +698,13 @@ def _request_care_flow(user: User, steps: list, level: int, lang: str) -> str:
         logger.error("USSD request_care TrustGraphError: {}", exc)
         return f"END {t('session_err', lang)}"
 
+    state = SystemState.query.first()
+    emg_mult = float(getattr(state, 'emergency_multiplier', None) or 1.5) if state else 1.5
+    emg_cap  = float(getattr(state, 'emergency_hard_cap', None) or 200_000.0) if state else 200_000.0
+    emergency_ceiling = round(min(ceiling * emg_mult, emg_cap), 2)
+
     if level == 1:
-        return f"CON {t('care_ceiling', lang, ceiling=ceiling)}"
+        return f"CON {t('care_ceiling', lang, ceiling=ceiling, emg_ceiling=emergency_ceiling)}"
 
     try:
         needed = float(steps[1])
@@ -708,8 +713,8 @@ def _request_care_flow(user: User, steps: list, level: int, lang: str) -> str:
     except ValueError:
         return f"END {t('invalid_amount', lang)}"
 
-    if needed > ceiling:
-        return f"END {t('care_exceed', lang, ceiling=ceiling)}"
+    if needed > emergency_ceiling:
+        return f"END {t('care_exceed', lang, ceiling=ceiling, emg_ceiling=emergency_ceiling)}"
 
     if level == 2:
         return f"CON {t('care_provider', lang)}"
