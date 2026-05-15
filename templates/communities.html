@@ -41,6 +41,7 @@
 
 {% for m in my_memberships %}
 {% set c = m.community %}
+{% if c and not c.is_global_reserve %}
 <div class="card mine {% if c.id == user.primary_community_id %}primary{% endif %}">
   <h3>{{ c.name }}
     <span class="role-badge role-{{ m.role }}">{{ m.role }}</span>
@@ -61,13 +62,26 @@
     <button class="btn btn-success btn-sm" type="submit">Contribute to Pool</button>
   </form>
 
-  {% if c.id != user.primary_community_id %}
-  <form method="POST" action="{{ url_for('communities.set_primary', community_id=c.id) }}"
-        style="display:inline; margin-top:8px;">
-    <button class="btn btn-sm" style="background:#6c757d;color:white;">Set as Primary</button>
-  </form>
-  {% endif %}
+  <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+    {% if c.id != user.primary_community_id %}
+    <form method="POST" action="{{ url_for('communities.set_primary', community_id=c.id) }}"
+          style="display:inline;">
+      <button class="btn btn-sm" style="background:#6c757d;color:white;">Set as Primary</button>
+    </form>
+    {% endif %}
+
+    {% if m.leave_requested_at %}
+      <span style="font-size:0.8em;color:#888;padding:4px 0;">Leave requested — pending approval</span>
+    {% else %}
+      <form method="POST" action="{{ url_for('communities.request_leave', community_id=c.id) }}"
+            style="display:inline;"
+            onsubmit="return confirm('Request to leave {{ c.name }}? An admin will review it.');">
+        <button class="btn btn-sm" style="background:#dc3545;color:white;">Request Leave</button>
+      </form>
+    {% endif %}
+  </div>
 </div>
+{% endif %}
 {% endfor %}
 
 {% if not my_memberships %}

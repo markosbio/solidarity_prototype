@@ -139,6 +139,10 @@
   </a>
   {% endif %}
 
+  <a href="/admin/leave-requests" {% if request.path == '/admin/leave-requests' %}class="active"{% endif %}>
+    🚪 Leave Reqs
+  </a>
+
   <a href="/admin/support" {% if request.path.startswith('/admin/support') %}class="active"{% endif %}>
     💬 Support
     {% if c.get('open_support', 0) > 0 %}<span class="nav-badge nav-badge-red" id="nav-support-badge">{{ c.open_support }}</span>{% endif %}

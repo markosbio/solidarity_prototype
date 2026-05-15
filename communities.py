@@ -20,9 +20,10 @@ def list_communities():
     if not user:
         return redirect(url_for('register'))
     error = request.args.get('error')
-    my_memberships = CommunityMembership.query.filter_by(user_id=user.id).all()
+    # Exclude global reserve from both "my communities" and the join list
+    all_my = CommunityMembership.query.filter_by(user_id=user.id).all()
+    my_memberships = [m for m in all_my if m.community and not m.community.is_global_reserve]
     my_community_ids = {m.community_id for m in my_memberships}
-    # Exclude global reserve — it is not user-facing
     all_communities = Community.query.filter_by(is_global_reserve=False).order_by(Community.name).all()
     return render_template(
         'communities.html',
@@ -147,6 +148,27 @@ def set_primary(community_id):
     user.primary_community_id = community_id
     user.primary_community_changed_at = datetime.utcnow()
     db.session.commit()
+    return redirect(url_for('communities.list_communities'))
+
+
+@communities_bp.route('/<int:community_id>/request_leave', methods=['POST'])
+def request_leave(community_id):
+    user = _get_current_user()
+    if not user:
+        return redirect(url_for('register'))
+    membership = CommunityMembership.query.filter_by(
+        user_id=user.id, community_id=community_id
+    ).first()
+    if not membership:
+        return redirect(url_for('communities.list_communities', error='Not a member.'))
+    community = Community.query.get_or_404(community_id)
+    if community.is_global_reserve:
+        return redirect(url_for('communities.list_communities', error='Cannot leave the global reserve.'))
+    if membership.leave_requested_at:
+        return redirect(url_for('communities.list_communities', error='Leave already requested.'))
+    membership.leave_requested_at = datetime.utcnow()
+    db.session.commit()
+    logger.info("User {} requested to leave community {}", user.id, community_id)
     return redirect(url_for('communities.list_communities'))
 
 

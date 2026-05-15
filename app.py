@@ -1539,6 +1539,49 @@ def admin_resolve_fraud_alert(alert_id):
                       old_value='open', new_value='resolved')
     return redirect(url_for('admin_fraud_alerts'))
 
+@app.route('/admin/leave-requests')
+@admin_required
+@roles_required('super_admin', 'operator')
+def admin_leave_requests():
+    user = User.query.get(session['user_id'])
+    from models import CommunityMembership
+    pending = (CommunityMembership.query
+               .filter(CommunityMembership.leave_requested_at.isnot(None))
+               .order_by(CommunityMembership.leave_requested_at.asc())
+               .all())
+    return render_template('admin_leave_requests.html', user=user, pending=pending)
+
+
+@app.route('/admin/leave-requests/<int:membership_id>', methods=['POST'])
+@admin_required
+@roles_required('super_admin', 'operator')
+def admin_leave_action(membership_id):
+    from models import CommunityMembership
+    admin_user = User.query.get(session['user_id'])
+    mem = CommunityMembership.query.get_or_404(membership_id)
+    action = request.form.get('action')
+    member = User.query.get(mem.user_id)
+    community = Community.query.get(mem.community_id)
+    if action == 'approve':
+        # If this was their primary community, clear it
+        if member and member.primary_community_id == mem.community_id:
+            member.primary_community_id = None
+            member.primary_community_changed_at = datetime.utcnow()
+        db.session.delete(mem)
+        _log_admin_action(admin_user.id, 'leave_approved',
+                          target_user_id=mem.user_id,
+                          details=f'Leave from community #{mem.community_id} ({community.name if community else "?"})')
+        flash(f'Leave approved — {member.name if member else "user"} removed from {community.name if community else "community"}.')
+    elif action == 'deny':
+        mem.leave_requested_at = None
+        _log_admin_action(admin_user.id, 'leave_denied',
+                          target_user_id=mem.user_id,
+                          details=f'Leave denied for community #{mem.community_id}')
+        flash('Leave request denied.')
+    db.session.commit()
+    return redirect(url_for('admin_leave_requests'))
+
+
 @app.route('/admin/care/<int:request_id>', methods=['POST'])
 @admin_required
 @roles_required('super_admin', 'operator')
