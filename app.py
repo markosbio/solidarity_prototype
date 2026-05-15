@@ -406,6 +406,16 @@ def _run_column_migrations():
         "ALTER TABLE verified_provider ADD COLUMN IF NOT EXISTS contact_person VARCHAR(150)",
         "ALTER TABLE user_login_history ADD COLUMN IF NOT EXISTS user_agent VARCHAR(300)",
         "ALTER TABLE support_ticket ADD COLUMN IF NOT EXISTS priority VARCHAR(10) DEFAULT 'medium'",
+        # Architecture v2
+        "ALTER TABLE member ADD COLUMN IF NOT EXISTS lifetime_contribution_score FLOAT DEFAULT 0.0",
+        "ALTER TABLE member ADD COLUMN IF NOT EXISTS net_support_balance FLOAT DEFAULT 0.0",
+        "ALTER TABLE member ADD COLUMN IF NOT EXISTS primary_community_changed_at TIMESTAMP",
+        "ALTER TABLE community ADD COLUMN IF NOT EXISTS is_global_reserve BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE community ADD COLUMN IF NOT EXISTS liquidity_health_score FLOAT DEFAULT 1.0",
+        "ALTER TABLE community_membership ADD COLUMN IF NOT EXISTS leave_requested_at TIMESTAMP",
+        "ALTER TABLE care_request ADD COLUMN IF NOT EXISTS risk_tier INTEGER DEFAULT 0",
+        "ALTER TABLE care_request ADD COLUMN IF NOT EXISTS amount_from_reserve FLOAT DEFAULT 0.0",
+        "UPDATE community SET is_global_reserve = TRUE WHERE invite_code = 'GLOBAL001'",
         """CREATE TABLE IF NOT EXISTS support_ticket (
             id SERIAL PRIMARY KEY,
             user_id INTEGER REFERENCES member(id),
@@ -1057,44 +1067,43 @@ def request_care():
     if not session.get('pin_verified'):
         return redirect(url_for('verify_pin', next=url_for('request_care')))
     user = User.query.get(session['user_id'])
+
+    # All providers shown; verified flag affects tier logic
+    providers = Provider.query.all()
+    primary_community = (Community.query.get(user.primary_community_id)
+                         if user.primary_community_id else None)
+    global_reserve = Community.query.filter_by(is_global_reserve=True).first()
+    try:
+        ceiling = round(compute_draw_ceiling(user.id), 2)
+    except Exception:
+        ceiling = 0.0
+
     if request.method == 'POST':
         needed_amount = float(request.form['needed_amount'])
         provider_id = int(request.form['provider_id'])
-        is_emergency = 'is_emergency' in request.form
         wallet_only = 'wallet_only' in request.form
+        provider = Provider.query.get(provider_id)
 
-        providers = Provider.query.filter_by(verified=True).all()
-        communities = get_user_communities(session['user_id'])
-        try:
-            ceiling = round(compute_draw_ceiling(user.id), 2)
-        except Exception:
-            ceiling = 0.0
-
-        # ── Wallet-only path: no witnesses, no admin, instant payment ──────────
+        # ── Wallet-only path — instant, no approval ────────────────────────────
         if wallet_only:
             if user.sub_wallet_balance < needed_amount:
                 return render_template(
                     'request_care.html', user=user, providers=providers,
-                    communities=communities, ceiling=ceiling,
+                    primary_community=primary_community, ceiling=ceiling,
                     error=(f'Insufficient wallet balance '
                            f'(UGX {user.sub_wallet_balance:,.0f} available). '
-                           f'Enter a smaller amount or uncheck "wallet only" to request from the community pool.'))
+                           f'Enter a smaller amount or uncheck wallet-only to draw from the pool.'))
             user.sub_wallet_balance -= needed_amount
-            comm_id = request.form.get('community_id') or user.primary_community_id
-            if comm_id:
-                try:
-                    comm_id = int(comm_id)
-                except (TypeError, ValueError):
-                    comm_id = None
-            if not comm_id:
-                membership = CommunityMembership.query.filter_by(user_id=user.id).first()
-                comm_id = membership.community_id if membership else None
             care_req = CareRequest(
-                user_id=user.id, community_id=comm_id, provider_id=provider_id,
-                amount_needed=needed_amount, amount_from_sub=needed_amount, amount_from_pool=0.0,
-                social_credit=0.0, is_emergency=False, status='approved',
+                user_id=user.id,
+                community_id=primary_community.id if primary_community else None,
+                provider_id=provider_id,
+                amount_needed=needed_amount, amount_from_sub=needed_amount,
+                amount_from_pool=0.0, social_credit=0.0,
+                is_emergency=False, status='approved', risk_tier=1,
             )
             db.session.add(care_req)
+            user.net_support_balance = round((user.net_support_balance or 0.0) - needed_amount, 2)
             db.session.commit()
             try:
                 pay_provider(care_req.id)
@@ -1103,95 +1112,164 @@ def request_care():
             return render_template(
                 'request_result.html',
                 needed=needed_amount, from_sub=needed_amount, from_pool=0.0,
-                social_credit=0.0, request_id=care_req.id,
-                ceiling_remaining=None, is_emergency=False, wallet_only=True)
+                from_reserve=0.0, social_credit=0.0, request_id=care_req.id,
+                ceiling_remaining=None, wallet_only=True, risk_tier=1)
 
-        # ── Community pool path ────────────────────────────────────────────────
-        community_id = int(request.form['community_id'])
-        community = Community.query.get(community_id)
-        if not community:
-            return "Invalid community"
+        # ── Pool path: auto-fund wallet → primary community → global reserve ────
 
-        # Pool health guard — block large withdrawals when pool is stressed
-        if is_large_withdrawal_blocked(community, needed_amount):
-            return render_template('request_care.html', user=user,
-                                   providers=providers, communities=communities,
-                                   ceiling=ceiling,
-                                   error='Large withdrawals are temporarily paused to protect the pool. Please try a smaller amount or wait for the pool to recover.')
-
-        from_sub = min(user.sub_wallet_balance, needed_amount)
-        remaining = needed_amount - from_sub
+        # Step 1: Wallet
+        from_sub = round(min(user.sub_wallet_balance, needed_amount), 2)
+        remaining = round(needed_amount - from_sub, 2)
         user.sub_wallet_balance -= from_sub
+
+        # Step 2: Primary community pool
         from_pool = 0.0
-        social_credit = 0.0
-        if remaining > 0:
-            allowed = min(remaining, ceiling - from_sub, community.pool_balance)
-            from_pool = allowed
-            community.pool_balance -= from_pool
-            social_credit = remaining - from_pool
-            if social_credit > 0:
-                user.total_social_credit += social_credit
-                update_recovery_parameters(user.id, social_credit)
-            db.session.commit()
+        if remaining > 0 and primary_community:
+            if is_large_withdrawal_blocked(primary_community, remaining):
+                return render_template(
+                    'request_care.html', user=user, providers=providers,
+                    primary_community=primary_community, ceiling=ceiling,
+                    error='Large withdrawals are temporarily paused to protect the pool. Try a smaller amount.')
+            available = min(remaining, max(0.0, ceiling - from_sub), primary_community.pool_balance)
+            from_pool = round(available, 2)
+            primary_community.pool_balance -= from_pool
+            remaining = round(remaining - from_pool, 2)
+
+        # Step 3: Global reserve
+        from_reserve = 0.0
+        if remaining > 0 and global_reserve:
+            available_reserve = min(remaining, global_reserve.pool_balance)
+            from_reserve = round(available_reserve, 2)
+            global_reserve.pool_balance -= from_reserve
+            remaining = round(remaining - from_reserve, 2)
+
+        # Any leftover → social credit
+        social_credit = round(remaining, 2)
+        if social_credit > 0:
+            user.total_social_credit = round((user.total_social_credit or 0.0) + social_credit, 2)
+            update_recovery_parameters(user.id, social_credit)
 
         care_req = CareRequest(
-            user_id=user.id, community_id=community.id, provider_id=provider_id,
-            amount_needed=needed_amount, amount_from_sub=from_sub, amount_from_pool=from_pool,
-            social_credit=social_credit, is_emergency=is_emergency, status='pending_witness'
+            user_id=user.id,
+            community_id=primary_community.id if primary_community else (
+                global_reserve.id if global_reserve else None),
+            provider_id=provider_id,
+            amount_needed=needed_amount, amount_from_sub=from_sub,
+            amount_from_pool=from_pool, social_credit=social_credit,
+            is_emergency=False, status='pending_witness',
         )
+        if hasattr(care_req, 'amount_from_reserve'):
+            care_req.amount_from_reserve = from_reserve
         db.session.add(care_req)
         db.session.commit()
 
-        # Fraud scoring
+        # ── Fraud scoring ──────────────────────────────────────────────────────
+        fraud_score = 0.0
         try:
             fraud_score, fraud_reasons = calculate_fraud_risk(user.id, care_req.id)
+            care_req.fraud_score = fraud_score
             if is_fraud_flagged(fraud_score):
                 care_req.fraud_flagged = True
-                care_req.fraud_score = fraud_score
                 care_req.fraud_reasons = '; '.join(fraud_reasons)
-                care_req.status = 'pending_admin'
-                db.session.commit()
-                alert = log_fraud_alert(user.id, care_req.id, fraud_score, fraud_reasons)
+                log_fraud_alert(user.id, care_req.id, fraud_score, fraud_reasons)
                 try:
-                    notify_admin_fraud_alert(
-                        _get_admin_phones(), user.name, fraud_score, care_req.id)
+                    notify_admin_fraud_alert(_get_admin_phones(), user.name, fraud_score, care_req.id)
                 except Exception:
                     pass
-                admin_comm = Community.query.get(community_id)
-                if admin_comm and admin_comm.admin_user_id:
-                    admin_user = User.query.get(admin_comm.admin_user_id)
-                    if admin_user:
-                        notify_fraud_flagged(admin_user.phone, user.name,
-                                             needed_amount, care_req.id, fraud_score)
         except Exception:
             pass
 
-        if care_req.status == 'pending_witness':
-            witnesses = select_witnesses(user.id, provider_id, community_id=community.id)
-            witness_ids = ','.join(str(w.id) for w in witnesses)
-            care_req.witness_ids = witness_ids
+        # ── Risk-tier assignment (replaces witness gate) ───────────────────────
+        # Tier 1: small + trusted + verified provider + clean fraud score → auto-approve
+        # Tier 2: medium or moderate risk → community admin review
+        # Tier 3: large / high fraud / unverified on large amount → global admin
+        is_verified_provider = bool(provider and provider.verified)
+        if (needed_amount <= 50_000
+                and user.trust_score >= 0.6
+                and is_verified_provider
+                and fraud_score < 0.3
+                and not care_req.fraud_flagged):
+            tier = 1
+        elif (needed_amount <= 200_000
+              and fraud_score < 0.6
+              and not care_req.fraud_flagged):
+            tier = 2
+        else:
+            tier = 3
+
+        care_req.risk_tier = tier
+
+        if tier == 1:
+            care_req.status = 'approved'
+            care_req.admin_approved = True
+            user.net_support_balance = round((user.net_support_balance or 0.0) - needed_amount, 2)
             db.session.commit()
             try:
-                from notifications import notify_witnesses_assigned
-                notify_witnesses_assigned(user.name, needed_amount, witnesses)
+                pool_amount = from_pool + from_reserve
+                if pool_amount > 0:
+                    ok, ref = pay_provider(
+                        care_request_id=care_req.id, amount=pool_amount,
+                        provider_id=provider_id, user_id=user.id,
+                        community_id=care_req.community_id,
+                    )
+                    if ok:
+                        care_req.payment_transaction_id = ref
+                        db.session.commit()
+                else:
+                    pay_provider(care_req.id)
             except Exception:
                 pass
+
+        elif tier == 2:
+            care_req.status = 'pending_community_admin'
+            db.session.commit()
+
+        else:
+            care_req.status = 'pending_admin'
+            db.session.commit()
+            try:
+                notify_admin_care_pending(
+                    _get_admin_phones(), user.name,
+                    float(care_req.amount_needed or 0), care_req.id)
+            except Exception:
+                pass
+
+        # Update liquidity health for primary community
+        if primary_community:
+            try:
+                enforce_pool_health(primary_community)
+                total_contributed = (
+                    db.session.query(db.func.sum(Transaction.amount))
+                    .filter_by(type='solidarity_pool')
+                    .scalar() or 1.0
+                )
+                total_disbursed = (
+                    db.session.query(db.func.sum(CareRequest.amount_from_pool))
+                    .filter_by(community_id=primary_community.id)
+                    .filter(CareRequest.status.in_(['approved', 'admin_approved']))
+                    .scalar() or 0.0
+                )
+                primary_community.liquidity_health_score = round(
+                    float(primary_community.pool_balance or 0) / max(float(total_disbursed or 1), 1.0), 4
+                )
+                db.session.commit()
+            except Exception:
+                pass
+
         try:
-            ceiling_remaining = max(0.0, round(ceiling - from_pool, 2))
+            ceiling_remaining = max(0.0, round(ceiling - from_pool - from_reserve, 2))
         except Exception:
             ceiling_remaining = 0.0
-        return render_template('request_result.html', needed=needed_amount, from_sub=from_sub,
-                               from_pool=from_pool, social_credit=social_credit,
-                               request_id=care_req.id, ceiling_remaining=ceiling_remaining,
-                               is_emergency=is_emergency, wallet_only=False)
-    providers = Provider.query.filter_by(verified=True).all()
-    communities = get_user_communities(session['user_id'])
-    try:
-        ceiling = round(compute_draw_ceiling(user.id), 2)
-    except Exception:
-        ceiling = 0.0
+
+        return render_template(
+            'request_result.html',
+            needed=needed_amount, from_sub=from_sub, from_pool=from_pool,
+            from_reserve=from_reserve, social_credit=social_credit,
+            request_id=care_req.id, ceiling_remaining=ceiling_remaining,
+            wallet_only=False, risk_tier=tier, status=care_req.status)
+
     return render_template('request_care.html', user=user, providers=providers,
-                           communities=communities, ceiling=ceiling)
+                           primary_community=primary_community, ceiling=ceiling)
 
 @app.route('/witness_dashboard')
 def witness_dashboard():
@@ -1279,7 +1357,10 @@ def trust_history():
 def admin_care():
     user = User.query.get(session['user_id'])
     _check_emergency_auto_approvals()
-    pending = CareRequest.query.filter_by(status='pending_admin', admin_approved=False).all()
+    pending = CareRequest.query.filter(
+        CareRequest.status.in_(['pending_admin', 'pending_community_admin']),
+        CareRequest.admin_approved == False
+    ).all()
     for cr in pending:
         cr.requester = User.query.get(cr.user_id)
     solidarity_pct = _get_solidarity_percent()
@@ -1472,13 +1553,20 @@ def admin_care_action(request_id):
         care_req.admin_approved = True
         care_req.admin_id = user.id
         care_req.status = 'admin_approved'
+        pool_payment = (care_req.amount_from_pool or 0.0) + (
+            care_req.amount_from_reserve if hasattr(care_req, 'amount_from_reserve') else 0.0)
         success, ref = pay_provider(
-            care_request_id=care_req.id, amount=care_req.amount_from_pool,
+            care_request_id=care_req.id, amount=pool_payment if pool_payment > 0 else care_req.amount_from_pool,
             provider_id=care_req.provider_id, user_id=care_req.user_id,
             community_id=care_req.community_id
         )
         if success:
             care_req.payment_transaction_id = ref
+        # Update net_support_balance for the requester
+        _req_user = User.query.get(care_req.user_id)
+        if _req_user:
+            _req_user.net_support_balance = round(
+                (_req_user.net_support_balance or 0.0) - float(care_req.amount_needed or 0), 2)
         db.session.commit()
         _log_admin_action(user.id, 'care_request_approved',
                           target_user_id=care_req.user_id,
@@ -1897,12 +1985,14 @@ def ussd():
                 ph = _pool_health(primary_comm.pool_balance)
                 bal = (f"Wallet: UGX {user.sub_wallet_balance:,.0f}\n"
                        f"Draw ceiling: UGX {ceil_val:,.0f}\n"
-                       f"Social credit: UGX {user.total_social_credit:,.0f}\n"
-                       f"Pool: UGX {primary_comm.pool_balance:,.0f} ({ph['label']})")
+                       f"Contributed (lifetime): UGX {(user.lifetime_contribution_score or 0):,.0f}\n"
+                       f"Social credit owed: UGX {user.total_social_credit:,.0f}\n"
+                       f"Pool ({primary_comm.name}): {ph['label']}")
             else:
                 bal = (f"Wallet: UGX {user.sub_wallet_balance:,.0f}\n"
                        f"Draw ceiling: UGX {ceil_val:,.0f}\n"
-                       f"Social credit: UGX {user.total_social_credit:,.0f}")
+                       f"Contributed (lifetime): UGX {(user.lifetime_contribution_score or 0):,.0f}\n"
+                       f"Social credit owed: UGX {user.total_social_credit:,.0f}")
             return r(bal, end=True)
         return r("Session error. Dial again.", end=True)
 
@@ -1942,6 +2032,8 @@ def ussd():
                 comm = Community.query.filter_by(invite_code=invite_code).first()
                 if not comm:
                     return r("Invalid invite code. Try again.", end=True)
+                if comm.is_global_reserve:
+                    return r("That community cannot be joined.", end=True)
                 existing = CommunityMembership.query.filter_by(user_id=user.id, community_id=comm.id).first()
                 if existing:
                     return r("You are already a member of that community.", end=True)
@@ -1949,6 +2041,7 @@ def ussd():
                 db.session.add(new_mem)
                 if not user.primary_community_id:
                     user.primary_community_id = comm.id
+                    user.primary_community_changed_at = datetime.utcnow()
                 db.session.commit()
                 return r(f"Joined {comm.name}.", end=True)
         return r("Invalid choice.\n0. Back")
@@ -1990,32 +2083,28 @@ def ussd():
                     "Enter amount (UGX):\n0. Back"
                 )
             elif mode_choice == "2":
-                if not user_communities:
+                _primary_comm = (Community.query.get(user.primary_community_id)
+                                 if user.primary_community_id else None)
+                if not _primary_comm:
                     ussd_sessions.pop(phone, None)
-                    return r("Join a community first (option 4).", end=True)
+                    return r("You need a primary community.\nDial again → 4. Community to join one.", end=True)
                 try:
                     _ceil = compute_draw_ceiling(user.id)
                 except Exception:
                     _ceil = 0.0
-                if len(user_communities) == 1:
-                    sess = {
-                        "care_mode": "pool",
-                        "selected_comm_id": user_communities[0].id,
-                        "state": "awaiting_amount",
-                        "ceiling": _ceil,
-                    }
-                    ussd_sessions[phone] = sess
-                    return r(f"Request care\nYour ceiling: UGX {_ceil:,.0f}\nEnter amount (UGX):\n0. Back")
-                else:
-                    comm_list = "\n".join([f"{i+1}. {c.name}" for i, c in enumerate(user_communities)])
-                    sess = {
-                        "care_mode": "pool",
-                        "state": "choose_comm",
-                        "communities": [(c.id, c.name) for c in user_communities],
-                        "ceiling": _ceil,
-                    }
-                    ussd_sessions[phone] = sess
-                    return r(f"Your ceiling: UGX {_ceil:,.0f}\nSelect community:\n{comm_list}\n0. Back")
+                sess = {
+                    "care_mode": "pool",
+                    "state": "awaiting_amount",
+                    "ceiling": _ceil,
+                }
+                ussd_sessions[phone] = sess
+                return r(
+                    f"Request care\n"
+                    f"Ceiling: UGX {_ceil:,.0f}\n"
+                    f"Wallet: UGX {user.sub_wallet_balance:,.0f}\n"
+                    f"Funds from: wallet → pool → reserve\n"
+                    "Enter amount (UGX):\n0. Back"
+                )
             return r("Invalid choice.\n1. Wallet only\n2. Community pool\n0. Back")
 
         care_mode = sess.get("care_mode", "")
@@ -2095,26 +2184,12 @@ def ussd():
 
             return r("Session expired. Dial again.", end=True)
 
-        # ── Community pool path ───────────────────────────────────────────────
+        # ── Community pool path: auto-fund wallet → primary → reserve ─────────
         if care_mode == "pool":
             state = sess.get("state", "")
 
-            # Community selection (multi-community path)
-            if state == "choose_comm" and "selected_comm_id" not in sess:
-                try:
-                    idx = int(inputs[step - 1]) - 1
-                except ValueError:
-                    return r("Invalid choice.\n0. Back")
-                comms = sess["communities"]
-                if 0 <= idx < len(comms):
-                    sess["selected_comm_id"] = comms[idx][0]
-                    sess["state"] = "awaiting_amount"
-                    ussd_sessions[phone] = sess
-                    return r("Enter amount (UGX):\n0. Back")
-                return r("Invalid choice.\n0. Back")
-
             # Amount input
-            if sess.get("state") == "awaiting_amount" and "amount" not in sess:
+            if state == "awaiting_amount" and "amount" not in sess:
                 try:
                     amount = float(inputs[step - 1])
                     if amount <= 0:
@@ -2124,76 +2199,149 @@ def ussd():
                 sess["amount"] = amount
                 sess["state"] = "awaiting_provider"
                 ussd_sessions[phone] = sess
-                return r("Enter provider code (e.g., MULAGO001):\n0. Back")
+                return r("Enter provider code\n(e.g. MULAGO001):\n0. Back")
 
             # Provider code input
-            if sess.get("state") == "awaiting_provider" and "provider_id" not in sess:
+            if state == "awaiting_provider" and "provider_id" not in sess:
                 provider_code = inputs[step - 1].strip().upper()
-                provider = Provider.query.filter_by(provider_code=provider_code, verified=True).first()
-                if not provider:
+                _provider = Provider.query.filter_by(provider_code=provider_code).first()
+                if not _provider:
                     sample = Provider.query.filter_by(verified=True).first()
                     hint = sample.provider_code if sample else 'MULAGO001'
-                    return r(f"Invalid code '{provider_code}'.\nTry {hint} or ask your clinic.\n0. Back")
-                sess["provider_id"] = provider.id
-                sess["state"] = "awaiting_emergency"
+                    return r(f"Invalid code '{provider_code}'.\nTry {hint}.\n0. Back")
+                sess["provider_id"] = _provider.id
+                sess["provider_verified"] = bool(_provider.verified)
+                sess["state"] = "awaiting_confirm"
                 ussd_sessions[phone] = sess
-                return r("Emergency?\n1. Yes\n2. No\n0. Back")
+                _amt = sess["amount"]
+                return r(
+                    f"Confirm care request\n"
+                    f"UGX {_amt:,.0f} → {_provider.name}\n"
+                    f"Funds: wallet→pool→reserve\n"
+                    "1. Confirm\n2. Cancel"
+                )
 
-            # Emergency flag + submit
-            if sess.get("state") == "awaiting_emergency" and "provider_id" in sess:
-                emerg = (inputs[step - 1].strip() == "1")
+            # Confirm + submit
+            if state == "awaiting_confirm" and "provider_id" in sess:
+                confirm_input = inputs[step - 1].strip()
+                if confirm_input != "1":
+                    ussd_sessions.pop(phone, None)
+                    return r("Cancelled.", end=True)
+
                 amount = sess["amount"]
                 provider_id = sess["provider_id"]
-                selected_comm = Community.query.get(sess["selected_comm_id"])
+                provider_verified = sess.get("provider_verified", False)
+                primary_comm = (Community.query.get(user.primary_community_id)
+                                if user.primary_community_id else None)
+                global_reserve = Community.query.filter_by(is_global_reserve=True).first()
                 ceiling = sess.get("ceiling") or compute_draw_ceiling(user.id)
 
-                if is_large_withdrawal_blocked(selected_comm, amount):
-                    ussd_sessions.pop(phone, None)
-                    return r("Large withdrawals paused — pool is low.\nTry a smaller amount.", end=True)
-
-                from_sub = min(user.sub_wallet_balance, amount)
-                remaining = amount - from_sub
+                # Auto-fund: wallet → primary → reserve
+                from_sub = round(min(user.sub_wallet_balance, amount), 2)
+                remaining = round(amount - from_sub, 2)
                 user.sub_wallet_balance -= from_sub
-                from_pool = social_credit = 0.0
-                if remaining > 0:
-                    allowed = min(remaining, ceiling - from_sub, selected_comm.pool_balance)
-                    from_pool = allowed
-                    selected_comm.pool_balance -= from_pool
-                    social_credit = remaining - from_pool
-                    if social_credit > 0:
-                        user.total_social_credit += social_credit
-                        update_recovery_parameters(user.id, social_credit)
-                    db.session.commit()
+
+                from_pool = 0.0
+                if remaining > 0 and primary_comm:
+                    if not is_large_withdrawal_blocked(primary_comm, remaining):
+                        avail = min(remaining, max(0.0, ceiling - from_sub), primary_comm.pool_balance)
+                        from_pool = round(avail, 2)
+                        primary_comm.pool_balance -= from_pool
+                        remaining = round(remaining - from_pool, 2)
+
+                from_reserve = 0.0
+                if remaining > 0 and global_reserve:
+                    avail_r = min(remaining, global_reserve.pool_balance)
+                    from_reserve = round(avail_r, 2)
+                    global_reserve.pool_balance -= from_reserve
+                    remaining = round(remaining - from_reserve, 2)
+
+                social_credit = round(remaining, 2)
+                if social_credit > 0:
+                    user.total_social_credit = round((user.total_social_credit or 0.0) + social_credit, 2)
+                    update_recovery_parameters(user.id, social_credit)
+
                 care_req = CareRequest(
-                    user_id=user.id, community_id=selected_comm.id, provider_id=provider_id,
-                    amount_needed=amount, amount_from_sub=from_sub, amount_from_pool=from_pool,
-                    social_credit=social_credit, is_emergency=emerg, status='pending_witness',
+                    user_id=user.id,
+                    community_id=(primary_comm.id if primary_comm else
+                                  (global_reserve.id if global_reserve else None)),
+                    provider_id=provider_id,
+                    amount_needed=amount, amount_from_sub=from_sub,
+                    amount_from_pool=from_pool, social_credit=social_credit,
+                    is_emergency=False, status='pending_witness',
                 )
+                if hasattr(care_req, 'amount_from_reserve'):
+                    care_req.amount_from_reserve = from_reserve
                 db.session.add(care_req)
                 db.session.commit()
-                witnesses = select_witnesses(user.id, provider_id, community_id=selected_comm.id)
-                care_req.witness_ids = ','.join(str(w.id) for w in witnesses)
-                db.session.commit()
+
+                # Fraud scoring
+                fraud_score = 0.0
                 try:
-                    from notifications import notify_witnesses_assigned
-                    notify_witnesses_assigned(user.name, amount, witnesses)
+                    fraud_score, fraud_reasons = calculate_fraud_risk(user.id, care_req.id)
+                    care_req.fraud_score = fraud_score
+                    if is_fraud_flagged(fraud_score):
+                        care_req.fraud_flagged = True
+                        care_req.fraud_reasons = '; '.join(fraud_reasons)
+                        log_fraud_alert(user.id, care_req.id, fraud_score, fraud_reasons)
                 except Exception:
                     pass
-                enforce_pool_health(selected_comm)
+
+                # Risk tier (replaces witness gate)
+                if (amount <= 50_000 and user.trust_score >= 0.6
+                        and provider_verified and fraud_score < 0.3
+                        and not care_req.fraud_flagged):
+                    tier = 1
+                elif amount <= 200_000 and fraud_score < 0.6 and not care_req.fraud_flagged:
+                    tier = 2
+                else:
+                    tier = 3
+
+                care_req.risk_tier = tier
+                if tier == 1:
+                    care_req.status = 'approved'
+                    care_req.admin_approved = True
+                    user.net_support_balance = round((user.net_support_balance or 0.0) - amount, 2)
+                    db.session.commit()
+                    try:
+                        pool_amount = from_pool + from_reserve
+                        if pool_amount > 0:
+                            pay_provider(care_request_id=care_req.id, amount=pool_amount,
+                                         provider_id=provider_id, user_id=user.id,
+                                         community_id=care_req.community_id)
+                        else:
+                            pay_provider(care_req.id)
+                    except Exception:
+                        pass
+                    tier_msg = "Auto-approved! Provider notified."
+                elif tier == 2:
+                    care_req.status = 'pending_community_admin'
+                    db.session.commit()
+                    tier_msg = "Pending community admin review."
+                else:
+                    care_req.status = 'pending_admin'
+                    db.session.commit()
+                    try:
+                        notify_admin_care_pending(_get_admin_phones(), user.name, amount, care_req.id)
+                    except Exception:
+                        pass
+                    tier_msg = "Pending admin review."
+
+                if primary_comm:
+                    try:
+                        enforce_pool_health(primary_comm)
+                    except Exception:
+                        pass
+
                 ussd_sessions.pop(phone, None)
-                ceiling_remaining = max(0.0, ceiling - from_pool)
-                need_admin = (amount > 180000) or emerg
-                msg = (
-                    f"Request submitted.\n"
+                ceiling_remaining = max(0.0, ceiling - from_pool - from_reserve)
+                return r(
+                    f"Request #{care_req.id} submitted.\n"
                     f"UGX {amount:,.0f} requested.\n"
-                    f"Ceiling remaining: UGX {ceiling_remaining:,.0f}\n"
-                    f"{len(witnesses)} witnesses notified."
+                    f"Ceiling left: UGX {ceiling_remaining:,.0f}\n"
+                    f"{tier_msg}",
+                    end=True
                 )
-                if emerg:
-                    msg += " Auto-approved in 2h if no admin action."
-                elif need_admin:
-                    msg += " Awaiting admin approval."
-                return r(msg, end=True)
 
             return r("Session expired. Dial again.", end=True)
 

@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from flask import Blueprint, render_template, request, redirect, url_for, abort, session
 from loguru import logger
 
@@ -17,15 +19,18 @@ def list_communities():
     user = _get_current_user()
     if not user:
         return redirect(url_for('register'))
+    error = request.args.get('error')
     my_memberships = CommunityMembership.query.filter_by(user_id=user.id).all()
     my_community_ids = {m.community_id for m in my_memberships}
-    all_communities = Community.query.order_by(Community.name).all()
+    # Exclude global reserve — it is not user-facing
+    all_communities = Community.query.filter_by(is_global_reserve=False).order_by(Community.name).all()
     return render_template(
         'communities.html',
         user=user,
         my_memberships=my_memberships,
         my_community_ids=my_community_ids,
         all_communities=all_communities,
+        error=error,
     )
 
 
@@ -84,6 +89,11 @@ def join_community():
         return redirect(url_for('communities.list_communities',
                                 error='Invalid invite code.'))
 
+    # Block joining the global reserve — it is system-only
+    if community.is_global_reserve:
+        return redirect(url_for('communities.list_communities',
+                                error='This community cannot be joined.'))
+
     existing = CommunityMembership.query.filter_by(
         user_id=user.id, community_id=community.id
     ).first()
@@ -99,6 +109,7 @@ def join_community():
 
     if not user.primary_community_id:
         user.primary_community_id = community.id
+        user.primary_community_changed_at = datetime.utcnow()
 
     db.session.commit()
     logger.info("User {} joined community {}", user.id, community.id)
@@ -110,12 +121,31 @@ def set_primary(community_id):
     user = _get_current_user()
     if not user:
         return redirect(url_for('register'))
+
+    # Cannot set the global reserve as primary
+    community = Community.query.get(community_id)
+    if not community or community.is_global_reserve:
+        return redirect(url_for('communities.list_communities',
+                                error='This community cannot be your primary community.'))
+
+    # 90-day cooldown — prevent switching into a rich group right before a big claim
+    if user.primary_community_id and user.primary_community_id != community_id:
+        if user.primary_community_changed_at:
+            elapsed = datetime.utcnow() - user.primary_community_changed_at
+            if elapsed < timedelta(days=90):
+                days_left = (timedelta(days=90) - elapsed).days + 1
+                return redirect(url_for('communities.list_communities',
+                                        error=f'You can only change your primary community once every 90 days. '
+                                              f'{days_left} day(s) remaining.'))
+
     membership = CommunityMembership.query.filter_by(
         user_id=user.id, community_id=community_id
     ).first()
     if not membership:
         abort(403)
+
     user.primary_community_id = community_id
+    user.primary_community_changed_at = datetime.utcnow()
     db.session.commit()
     return redirect(url_for('communities.list_communities'))
 

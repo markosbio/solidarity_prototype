@@ -1,17 +1,12 @@
 """
-Fee-based solidarity contribution engine.
+Fee-based solidarity contribution engine — Architecture v2.
 
-When a member makes a mobile money transaction (send/withdraw), their normal
-operator fee is used as the base for the 8% solidarity contribution.
+Pool share routing:
+  60% of the pool portion  → Global Reserve (is_global_reserve=True community)
+  40% of the pool portion  → User's primary community only
 
-process_fee_contribution() is the single entry point:
-  - Reads solidarity_percent from SystemState (default 8.0)
-  - Calculates solidarity_amount = normal_fee * (solidarity_percent / 100)
-  - Optionally rounds to nearest 10 UGX
-  - Splits solidarity_amount using the existing 70/20/10 wallet/pool/fee split
-  - Updates sub_wallet_balance, ALL community pool_balances equally, and records Transactions
-  - Records the platform fee portion as a PlatformRevenue row
-  - Returns solidarity_amount
+Secondary communities receive no automatic contributions (they are social groups).
+lifetime_contribution_score is updated on every successful contribution.
 """
 from __future__ import annotations
 
@@ -42,10 +37,19 @@ def _round_to_nearest_10(amount: float) -> float:
     return round(round(amount / 10) * 10, 4)
 
 
+def _get_global_reserve() -> Community | None:
+    """Return the system-level global reserve community."""
+    return Community.query.filter_by(is_global_reserve=True).first()
+
+
 def process_fee_contribution(user_id: int, normal_fee: float,
                               round_to_10: bool = True) -> float:
     """
     Process a solidarity contribution based on a mobile money normal fee.
+
+    Pool routing (Architecture v2):
+      • 60% of pool share  → Global Reserve community
+      • 40% of pool share  → User's primary community
 
     Args:
         user_id:    Member's user ID.
@@ -70,35 +74,52 @@ def process_fee_contribution(user_id: int, normal_fee: float,
 
         to_wallet, to_pool, to_fee = _roundup_split(solidarity_amount)
 
+        # ── Wallet credit ────────────────────────────────────────────────────
         user.sub_wallet_balance += to_wallet
-        wallet_tx = Transaction(
+        db.session.add(Transaction(
             user_id=user_id,
             amount=to_wallet,
             type='solidarity_wallet',
             description=f'Solidarity contribution wallet share (fee UGX {normal_fee:.0f})',
-        )
-        db.session.add(wallet_tx)
+        ))
 
-        # Split pool share equally across ALL communities the user belongs to
+        # ── Pool routing: 60% reserve / 40% primary community ────────────────
         if to_pool > 0:
-            memberships = CommunityMembership.query.filter_by(user_id=user_id).all()
-            comm_ids = [m.community_id for m in memberships]
-            communities = Community.query.filter(Community.id.in_(comm_ids)).all() if comm_ids else []
-            if communities:
-                share = round(to_pool / len(communities), 4)
-                for comm in communities:
-                    comm.pool_balance += share
-                    db.session.add(Transaction(
-                        user_id=user_id,
-                        amount=share,
-                        type='solidarity_pool',
-                        description=f'Solidarity pool share ({comm.name}) (fee UGX {normal_fee:.0f})',
-                    ))
-            # If user belongs to no community, pool share is held as platform revenue
-            else:
-                to_fee += to_pool
-                to_pool = 0.0
+            reserve = _get_global_reserve()
+            primary = (Community.query.get(user.primary_community_id)
+                       if user.primary_community_id else None)
 
+            reserve_share = round(to_pool * 0.60, 4)
+            primary_share = round(to_pool * 0.40, 4)
+            # Correct for floating-point rounding
+            primary_share = round(to_pool - reserve_share, 4)
+
+            if reserve:
+                reserve.pool_balance += reserve_share
+                db.session.add(Transaction(
+                    user_id=user_id,
+                    amount=reserve_share,
+                    type='solidarity_pool',
+                    description=f'Solidarity reserve share (fee UGX {normal_fee:.0f})',
+                ))
+            else:
+                # No reserve yet → treat as platform fee
+                to_fee += reserve_share
+                reserve_share = 0.0
+
+            if primary and primary.id != (reserve.id if reserve else None):
+                primary.pool_balance += primary_share
+                db.session.add(Transaction(
+                    user_id=user_id,
+                    amount=primary_share,
+                    type='solidarity_pool',
+                    description=f'Solidarity pool share ({primary.name}) (fee UGX {normal_fee:.0f})',
+                ))
+            else:
+                # No primary community yet → hold as platform revenue
+                to_fee += primary_share
+
+        # ── Platform fee ─────────────────────────────────────────────────────
         fee_tx = None
         if to_fee > 0:
             fee_tx = Transaction(
@@ -112,17 +133,21 @@ def process_fee_contribution(user_id: int, normal_fee: float,
         db.session.flush()
 
         if to_fee > 0:
-            rev = PlatformRevenue(
+            db.session.add(PlatformRevenue(
                 amount=to_fee,
                 source='solidarity_fee',
                 transaction_id=fee_tx.id if fee_tx else None,
-            )
-            db.session.add(rev)
+            ))
+
+        # ── Lifetime contribution tracking ────────────────────────────────────
+        user.lifetime_contribution_score = round(
+            (user.lifetime_contribution_score or 0.0) + solidarity_amount, 4
+        )
 
         db.session.commit()
 
         logger.info(
-            "Fee contribution: user_id={} normal_fee={:.0f} solidarity={:.0f} "
+            "Fee contribution v2: user_id={} normal_fee={:.0f} solidarity={:.0f} "
             "wallet={:.0f} pool={:.0f} platform_fee={:.0f}",
             user_id, normal_fee, solidarity_amount, to_wallet, to_pool, to_fee,
         )

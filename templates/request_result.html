@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Care Request Submitted – Solidarity Pool</title>
+<title>Care Request – Solidarity Pool</title>
 <link rel="manifest" href="/static/manifest.json">
 <meta name="theme-color" content="#2d7dd2">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -20,10 +20,17 @@
   .val.amber { color: #e67e00; }
   .val.red   { color: #dc3545; }
   .val.blue  { color: #2d7dd2; }
+  .tier-badge { display: inline-block; border-radius: 4px; padding: 2px 9px;
+                font-size: 0.78rem; font-weight: 700; }
+  .tier-1 { background: #d4edda; color: #155724; }
+  .tier-2 { background: #fff3cd; color: #856404; }
+  .tier-3 { background: #f8d7da; color: #721c24; }
   .info-box { background: #e8f4f8; border-left: 4px solid #2d7dd2; padding: 12px 16px;
               border-radius: 0 6px 6px 0; font-size: 0.87rem; color: #2c4a6e; margin-bottom: 20px; }
   .success-box { background: #d4edda; border-left: 4px solid #28a745; padding: 12px 16px;
                  border-radius: 0 6px 6px 0; font-size: 0.87rem; color: #155724; margin-bottom: 20px; }
+  .warn-box { background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px 16px;
+              border-radius: 0 6px 6px 0; font-size: 0.87rem; color: #856404; margin-bottom: 20px; }
   .ceiling-box { background: #f0f8f0; border-left: 4px solid #28a745; padding: 10px 14px;
                  border-radius: 0 6px 6px 0; font-size: 0.85rem; margin-bottom: 16px; }
   .btn { display: inline-block; padding: 10px 24px; background: #2d7dd2; color: white;
@@ -37,7 +44,7 @@
 {% if wallet_only %}
 <div class="check">✅</div>
 <h1>Payment Sent</h1>
-<p style="color:#666; margin-bottom:20px;">Request #{{ request_id }} — paid directly from your wallet.</p>
+<p style="color:#666; margin-bottom:20px;">Request #{{ request_id }} — paid from your wallet.</p>
 
 <div class="card">
   <div class="row">
@@ -52,13 +59,26 @@
 
 <div class="success-box">
   <strong>Payment confirmed.</strong><br>
-  Funds have been sent directly to the provider. No witnesses or admin approval needed.
+  Funds have been sent directly to the provider with no waiting.
 </div>
 
 {% else %}
+
+{% set tier = risk_tier if risk_tier is defined else 0 %}
+
+{% if tier == 1 or status == 'approved' or status == 'admin_approved' %}
 <div class="check">✅</div>
-<h1>Care Request Submitted</h1>
-<p style="color:#666; margin-bottom:20px;">Request #{{ request_id }} is pending witness verification.</p>
+<h1>Request Auto-Approved</h1>
+<p style="color:#666; margin-bottom:20px;">Request #{{ request_id }} — funds sent to provider.</p>
+{% elif tier == 2 %}
+<div class="check">🕐</div>
+<h1>Request Submitted</h1>
+<p style="color:#666; margin-bottom:20px;">Request #{{ request_id }} — awaiting community admin review.</p>
+{% else %}
+<div class="check">🕐</div>
+<h1>Request Submitted</h1>
+<p style="color:#666; margin-bottom:20px;">Request #{{ request_id }} — awaiting admin review.</p>
+{% endif %}
 
 <div class="card">
   <div class="row">
@@ -77,10 +97,28 @@
     <span class="val green">UGX {{ "{:,.0f}".format(from_pool) }}</span>
   </div>
   {% endif %}
+  {% if from_reserve is defined and from_reserve > 0 %}
+  <div class="row">
+    <span class="label">From global reserve</span>
+    <span class="val green">UGX {{ "{:,.0f}".format(from_reserve) }}</span>
+  </div>
+  {% endif %}
   {% if social_credit > 0 %}
   <div class="row">
     <span class="label">Social credit incurred</span>
     <span class="val red">UGX {{ "{:,.0f}".format(social_credit) }}</span>
+  </div>
+  {% endif %}
+  {% if tier > 0 %}
+  <div class="row">
+    <span class="label">Approval tier</span>
+    <span class="val">
+      <span class="tier-badge tier-{{ tier }}">
+        {% if tier == 1 %}Tier 1 — Auto-approved
+        {% elif tier == 2 %}Tier 2 — Community admin review
+        {% else %}Tier 3 — Admin review{% endif %}
+      </span>
+    </span>
   </div>
   {% endif %}
   {% if ceiling_remaining is defined and ceiling_remaining is not none %}
@@ -91,24 +129,32 @@
   {% endif %}
 </div>
 
-{% if ceiling_remaining is defined and ceiling_remaining is not none %}
-<div class="ceiling-box">
-  You have <strong>UGX {{ "{:,.0f}".format(ceiling_remaining) }}</strong> of your draw ceiling remaining.
-  Increase it by contributing more round-ups or witnessing requests for others.
+{% if tier == 1 or status in ['approved', 'admin_approved'] %}
+<div class="success-box">
+  <strong>Auto-approved!</strong><br>
+  Your trust score and request size qualified for instant approval.
+  Funds have been sent directly to the provider.
+</div>
+{% elif tier == 2 %}
+<div class="warn-box">
+  <strong>Pending community admin review.</strong><br>
+  Your community admin will review this request shortly.
+  You'll be notified when it's approved and funds are sent.
+</div>
+{% else %}
+<div class="info-box">
+  <strong>Pending global admin review.</strong><br>
+  Your request has been flagged for review due to its size or risk profile.
+  An admin will process it as soon as possible.
 </div>
 {% endif %}
 
-<div class="info-box">
-  <strong>What happens next?</strong><br>
-  Three peer witnesses have been notified. Once 2 of 3 verify your request, funds are sent
-  directly to your provider.
-  {% if needed > 180000 %}
-  Because this request exceeds UGX 180,000, it also requires admin approval.
-  {% endif %}
-  {% if is_emergency %}
-  This is marked as an emergency — if no admin responds within 2 hours, it will be auto-approved.
-  {% endif %}
+{% if ceiling_remaining is defined and ceiling_remaining is not none and ceiling_remaining > 0 %}
+<div class="ceiling-box">
+  You have <strong>UGX {{ "{:,.0f}".format(ceiling_remaining) }}</strong> of your draw ceiling remaining.
+  Grow it by making more solidarity contributions.
 </div>
+{% endif %}
 {% endif %}
 
 <a class="btn" href="{{ url_for('home') }}">← Return to dashboard</a>

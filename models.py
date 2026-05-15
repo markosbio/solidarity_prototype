@@ -34,6 +34,10 @@ class User(db.Model):
     tos_accepted_at = db.Column(db.DateTime, nullable=True)
     locked_until = db.Column(db.DateTime, nullable=True)
     session_version = db.Column(db.Integer, default=1)
+    # Architecture v2 columns
+    lifetime_contribution_score = db.Column(db.Float, default=0.0)
+    net_support_balance = db.Column(db.Float, default=0.0)
+    primary_community_changed_at = db.Column(db.DateTime, nullable=True)
 
     recruits = db.relationship('User', foreign_keys=[referred_by],
                                backref=db.backref('referrer', remote_side=[id]))
@@ -66,6 +70,9 @@ class Community(db.Model):
     ceiling_multiplier = db.Column(db.Float, default=1.0)
     witness_strictness = db.Column(db.String(10), default='normal')
     large_withdrawal_paused = db.Column(db.Boolean, default=False)
+    # Architecture v2 columns
+    is_global_reserve = db.Column(db.Boolean, default=False)
+    liquidity_health_score = db.Column(db.Float, default=1.0)
 
     admin = db.relationship('User', foreign_keys=[admin_user_id], backref='admin_communities')
     members = db.relationship('CommunityMembership', back_populates='community', cascade='all, delete-orphan')
@@ -78,6 +85,8 @@ class CommunityMembership(db.Model):
     community_id = db.Column(db.Integer, db.ForeignKey('community.id'))
     role = db.Column(db.String(20), default='member')
     joined_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    leave_requested_at = db.Column(db.DateTime, nullable=True)
 
     user = db.relationship('User', backref='community_memberships')
     community = db.relationship('Community', back_populates='members')
@@ -150,6 +159,9 @@ class CareRequest(db.Model):
     fraud_score = db.Column(db.Float, default=0.0)
     fraud_flagged = db.Column(db.Boolean, default=False)
     fraud_reasons = db.Column(db.String(500), default='')
+    # Architecture v2 columns
+    risk_tier = db.Column(db.Integer, default=0)
+    amount_from_reserve = db.Column(db.Float, default=0.0)
 
     user = db.relationship('User', foreign_keys=[user_id])
     provider = db.relationship('Provider')
