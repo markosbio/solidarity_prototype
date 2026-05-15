@@ -457,9 +457,18 @@ with app.app_context():
     _run_column_migrations()
     try:
         if Community.query.count() == 0:
-            default_comm = Community(name="Global Health Pool", invite_code="GLOBAL001", pool_balance=0.0, admin_user_id=None)
+            default_comm = Community(name="Global Health Pool", invite_code="GLOBAL001", pool_balance=0.0, admin_user_id=None, is_global_reserve=True)
             db.session.add(default_comm)
             db.session.commit()
+        else:
+            # Ensure the flag is set even if seeded before the migration ran
+            try:
+                from sqlalchemy import text as _text
+                with db.engine.connect() as _conn:
+                    _conn.execute(_text("UPDATE community SET is_global_reserve = TRUE WHERE invite_code = 'GLOBAL001' AND (is_global_reserve IS NULL OR is_global_reserve = FALSE)"))
+                    _conn.commit()
+            except Exception:
+                pass
     except Exception as _e:
         from loguru import logger
         logger.warning("Community seed skipped: {}", _e)
