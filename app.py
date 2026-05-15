@@ -514,6 +514,7 @@ def _run_column_migrations():
         "ALTER TABLE community_membership ADD COLUMN IF NOT EXISTS leave_reason TEXT",
         "ALTER TABLE care_request ADD COLUMN IF NOT EXISTS risk_tier INTEGER DEFAULT 0",
         "ALTER TABLE care_request ADD COLUMN IF NOT EXISTS amount_from_reserve FLOAT DEFAULT 0.0",
+        "ALTER TABLE care_request ADD COLUMN IF NOT EXISTS invoice_description VARCHAR(500) DEFAULT ''",
         "UPDATE community SET is_global_reserve = TRUE WHERE invite_code = 'GLOBAL001'",
         """CREATE TABLE IF NOT EXISTS support_ticket (
             id SERIAL PRIMARY KEY,
@@ -769,6 +770,16 @@ def home():
             .order_by(CareRequest.created_at.desc())
             .all()
         )
+        # Provider invoices awaiting this member's approval
+        pending_invoices = (
+            CareRequest.query
+            .filter(
+                CareRequest.user_id == user.id,
+                CareRequest.status == 'pending_patient_approval'
+            )
+            .order_by(CareRequest.created_at.desc())
+            .all()
+        )
         return render_template('dashboard.html', user=user, primary_comm=primary_comm,
                                membership=membership,
                                is_admin=is_admin, ceiling=ceiling, pool_health=ph,
@@ -777,7 +788,8 @@ def home():
                                community_pending=community_pending,
                                admin_badge=admin_badge,
                                recent_care=recent_care,
-                               pending_care=pending_care)
+                               pending_care=pending_care,
+                               pending_invoices=pending_invoices)
     return redirect(url_for('register'))
 
 def _record_login(user, success=True):
@@ -1227,10 +1239,14 @@ def community_demote(comm_id, member_id):
     return redirect(url_for('community_dashboard', comm_id=comm_id))
 
 
-@app.route('/simulate_roundup', methods=['GET', 'POST'])
+@app.route('/simulate_roundup')
 def simulate_roundup():
-    if 'user_id' not in session:
-        return redirect(url_for('register'))
+    return redirect(url_for('home'))
+
+
+@app.route('/admin/simulate-contribution', methods=['GET', 'POST'])
+@admin_required
+def admin_simulate_contribution():
     user = User.query.get(session['user_id'])
     mpesa_enabled = bool(os.getenv('MPESA_CONSUMER_KEY') and os.getenv('MPESA_CONSUMER_SECRET'))
     wallet_pct = int(os.getenv('ROUNDUP_WALLET_PCT', 70))
@@ -1258,7 +1274,8 @@ def simulate_roundup():
             notify_ceiling_increase(user, new_ceiling, old_ceiling)
         except Exception:
             pass
-        return redirect(url_for('home'))
+        flash(f'Contribution of UGX {solidarity_amount:,.0f} recorded successfully.', 'success')
+        return redirect(url_for('admin_simulate_contribution'))
     return render_template('simulate_roundup.html', user=user, mpesa_enabled=mpesa_enabled,
                            solidarity_pct=solidarity_pct, wallet_pct=wallet_pct)
 
@@ -2389,31 +2406,247 @@ def start_treatment(ref):
 
 @app.route('/provider/invoice', methods=['POST'])
 def provider_invoice():
-    provider_code = request.form['provider_code']
+    if 'provider_id' not in session:
+        return redirect(url_for('provider_login'))
+    provider_code = request.form.get('provider_code', '').strip()
     provider = Provider.query.filter_by(provider_code=provider_code, verified=True).first()
     if not provider:
-        return "Provider not found"
-    patient_phone = request.form['patient_phone']
+        flash('Provider code not recognised or provider is not verified.', 'error')
+        return redirect(url_for('provider_dashboard'))
+    patient_phone = request.form.get('patient_phone', '').strip()
     user = User.query.filter_by(phone=patient_phone).first()
     if not user:
-        return "Patient not registered in the system"
-    amount = float(request.form['amount'])
-    description = request.form['description']
-    community = Community.query.get(user.primary_community_id)
+        flash(f'No member registered with phone {patient_phone}. Ask the patient to register first.', 'error')
+        return redirect(url_for('provider_dashboard'))
+    try:
+        amount = float(request.form.get('amount', 0) or 0)
+        if amount <= 0:
+            raise ValueError
+    except ValueError:
+        flash('Please enter a valid invoice amount.', 'error')
+        return redirect(url_for('provider_dashboard'))
+    description = request.form.get('description', 'Medical Treatment').strip() or 'Medical Treatment'
+
+    community = Community.query.get(user.primary_community_id) if user.primary_community_id else None
+    if not community or community.is_global_reserve:
+        ms = (CommunityMembership.query
+              .filter_by(user_id=user.id)
+              .join(Community, CommunityMembership.community_id == Community.id)
+              .filter(Community.is_global_reserve == False)
+              .first())
+        community = Community.query.get(ms.community_id) if ms else None
     if not community:
-        memberships = CommunityMembership.query.filter_by(user_id=user.id).first()
-        if memberships:
-            community = Community.query.get(memberships.community_id)
-        else:
-            return "Patient not in any community"
+        flash('Patient is not yet a member of any community. They need to join a community first.', 'error')
+        return redirect(url_for('provider_dashboard'))
+
     care_req = CareRequest(
-        user_id=user.id, community_id=community.id, provider_id=provider.id,
-        amount_needed=amount, amount_from_sub=0, amount_from_pool=0,
-        social_credit=0, is_emergency=False, status='pending_witness', witness_ids=''
+        user_id=user.id,
+        community_id=community.id,
+        provider_id=provider.id,
+        amount_needed=amount,
+        amount_from_sub=0,
+        amount_from_pool=0,
+        social_credit=0,
+        is_emergency=False,
+        status='pending_patient_approval',
+        witness_ids='',
     )
+    if hasattr(care_req, 'invoice_description'):
+        care_req.invoice_description = description
     db.session.add(care_req)
     db.session.commit()
-    return f"Invoice submitted. Request ID: {care_req.id}. Patient will be notified."
+
+    try:
+        from notifications import send_sms
+        send_sms(
+            user.phone,
+            f"Hi {user.name}, {provider.name} has sent you a care invoice for UGX {amount:,.0f} "
+            f"({description}). Log in to SolidarityPool to review and approve or reject it."
+        )
+    except Exception:
+        pass
+
+    flash(
+        f'Invoice of UGX {amount:,.0f} sent to {user.name} ({patient_phone}). '
+        f'They will see it on their dashboard and must approve before funds are processed.',
+        'success'
+    )
+    return redirect(url_for('provider_dashboard'))
+
+
+@app.route('/invoice/<int:request_id>')
+def invoice_review(request_id):
+    """Patient reviews a provider-submitted invoice."""
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    user = User.query.get(session['user_id'])
+    care_req = CareRequest.query.get_or_404(request_id)
+    if care_req.user_id != user.id:
+        flash('This invoice is not addressed to you.', 'error')
+        return redirect(url_for('home'))
+    if care_req.status != 'pending_patient_approval':
+        flash('This invoice has already been processed.', 'info')
+        return redirect(url_for('home'))
+    provider = Provider.query.get(care_req.provider_id) if care_req.provider_id else None
+    community = Community.query.get(care_req.community_id) if care_req.community_id else None
+    description = getattr(care_req, 'invoice_description', '') or 'Medical Treatment'
+    return render_template('invoice_review.html', user=user, care_req=care_req,
+                           provider=provider, community=community, description=description)
+
+
+@app.route('/invoice/<int:request_id>/approve', methods=['POST'])
+def invoice_approve(request_id):
+    """Patient approves the provider invoice — runs the full financial processing."""
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    user = User.query.get(session['user_id'])
+    care_req = CareRequest.query.get_or_404(request_id)
+    if care_req.user_id != user.id or care_req.status != 'pending_patient_approval':
+        flash('Invalid or already-processed invoice.', 'error')
+        return redirect(url_for('home'))
+
+    provider_id = care_req.provider_id
+    provider = Provider.query.get(provider_id) if provider_id else None
+    needed_amount = float(care_req.amount_needed or 0)
+
+    primary_community = Community.query.get(care_req.community_id) if care_req.community_id else None
+    global_reserve = Community.query.filter_by(is_global_reserve=True).first()
+
+    # ── Financial allocation ──────────────────────────────────────────────────
+    from_sub = round(min(user.sub_wallet_balance, needed_amount), 2)
+    remaining = round(needed_amount - from_sub, 2)
+    user.sub_wallet_balance -= from_sub
+
+    from_pool = 0.0
+    if remaining > 0 and primary_community and not primary_community.is_global_reserve:
+        available = round(min(remaining, primary_community.pool_balance), 2)
+        from_pool = available
+        primary_community.pool_balance -= from_pool
+        remaining = round(remaining - from_pool, 2)
+
+    from_reserve = 0.0
+    if remaining > 0 and global_reserve:
+        available_reserve = round(min(remaining, global_reserve.pool_balance), 2)
+        from_reserve = available_reserve
+        global_reserve.pool_balance -= from_reserve
+        remaining = round(remaining - from_reserve, 2)
+
+    social_credit = round(remaining, 2)
+    if social_credit > 0:
+        user.total_social_credit = round((user.total_social_credit or 0.0) + social_credit, 2)
+        try:
+            update_recovery_parameters(user.id, social_credit)
+        except Exception:
+            pass
+
+    care_req.amount_from_sub = from_sub
+    care_req.amount_from_pool = from_pool
+    care_req.social_credit = social_credit
+    if hasattr(care_req, 'amount_from_reserve'):
+        care_req.amount_from_reserve = from_reserve
+
+    # ── Fraud scoring ─────────────────────────────────────────────────────────
+    fraud_score = 0.0
+    try:
+        fraud_score, fraud_reasons = calculate_fraud_risk(user.id, care_req.id)
+        care_req.fraud_score = fraud_score
+        if is_fraud_flagged(fraud_score):
+            care_req.fraud_flagged = True
+            care_req.fraud_reasons = '; '.join(fraud_reasons)
+            log_fraud_alert(user.id, care_req.id, fraud_score, fraud_reasons)
+            try:
+                notify_admin_fraud_alert(_get_admin_phones(), user.name, fraud_score, care_req.id)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # ── Tier assignment ───────────────────────────────────────────────────────
+    is_verified_provider = bool(provider and provider.verified)
+    if (needed_amount <= 50_000
+            and user.trust_score >= 0.6
+            and is_verified_provider
+            and fraud_score < 0.3
+            and not care_req.fraud_flagged):
+        tier = 1
+    elif care_req.fraud_flagged:
+        tier = 3
+    else:
+        tier = 2
+
+    care_req.risk_tier = tier
+
+    if tier == 1:
+        care_req.status = 'approved'
+        care_req.admin_approved = True
+        user.net_support_balance = round((user.net_support_balance or 0.0) - needed_amount, 2)
+        db.session.commit()
+        try:
+            pool_amount = from_pool + from_reserve
+            if pool_amount > 0:
+                ok, ref = pay_provider(
+                    care_request_id=care_req.id, amount=pool_amount,
+                    provider_id=provider_id, user_id=user.id,
+                    community_id=care_req.community_id,
+                )
+                if ok:
+                    care_req.payment_transaction_id = ref
+                    db.session.commit()
+            else:
+                pay_provider(care_req.id)
+        except Exception:
+            pass
+        flash(f'Invoice approved. UGX {needed_amount:,.0f} has been processed for {provider.name if provider else "the provider"}.', 'success')
+    elif tier == 2:
+        care_req.status = 'pending_community_admin'
+        db.session.commit()
+        try:
+            _notify_community_admins_care_pending(care_req, user)
+        except Exception:
+            pass
+        flash('Invoice approved and sent to your community admin for review.', 'success')
+    else:
+        care_req.status = 'pending_admin'
+        db.session.commit()
+        try:
+            notify_admin_care_pending(
+                _get_admin_phones(), user.name,
+                float(care_req.amount_needed or 0), care_req.id)
+        except Exception:
+            pass
+        flash('Invoice approved and escalated to system review.', 'success')
+
+    db.session.commit()
+    return redirect(url_for('home'))
+
+
+@app.route('/invoice/<int:request_id>/reject', methods=['POST'])
+def invoice_reject(request_id):
+    """Patient rejects the provider invoice — cancels the care request."""
+    if 'user_id' not in session:
+        return redirect(url_for('register'))
+    user = User.query.get(session['user_id'])
+    care_req = CareRequest.query.get_or_404(request_id)
+    if care_req.user_id != user.id or care_req.status != 'pending_patient_approval':
+        flash('Invalid or already-processed invoice.', 'error')
+        return redirect(url_for('home'))
+
+    care_req.status = 'rejected'
+    db.session.commit()
+
+    provider = Provider.query.get(care_req.provider_id) if care_req.provider_id else None
+    try:
+        if provider and provider.contact_phone:
+            from notifications import send_sms
+            send_sms(
+                provider.contact_phone,
+                f"Invoice #{care_req.id} for UGX {care_req.amount_needed:,.0f} was rejected by the patient."
+            )
+    except Exception:
+        pass
+
+    flash('Invoice rejected. The provider has been notified.', 'info')
+    return redirect(url_for('home'))
 
 # ------------------ USSD (Africa's Talking) ------------------
 ussd_sessions = {}

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Review Invoice – Solidarity Pool</title>
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#2d7dd2">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 24px 16px 48px;
+         background: #f5f6fa; }
+  .card { background: #fff; border-radius: 14px; padding: 24px 22px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+  h1 { font-size: 1.2rem; margin: 0 0 4px; color: #1a1a2e; }
+  .subtitle { font-size: 0.85rem; color: #888; margin-bottom: 20px; }
+
+  .provider-chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: #f0f4ff; border: 1px solid #c5d3f0; border-radius: 20px;
+    padding: 6px 14px; margin-bottom: 20px;
+    font-size: 0.88rem; color: #2d4a8a; font-weight: bold;
+  }
+
+  .amount-box {
+    text-align: center; background: #f8f9ff; border: 2px solid #dde4ff;
+    border-radius: 12px; padding: 20px; margin-bottom: 20px;
+  }
+  .amount-label { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em;
+                  color: #888; margin-bottom: 6px; }
+  .amount-value { font-size: 2.2rem; font-weight: bold; color: #1a1a2e; }
+  .amount-currency { font-size: 1rem; color: #666; }
+
+  .detail-row { display: flex; justify-content: space-between; padding: 9px 0;
+                border-bottom: 1px solid #f0f0f0; font-size: 0.88rem; }
+  .detail-row:last-child { border-bottom: none; }
+  .detail-label { color: #777; }
+  .detail-value { font-weight: 600; color: #222; text-align: right; max-width: 60%; }
+
+  .notice {
+    background: #fff8e1; border: 1px solid #ffe082; border-radius: 8px;
+    padding: 12px 14px; margin: 18px 0; font-size: 0.84rem; color: #5d4037; line-height: 1.5;
+  }
+
+  .btn-row { display: flex; gap: 12px; margin-top: 22px; }
+  .btn { flex: 1; padding: 13px 10px; border: none; border-radius: 8px; font-size: 1rem;
+         font-weight: bold; cursor: pointer; text-align: center; }
+  .btn-approve { background: #28a745; color: #fff; }
+  .btn-approve:hover { background: #218838; }
+  .btn-reject { background: #fff; color: #dc3545; border: 2px solid #dc3545; }
+  .btn-reject:hover { background: #fff5f5; }
+
+  .back-link { display: block; text-align: center; margin-top: 16px;
+               color: #888; font-size: 0.85rem; text-decoration: none; }
+  .back-link:hover { color: #555; }
+
+  .wallet-note { font-size: 0.8rem; color: #888; text-align: center; margin-top: 14px; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h1>Provider Invoice</h1>
+  <p class="subtitle">Review this invoice from your healthcare provider and approve or reject it.</p>
+
+  <div class="provider-chip">
+    🏥 {{ provider.name if provider else 'Unknown Provider' }}
+    {% if provider and provider.verified %}
+    <span style="background:#28a745; color:#fff; font-size:0.7rem; padding:2px 7px;
+                 border-radius:10px; font-weight:normal;">✓ Verified</span>
+    {% endif %}
+  </div>
+
+  <div class="amount-box">
+    <div class="amount-label">Amount requested</div>
+    <div class="amount-value">
+      <span class="amount-currency">UGX </span>{{ "{:,.0f}".format(care_req.amount_needed) }}
+    </div>
+  </div>
+
+  <div>
+    <div class="detail-row">
+      <span class="detail-label">Description</span>
+      <span class="detail-value">{{ description }}</span>
+    </div>
+    {% if provider %}
+    <div class="detail-row">
+      <span class="detail-label">Provider</span>
+      <span class="detail-value">{{ provider.name }}</span>
+    </div>
+    {% if provider.contact_name %}
+    <div class="detail-row">
+      <span class="detail-label">Contact</span>
+      <span class="detail-value">{{ provider.contact_name }}</span>
+    </div>
+    {% endif %}
+    {% endif %}
+    {% if community %}
+    <div class="detail-row">
+      <span class="detail-label">Your community</span>
+      <span class="detail-value">{{ community.name }}</span>
+    </div>
+    {% endif %}
+    <div class="detail-row">
+      <span class="detail-label">Invoice date</span>
+      <span class="detail-value">{{ care_req.created_at.strftime('%d %b %Y') }}</span>
+    </div>
+    <div class="detail-row">
+      <span class="detail-label">Invoice reference</span>
+      <span class="detail-value">#{{ care_req.id }}</span>
+    </div>
+  </div>
+
+  <div class="notice">
+    If you approve, the system will draw funds from your sub-wallet and community pool to pay the
+    provider. Any shortfall becomes a social credit repayable over time. If you reject, the invoice
+    is cancelled and the provider is notified.
+  </div>
+
+  <div class="btn-row">
+    <form method="POST" action="{{ url_for('invoice_reject', request_id=care_req.id) }}"
+          onsubmit="return confirm('Reject this invoice from {{ provider.name if provider else 'the provider' }}?')">
+      <button class="btn btn-reject" type="submit">✕ Reject</button>
+    </form>
+    <form method="POST" action="{{ url_for('invoice_approve', request_id=care_req.id) }}"
+          onsubmit="return confirm('Approve UGX {{ '{:,.0f}'.format(care_req.amount_needed) }} to {{ provider.name if provider else 'the provider' }}?')"
+          style="flex:2;">
+      <button class="btn btn-approve" type="submit" style="width:100%;">✓ Approve Invoice</button>
+    </form>
+  </div>
+
+  <p class="wallet-note">
+    Your current sub-wallet balance: <strong>UGX {{ "{:,.0f}".format(user.sub_wallet_balance) }}</strong>
+  </p>
+</div>
+
+<a class="back-link" href="{{ url_for('home') }}">← Back to dashboard</a>
+
+<script>
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/static/sw.js');
+</script>
+</body>
+</html>

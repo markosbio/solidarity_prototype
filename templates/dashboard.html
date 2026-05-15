@@ -175,10 +175,6 @@
     <span class="icon">🔐</span>Check Balance
     <span class="desc">PIN-verified: wallet, ceiling &amp; credit details</span>
   </a>
-  <a class="nav-btn" href="{{ url_for('simulate_roundup') }}">
-    <span class="icon">💰</span>Contribute
-    <span class="desc">Add to your health wallet via fees</span>
-  </a>
   <a class="nav-btn" href="{{ url_for('request_care') }}">
     <span class="icon">🏥</span>Request Care
     <span class="desc">Draw from the community care pool (PIN)</span>
@@ -228,6 +224,39 @@
   </a>
   {% endif %}
 </div>
+
+<!-- Provider invoices awaiting patient approval -->
+{% if pending_invoices %}
+<div style="margin-top:14px; background:#fff3e0; border:2px solid #ff9800; border-radius:10px; padding:14px 16px;">
+  <div style="font-weight:bold; color:#e65100; font-size:0.97rem; margin-bottom:8px;">
+    📋 You have {{ pending_invoices|length }} invoice{{ 's' if pending_invoices|length > 1 else '' }} waiting for your review
+  </div>
+  {% for inv in pending_invoices %}
+  {% set inv_provider = inv.provider %}
+  <div style="background:#fff; border:1px solid #ffcc80; border-radius:8px; padding:12px 14px; margin-bottom:10px;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:8px;">
+      <div>
+        <div style="font-weight:bold; font-size:1.05rem;">UGX {{ "{:,.0f}".format(inv.amount_needed) }}</div>
+        <div style="font-size:0.85rem; color:#555; margin-top:2px;">
+          From: <strong>{{ inv_provider.name if inv_provider else 'Unknown Provider' }}</strong>
+        </div>
+        {% if inv.invoice_description %}
+        <div style="font-size:0.82rem; color:#777; margin-top:2px;">{{ inv.invoice_description }}</div>
+        {% endif %}
+        <div style="font-size:0.78rem; color:#aaa; margin-top:2px;">Received {{ inv.created_at.strftime('%b %d, %Y') }}</div>
+      </div>
+      <div style="display:flex; gap:8px; flex-shrink:0;">
+        <a href="{{ url_for('invoice_review', request_id=inv.id) }}"
+           style="background:#2d7dd2; color:#fff; text-decoration:none; padding:8px 16px;
+                  border-radius:6px; font-size:0.88rem; font-weight:bold;">
+          Review →
+        </a>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
 
 <!-- Pending care request warning -->
 {% if pending_care %}
@@ -307,7 +336,7 @@
 {% else %}
 <p class="contrib-empty">
   No health contributions yet. Contributions are logged automatically when
-  mobile money fees are processed, or you can simulate one from the Contribute page.
+  mobile money fees are processed.
 </p>
 {% endif %}
 

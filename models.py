@@ -167,6 +167,7 @@ class CareRequest(db.Model):
     # Architecture v2 columns
     risk_tier = db.Column(db.Integer, default=0)
     amount_from_reserve = db.Column(db.Float, default=0.0)
+    invoice_description = db.Column(db.String(500), default='')
 
     user = db.relationship('User', foreign_keys=[user_id])
     provider = db.relationship('Provider')
