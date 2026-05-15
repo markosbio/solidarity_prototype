@@ -1039,6 +1039,8 @@ def _communities_flow(user: 'User', steps: list, level: int, lang: str) -> str:
                         return f"END {t(block, lang)}"
                     membership.leave_requested_at = datetime.utcnow()
                     membership.leave_status = 'pending'
+                    membership.leave_initiated_by = 'member'
+                    membership.leave_reason = 'Requested via USSD'
                     membership.leave_rejection_reason = None
                     db.session.commit()
                     logger.info("USSD leave request: user_id={} community_id={}", user.id, comm.id)
@@ -1053,9 +1055,9 @@ def _communities_flow(user: 'User', steps: list, level: int, lang: str) -> str:
 
     if level == 1:
         if comms:
-            names = '\n'.join(f"  {i+1}. {c.name}" for i, c in enumerate(comms))
-            return f"CON {t('community_none', lang)}\n{names}"
-        return f"CON {t('community_none', lang)}"
+            names = '\n'.join(f"{i+1}. {c.name}" for i, c in enumerate(comms))
+            return f"CON Join a community:\n{names}\n0. Back"
+        return f"CON No communities yet.\nCreate one at the web portal.\n0. Back"
 
     choice = steps[1].strip()
 
@@ -1073,7 +1075,7 @@ def _communities_flow(user: 'User', steps: list, level: int, lang: str) -> str:
                 user_id=user.id, community_id=comm.id
             ).first()
             if not existing:
-                db.session.add(CommunityMembership(user_id=user.id, community_id=comm.id))
+                db.session.add(CommunityMembership(user_id=user.id, community_id=comm.id, role='member'))
                 user.primary_community_id = comm.id
                 db.session.commit()
             logger.info("USSD community join: user_id={} community_id={}", user.id, comm.id)
@@ -1093,7 +1095,7 @@ def _communities_flow(user: 'User', steps: list, level: int, lang: str) -> str:
             user_id=user.id, community_id=comm.id
         ).first()
         if not existing:
-            db.session.add(CommunityMembership(user_id=user.id, community_id=comm.id))
+            db.session.add(CommunityMembership(user_id=user.id, community_id=comm.id, role='member'))
             if not user.primary_community_id:
                 user.primary_community_id = comm.id
             db.session.commit()

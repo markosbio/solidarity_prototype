@@ -722,12 +722,7 @@ def login():
                     user.referred_by = referrer.id
             db.session.add(user)
             db.session.commit()
-            default_comm = Community.query.first()
-            if default_comm:
-                db.session.add(CommunityMembership(
-                    user_id=user.id, community_id=default_comm.id, role='member'))
-                user.primary_community_id = default_comm.id
-                db.session.commit()
+            # New users start with no community — they join voluntarily via invite code
 
             # No auto-login — redirect to login with success message
             logger.info("New member registered: phone={} name={}", phone, name)
@@ -783,12 +778,7 @@ def register():
                 user.referred_by = referrer.id
         db.session.add(user)
         db.session.commit()
-        default_comm = Community.query.first()
-        if default_comm:
-            membership = CommunityMembership(user_id=user.id, community_id=default_comm.id, role='member')
-            db.session.add(membership)
-            user.primary_community_id = default_comm.id
-            db.session.commit()
+        # New users start with no community — they join voluntarily via invite code
         # No auto-login — redirect to login with success banner
         logger.info("New member registered via /register: phone={} name={}", phone, name)
         return redirect(url_for('login', phone=phone, registered='1'))

@@ -19,6 +19,7 @@ class User(db.Model):
     primary_community_id = db.Column(db.Integer, db.ForeignKey('community.id'), nullable=True)
     witness_accuracy_score = db.Column(db.Float, default=0.5)
     region_prefix = db.Column(db.String(10), default='')
+    preferred_language = db.Column(db.String(5), default='en')
     total_witness_calls = db.Column(db.Integer, default=0)
     correct_witness_calls = db.Column(db.Integer, default=0)
     is_global_admin = db.Column(db.Boolean, default=False)
