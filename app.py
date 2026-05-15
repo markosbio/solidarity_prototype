@@ -735,12 +735,49 @@ def home():
             .limit(10).all()
         )
         community_pending = _community_pending_count(user.id)
+        # Admin badge counts for system admin panel link
+        admin_badge = 0
+        if is_admin:
+            try:
+                ac = _admin_pending_counts()
+                admin_badge = (
+                    ac.get('pending_care', 0) +
+                    ac.get('fraud_alerts', 0) +
+                    ac.get('pending_providers', 0) +
+                    ac.get('open_support', 0) +
+                    ac.get('open_disputes', 0)
+                )
+            except Exception:
+                admin_badge = 0
+        # Recent approved care requests this user received
+        recent_care = (
+            CareRequest.query
+            .filter(
+                CareRequest.user_id == user.id,
+                CareRequest.status.in_(['approved', 'admin_approved'])
+            )
+            .order_by(CareRequest.created_at.desc())
+            .limit(5).all()
+        )
+        # Any pending requests for this user
+        pending_care = (
+            CareRequest.query
+            .filter(
+                CareRequest.user_id == user.id,
+                CareRequest.status.in_(['pending_community_admin', 'pending_admin', 'pending_witness'])
+            )
+            .order_by(CareRequest.created_at.desc())
+            .all()
+        )
         return render_template('dashboard.html', user=user, primary_comm=primary_comm,
                                membership=membership,
                                is_admin=is_admin, ceiling=ceiling, pool_health=ph,
                                ceiling_multiplier=ceiling_multiplier,
                                health_contributions=health_contributions,
-                               community_pending=community_pending)
+                               community_pending=community_pending,
+                               admin_badge=admin_badge,
+                               recent_care=recent_care,
+                               pending_care=pending_care)
     return redirect(url_for('register'))
 
 def _record_login(user, success=True):
@@ -1605,8 +1642,9 @@ def verify_care(request_id, response):
     yes_count = sum(1 for v in votes if v.endswith('accept'))
     total_witnesses = len(care_req.witness_ids.split(','))
     if yes_count >= 2:
-        need_admin = (care_req.amount_needed > 180000) or care_req.is_emergency
-        if need_admin:
+        # Only route to system admin if fraud-flagged; all others go to community admin
+        need_system_admin = bool(care_req.fraud_flagged)
+        if need_system_admin:
             care_req.status = 'pending_admin'
             try:
                 _care_user = db.session.get(User, care_req.user_id)
@@ -1619,17 +1657,14 @@ def verify_care(request_id, response):
             except Exception:
                 pass
         else:
-            care_req.status = 'admin_approved'
-            care_req.admin_approved = True
-            success, ref = pay_provider(
-                care_request_id=care_req.id, amount=care_req.amount_from_pool,
-                provider_id=care_req.provider_id, user_id=care_req.user_id,
-                community_id=care_req.community_id
-            )
-            if success:
-                care_req.payment_transaction_id = ref
+            care_req.status = 'pending_community_admin'
+            try:
+                _notify_community_admins_care_pending(care_req, db.session.get(User, care_req.user_id))
+            except Exception:
+                pass
         db.session.commit()
     elif len(votes) >= total_witnesses:
+        _reverse_care_request_financials(care_req)
         care_req.status = 'rejected'
         db.session.commit()
     return redirect(url_for('witness_dashboard'))
@@ -2142,9 +2177,17 @@ def admin_approve(request_id, action):
         db.session.commit()
         msg = f"Request #{request_id} approved."
     elif action == 'reject':
+        _reverse_care_request_financials(care_req)
         care_req.status = 'rejected'
+        try:
+            from notifications import notify_member_care_rejected
+            _deny_user = User.query.get(care_req.user_id)
+            if _deny_user:
+                notify_member_care_rejected(_deny_user)
+        except Exception:
+            pass
         db.session.commit()
-        msg = f"Request #{request_id} rejected."
+        msg = f"Request #{request_id} rejected — funds returned to member."
     else:
         return "Invalid action"
     return f"<p>{msg}</p><p><a href='/'>Home</a> | <a href='/community/{community.id}'>Back to Community</a></p>"
@@ -2875,21 +2918,19 @@ def ussd():
             yes_count = sum(1 for v in votes if v.endswith('accept'))
             total = len(care_req.witness_ids.split(','))
             if yes_count >= 2:
-                need_admin = bool(care_req.fraud_flagged)
-                if need_admin:
+                need_system_admin = bool(care_req.fraud_flagged)
+                if need_system_admin:
                     care_req.status = 'pending_admin'
                 else:
-                    care_req.status = 'admin_approved'
-                    care_req.admin_approved = True
-                    ok, ref = pay_provider(
-                        care_request_id=care_req.id, amount=care_req.amount_from_pool,
-                        provider_id=care_req.provider_id, user_id=care_req.user_id,
-                        community_id=care_req.community_id,
-                    )
-                    if ok:
-                        care_req.payment_transaction_id = ref
+                    care_req.status = 'pending_community_admin'
+                    try:
+                        _notify_community_admins_care_pending(
+                            care_req, db.session.get(User, care_req.user_id))
+                    except Exception:
+                        pass
                 db.session.commit()
             elif len(votes) >= total:
+                _reverse_care_request_financials(care_req)
                 care_req.status = 'rejected'
                 db.session.commit()
             ussd_sessions.pop(phone, None)

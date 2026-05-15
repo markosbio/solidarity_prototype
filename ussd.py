@@ -989,7 +989,7 @@ def _ussd_leave_checks(user, comm, membership):
 
     active_care = (CareRequest.query
                    .filter_by(user_id=user.id)
-                   .filter(CareRequest.status.in_(['pending_witness', 'pending_admin', 'approved']))
+                   .filter(CareRequest.status.in_(['pending_witness', 'pending_admin', 'pending_community_admin', 'approved']))
                    .first())
     if active_care:
         return 'leave_blocked_care'
@@ -1326,13 +1326,26 @@ def _admin_panel_flow(user: 'User', steps: list, lang: str) -> str:
             )
 
         if action == '2':
+            try:
+                from app import _reverse_care_request_financials
+                _reverse_care_request_financials(pending)
+            except Exception:
+                pass
             pending.status = 'rejected'
             pending.admin_id = user.id
             db.session.commit()
             _log_admin_action_ussd(user.id, 'ussd_reject_care',
                                    target_user_id=pending.user_id,
                                    details=f'Care #{pending.id} rejected via USSD by {user.name}')
-            return f"END Care #{pending.id} REJECTED.\nMember will be notified."
+            try:
+                from notifications import notify_member_care_rejected
+                from models import User as _U
+                _deny_user = _U.query.get(pending.user_id)
+                if _deny_user:
+                    notify_member_care_rejected(_deny_user)
+            except Exception:
+                pass
+            return f"END Care #{pending.id} REJECTED.\nFunds returned to member."
 
         return f"END {t('invalid_opt', lang)}"
 

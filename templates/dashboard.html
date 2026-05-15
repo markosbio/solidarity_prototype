@@ -216,12 +216,63 @@
     <span class="desc">Top pool contributors this month</span>
   </a>
   {% if is_admin %}
-  <a class="nav-btn" href="/admin" style="border-color:#dc3545; background:linear-gradient(135deg,#fff5f5,#fff);">
+  <a class="nav-btn" href="/admin" style="border-color:#dc3545; background:linear-gradient(135deg,#fff5f5,#fff); position:relative;">
     <span class="icon">🛡</span>Admin Panel
+    {% if admin_badge and admin_badge > 0 %}
+    <span style="position:absolute;top:8px;right:10px;background:#dc3545;color:#fff;
+                 border-radius:10px;padding:1px 7px;font-size:0.72rem;font-weight:bold;">
+      {{ admin_badge }}
+    </span>
+    {% endif %}
     <span class="desc">Care queue, fraud alerts, trust, providers &amp; more</span>
   </a>
   {% endif %}
 </div>
+
+<!-- Pending care request warning -->
+{% if pending_care %}
+<div class="credit-warn" style="margin-top:14px;">
+  You have <strong>{{ pending_care|length }} care request{{ 's' if pending_care|length > 1 else '' }} awaiting review</strong>.
+  {% for cr in pending_care %}
+  <div style="font-size:0.82rem; margin-top:4px; color:#856404;">
+    #{{ cr.id }} — UGX {{ "{:,.0f}".format(cr.amount_needed) }}
+    {% if cr.status == 'pending_community_admin' %}· Awaiting community admin approval
+    {% elif cr.status == 'pending_admin' %}· Awaiting system review (flagged)
+    {% elif cr.status == 'pending_witness' %}· Awaiting peer witnesses
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Recent care support received -->
+{% if recent_care %}
+<div class="section-title">Care Support Received</div>
+<table class="contrib-table">
+  <thead>
+    <tr>
+      <th>Date</th>
+      <th>Amount</th>
+      <th>Provider</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for cr in recent_care %}
+  <tr>
+    <td>{{ cr.created_at.strftime('%b %d') }}</td>
+    <td>UGX {{ "{:,.0f}".format(cr.amount_needed) }}</td>
+    <td style="font-size:0.8rem;">
+      {% if cr.provider %}{{ cr.provider.name[:16] }}{% else %}—{% endif %}
+    </td>
+    <td>
+      <span class="type-badge badge-send">approved</span>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
 
 <!-- Health Contributions — dates and types only; amounts hidden behind PIN -->
 <div class="section-title">Health Contributions</div>

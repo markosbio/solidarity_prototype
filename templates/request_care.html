@@ -81,7 +81,7 @@
         <input type="checkbox" name="is_emergency" id="is_emergency">
         <label for="is_emergency">Medical emergency</label>
       </div>
-      <div class="toggle-sub">Raises your ceiling to UGX {{ "{:,.0f}".format(emergency_ceiling) }}. Goes to admin review.</div>
+      <div class="toggle-sub">Raises your ceiling to UGX {{ "{:,.0f}".format(emergency_ceiling) }}. Goes to community admin review.</div>
     </div>
 
     <label>Amount (UGX)
@@ -90,13 +90,17 @@
       <span class="hint" id="amount-hint"></span>
     </label>
 
-    <label>Provider
-      <select name="provider_id" required>
-        {% for p in providers %}
-          <option value="{{ p.id }}">{{ p.name }}{% if not p.verified %} (unverified){% endif %}</option>
-        {% endfor %}
-      </select>
-    </label>
+    <label>Provider</label>
+    <div style="position:relative; margin-top:4px;">
+      <input type="text" id="provider-search" placeholder="Type name or code (e.g. Mulago or MULAGO001)"
+             autocomplete="off" style="width:100%;padding:9px;border:1px solid #ccc;border-radius:4px;
+             box-sizing:border-box;font-size:1rem;">
+      <input type="hidden" name="provider_id" id="provider_id_hidden" required>
+      <div id="provider-dropdown" style="display:none;position:absolute;left:0;right:0;background:#fff;
+           border:1px solid #ccc;border-top:none;border-radius:0 0 4px 4px;max-height:220px;
+           overflow-y:auto;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,0.1);"></div>
+    </div>
+    <span class="hint" id="provider-hint" style="display:none;color:#dc3545;">Please select a provider from the list.</span>
 
     <button type="submit" id="submit-btn">Submit Request →</button>
   </form>
@@ -147,6 +151,69 @@ walletChk.addEventListener('change', updateUI);
 emgChk.addEventListener('change', updateUI);
 amountInput.addEventListener('input', updateUI);
 
+// ── Provider autocomplete ────────────────────────────────────────────────────
+const providers = [
+  {% for p in providers %}
+  { id: {{ p.id }}, name: {{ p.name | tojson }}, code: {{ (p.provider_code or '') | tojson }}, verified: {{ 'true' if p.verified else 'false' }} }{{ ',' if not loop.last }}
+  {% endfor %}
+];
+
+const searchInput  = document.getElementById('provider-search');
+const hiddenInput  = document.getElementById('provider_id_hidden');
+const dropdown     = document.getElementById('provider-dropdown');
+const providerHint = document.getElementById('provider-hint');
+
+function buildLabel(p) {
+  const code = p.code ? ` – ${p.code}` : '';
+  const tag  = p.verified ? '' : ' (unverified)';
+  return p.name + code + tag;
+}
+
+function showDropdown(matches) {
+  dropdown.innerHTML = '';
+  if (!matches.length) {
+    dropdown.style.display = 'none';
+    return;
+  }
+  matches.forEach(p => {
+    const item = document.createElement('div');
+    item.textContent = buildLabel(p);
+    item.style.cssText = 'padding:9px 12px;cursor:pointer;font-size:0.93rem;border-bottom:1px solid #f0f0f0;';
+    if (!p.verified) item.style.color = '#888';
+    item.addEventListener('mousedown', () => {
+      searchInput.value  = buildLabel(p);
+      hiddenInput.value  = p.id;
+      dropdown.style.display = 'none';
+      providerHint.style.display = 'none';
+    });
+    item.addEventListener('mouseover', () => item.style.background = '#f0f6ff');
+    item.addEventListener('mouseout',  () => item.style.background = '');
+    dropdown.appendChild(item);
+  });
+  dropdown.style.display = 'block';
+}
+
+searchInput.addEventListener('input', function() {
+  hiddenInput.value = '';
+  const q = this.value.trim().toLowerCase();
+  if (!q) { dropdown.style.display = 'none'; return; }
+  const matches = providers.filter(p =>
+    p.name.toLowerCase().includes(q) || (p.code && p.code.toLowerCase().includes(q))
+  );
+  showDropdown(matches);
+});
+
+searchInput.addEventListener('focus', function() {
+  if (!this.value.trim()) showDropdown(providers.slice(0, 20));
+});
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('#provider-dropdown') && e.target !== searchInput) {
+    dropdown.style.display = 'none';
+  }
+});
+
+// ── Form validation ──────────────────────────────────────────────────────────
 document.getElementById('care-form').addEventListener('submit', function(e) {
   const wo  = walletChk.checked;
   const emg = emgChk.checked;
@@ -156,6 +223,12 @@ document.getElementById('care-form').addEventListener('submit', function(e) {
     e.preventDefault();
     amountHint.className = 'hint warn';
     amountHint.textContent = 'Amount exceeds ' + fmt(cap) + '. Please reduce it.';
+    return;
+  }
+  if (!hiddenInput.value) {
+    e.preventDefault();
+    providerHint.style.display = 'block';
+    searchInput.focus();
   }
 });
 </script>
