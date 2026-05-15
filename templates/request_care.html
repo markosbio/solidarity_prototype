@@ -6,251 +6,156 @@
   <meta name="theme-color" content="#2d7dd2">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    body { font-family: sans-serif; margin: 2em auto; max-width: 520px; padding: 0 16px; }
-    h2 { margin-bottom: 4px; }
-    .subtitle { color: #666; margin-bottom: 20px; font-size: 0.9rem; }
+    body { font-family: sans-serif; margin: 2em auto; max-width: 480px; padding: 0 16px; }
+    h2 { margin-bottom: 2px; }
+    .sub { color: #666; font-size: 0.88rem; margin-bottom: 18px; }
     label { display: block; font-weight: bold; margin-top: 14px; font-size: 0.9rem; }
     input, select { width: 100%; padding: 9px; margin-top: 4px; border: 1px solid #ccc;
                     border-radius: 4px; box-sizing: border-box; font-size: 1rem; }
     button { display: block; width: 100%; background: #2c7da0; color: white; border: none;
-             padding: 11px; border-radius: 8px; cursor: pointer; margin-top: 18px;
-             font-size: 1rem; }
+             padding: 11px; border-radius: 8px; cursor: pointer; margin-top: 18px; font-size: 1rem; }
     button:hover { background: #245f7a; }
-    .note { font-size: 0.8em; color: #555; margin-top: 14px; }
-    .ceiling-banner { background: #e8f4f8; border-left: 4px solid #2d7dd2; padding: 12px 16px;
-                      border-radius: 0 6px 6px 0; margin-bottom: 12px; }
-    .ceiling-banner .big { font-size: 1.4rem; font-weight: bold; color: #2d7dd2; }
-    .ceiling-banner .sub { font-size: 0.82rem; color: #2c4a6e; margin-top: 2px; }
-    .emg-banner { background: #fff8e1; border-left: 4px solid #f59e0b; padding: 12px 16px;
-                  border-radius: 0 6px 6px 0; margin-bottom: 20px; }
-    .emg-banner .big { font-size: 1.2rem; font-weight: bold; color: #b45309; }
-    .emg-banner .sub { font-size: 0.82rem; color: #78350f; margin-top: 2px; }
-    .stat-row { display: flex; gap: 10px; margin-bottom: 18px; }
-    .stat-chip { flex: 1; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px;
-                  padding: 8px 12px; font-size: 0.85rem; }
-    .stat-chip .slabel { color: #777; font-size: 0.75rem; }
-    .stat-chip .sval { font-weight: bold; color: #333; }
-    .sval.green { color: #28a745; }
-    .hint { font-size: 0.78rem; color: #888; margin-top: 3px; }
+    .hint { font-size: 0.8em; color: #555; margin-top: 3px; }
     .hint.warn { color: #b45309; font-weight: 600; }
-    .wallet-only-box { background: #f0f8f0; border: 1px solid #c3e6cb; border-radius: 8px;
-                       padding: 14px 16px; margin-top: 16px; }
-    .wallet-only-box .wo-header { display: flex; align-items: center; gap: 8px; }
-    .wallet-only-box .wo-header input[type=checkbox] { width: auto; margin: 0; }
-    .wallet-only-box .wo-header label { font-weight: bold; margin: 0; font-size: 0.95rem; color: #155724; }
-    .wallet-only-box .wo-desc { font-size: 0.8rem; color: #555; margin-top: 6px; }
-    .wallet-only-box .wo-balance { font-size: 0.85rem; color: #28a745; font-weight: bold; margin-top: 4px; }
-    .emg-box { background: #fff8e1; border: 1px solid #fcd34d; border-radius: 8px;
-               padding: 14px 16px; margin-top: 12px; }
-    .emg-box .emg-header { display: flex; align-items: center; gap: 8px; }
-    .emg-box .emg-header input[type=checkbox] { width: auto; margin: 0; }
-    .emg-box .emg-header label { font-weight: bold; margin: 0; font-size: 0.95rem; color: #92400e; }
-    .emg-box .emg-desc { font-size: 0.8rem; color: #78350f; margin-top: 6px; }
-    .funding-chain { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px;
-                     padding: 14px 16px; margin-top: 16px; }
-    .funding-chain .fc-title { font-weight: bold; font-size: 0.88rem; color: #495057; margin-bottom: 8px; }
-    .funding-chain .fc-step { display: flex; align-items: center; gap: 8px;
-                               font-size: 0.82rem; color: #555; margin-bottom: 5px; }
-    .funding-chain .fc-step .badge { background: #2d7dd2; color: #fff; border-radius: 50%;
-                                      width: 18px; height: 18px; display: flex; align-items: center;
-                                      justify-content: center; font-size: 0.7rem; font-weight: bold; flex-shrink: 0; }
-    .primary-badge { display: inline-block; background: #2d7dd2; color: #fff;
-                     border-radius: 4px; padding: 1px 7px; font-size: 0.75rem; font-weight: 600;
-                     margin-left: 6px; }
+    .ceilings { display: flex; gap: 10px; margin-bottom: 18px; }
+    .ceil-card { flex: 1; border-radius: 8px; padding: 10px 14px; }
+    .ceil-card.normal { background: #e8f4f8; border-left: 4px solid #2d7dd2; }
+    .ceil-card.emg    { background: #fff8e1; border-left: 4px solid #f59e0b; }
+    .ceil-card .amount { font-size: 1.25rem; font-weight: bold; }
+    .ceil-card.normal .amount { color: #2d7dd2; }
+    .ceil-card.emg    .amount { color: #b45309; }
+    .ceil-card .label { font-size: 0.75rem; color: #555; margin-top: 2px; }
+    .toggle-box { border-radius: 8px; padding: 12px 14px; margin-top: 12px; }
+    .toggle-box.wallet { background: #f0f8f0; border: 1px solid #c3e6cb; }
+    .toggle-box.emergency { background: #fff8e1; border: 1px solid #fcd34d; }
+    .toggle-row { display: flex; align-items: center; gap: 8px; }
+    .toggle-row input[type=checkbox] { width: auto; margin: 0; cursor: pointer; }
+    .toggle-row label { margin: 0; font-weight: bold; font-size: 0.95rem; cursor: pointer; }
+    .toggle-row.wallet label { color: #155724; }
+    .toggle-row.emergency label { color: #92400e; }
+    .toggle-sub { font-size: 0.8rem; color: #666; margin-top: 5px; padding-left: 24px; }
     .error-box { background: #f8d7da; border-left: 4px solid #dc3545; padding: 10px 14px;
-                 border-radius: 0 6px 6px 0; margin-bottom: 16px; font-size: 0.88rem; color: #721c24; }
-    .no-community-warn { background: #fff3cd; border-left: 4px solid #ffc107; padding: 10px 14px;
-                         border-radius: 0 6px 6px 0; margin-bottom: 14px; font-size: 0.85rem; color: #856404; }
+                 border-radius: 0 6px 6px 0; margin-bottom: 14px; font-size: 0.88rem; color: #721c24; }
+    .warn-box { background: #fff3cd; border-left: 4px solid #ffc107; padding: 10px 14px;
+                border-radius: 0 6px 6px 0; margin-bottom: 14px; font-size: 0.85rem; color: #856404; }
+    .back { font-size: 0.85rem; margin-top: 20px; }
   </style>
 </head>
 <body>
-  <h2>Request Financial Support</h2>
-  <p class="subtitle">Funds go directly to the provider — never to your wallet.</p>
+  <h2>Request Care</h2>
+  <p class="sub">Funds go directly to your provider.</p>
 
   {% if error %}
   <div class="error-box">{{ error }}</div>
   {% endif %}
 
-  <div class="ceiling-banner">
-    <div class="big">UGX {{ "{:,.0f}".format(ceiling) }}</div>
-    <div class="sub">Your normal drawing ceiling — maximum you can request from the pool.<br>
-      Based on your trust score, contributions, and pool health.</div>
-  </div>
-
-  <div class="emg-banner">
-    <div class="big">UGX {{ "{:,.0f}".format(emergency_ceiling) }}</div>
-    <div class="sub">
-      Emergency ceiling for your trust tier
-      {% if emg_tier == 'low' %}<strong>({{ emg_mult }}× · low trust)</strong>
-      {% elif emg_tier == 'high' %}<strong>({{ emg_mult }}× · high trust)</strong>
-      {% else %}<strong>({{ emg_mult }}× · mid trust)</strong>{% endif %}
-      — only for genuine medical emergencies. Goes to admin review.
-    </div>
-  </div>
-
-  <div class="stat-row">
-    <div class="stat-chip">
-      <div class="slabel">Health wallet</div>
-      <div class="sval green">UGX {{ "{:,.0f}".format(user.sub_wallet_balance) }}</div>
-    </div>
-    <div class="stat-chip">
-      <div class="slabel">Trust score</div>
-      <div class="sval">{{ "%.2f"|format(user.trust_score) }}</div>
-    </div>
-    <div class="stat-chip">
-      <div class="slabel">Contributed (lifetime)</div>
-      <div class="sval">UGX {{ "{:,.0f}".format(user.lifetime_contribution_score or 0) }}</div>
-    </div>
-  </div>
-
-  {% if primary_community %}
-  <div class="funding-chain">
-    <div class="fc-title">How your request will be funded automatically:</div>
-    <div class="fc-step">
-      <div class="badge">1</div>
-      Your health wallet (UGX {{ "{:,.0f}".format(user.sub_wallet_balance) }} available)
-    </div>
-    <div class="fc-step">
-      <div class="badge">2</div>
-      {{ primary_community.name }} pool
-      <span class="primary-badge">Primary</span>
-      (UGX {{ "{:,.0f}".format(primary_community.pool_balance) }})
-    </div>
-    <div class="fc-step">
-      <div class="badge">3</div>
-      Global solidarity reserve (system backup)
-    </div>
-  </div>
-  {% else %}
-  <div class="no-community-warn">
-    You don't have a primary community yet.
-    <a href="{{ url_for('communities.list_communities') }}">Join one first →</a>
-    to unlock community pool funding.
+  {% if not primary_community %}
+  <div class="warn-box">
+    No primary community set — <a href="{{ url_for('communities.list_communities') }}">join one</a> to unlock pool funding.
   </div>
   {% endif %}
 
+  <div class="ceilings">
+    <div class="ceil-card normal">
+      <div class="amount">UGX {{ "{:,.0f}".format(ceiling) }}</div>
+      <div class="label">Your ceiling</div>
+    </div>
+    <div class="ceil-card emg">
+      <div class="amount">UGX {{ "{:,.0f}".format(emergency_ceiling) }}</div>
+      <div class="label">Emergency ceiling ({{ emg_mult }}×)</div>
+    </div>
+  </div>
+
   <form method="POST" id="care-form">
 
-    <!-- Wallet-only fast path -->
-    <div class="wallet-only-box">
-      <div class="wo-header">
+    <div class="toggle-box wallet">
+      <div class="toggle-row wallet">
         <input type="checkbox" name="wallet_only" id="wallet_only">
-        <label for="wallet_only">Pay from my wallet only (instant)</label>
+        <label for="wallet_only">Pay from my wallet only — instant</label>
       </div>
-      <div class="wo-desc">No approval needed — payment goes directly to the provider right now.</div>
-      <div class="wo-balance">Available: UGX {{ "{:,.0f}".format(user.sub_wallet_balance) }}</div>
+      <div class="toggle-sub">Available: UGX {{ "{:,.0f}".format(user.sub_wallet_balance) }}</div>
     </div>
 
-    <!-- Emergency flag -->
-    <div class="emg-box" id="emg-box">
-      <div class="emg-header">
+    <div class="toggle-box emergency" id="emg-box">
+      <div class="toggle-row emergency">
         <input type="checkbox" name="is_emergency" id="is_emergency">
-        <label for="is_emergency">This is a medical emergency</label>
+        <label for="is_emergency">Medical emergency</label>
       </div>
-      <div class="emg-desc">
-        Check this only for genuine emergencies. Your ceiling increases to
-        <strong>UGX {{ "{:,.0f}".format(emergency_ceiling) }}</strong> but the request goes to admin review.
-      </div>
+      <div class="toggle-sub">Raises your ceiling to UGX {{ "{:,.0f}".format(emergency_ceiling) }}. Goes to admin review.</div>
     </div>
 
-    <label>Amount needed (UGX)
-      <input type="number" step="1" min="1"
-             name="needed_amount" id="needed_amount"
-             placeholder="Enter amount"
-             required>
-      <span class="hint" id="amount-hint">
-        Your wallet is used first, then your primary community pool, then the global reserve.
-      </span>
+    <label>Amount (UGX)
+      <input type="number" step="1" min="1" name="needed_amount" id="needed_amount"
+             placeholder="Enter amount" required>
+      <span class="hint" id="amount-hint"></span>
     </label>
 
-    <label>Provider (hospital / clinic)
+    <label>Provider
       <select name="provider_id" required>
         {% for p in providers %}
-          <option value="{{ p.id }}">{{ p.name }} — {{ p.provider_code }}{% if not p.verified %} (unverified){% endif %}</option>
+          <option value="{{ p.id }}">{{ p.name }}{% if not p.verified %} (unverified){% endif %}</option>
         {% endfor %}
       </select>
-      <span class="hint">Verified clinics qualify for instant auto-approval on smaller amounts.</span>
     </label>
 
     <button type="submit" id="submit-btn">Submit Request →</button>
   </form>
 
-  <p class="note" id="pool-note">
-    Approval is instant for small, trusted requests. Larger or higher-risk requests go to
-    a community admin or global admin for review — no witnesses required.
-  </p>
-  <p><a href="/">← Back to dashboard</a></p>
+  <p class="back"><a href="/">← Dashboard</a></p>
 
 <script>
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/static/sw.js');
 
-const walletBalance  = {{ user.sub_wallet_balance }};
-const normalCeiling  = {{ ceiling }};
-const emergencyCeil  = {{ emergency_ceiling }};
-const walletOnlyChk  = document.getElementById('wallet_only');
-const emergencyChk   = document.getElementById('is_emergency');
-const amountInput    = document.getElementById('needed_amount');
-const amountHint     = document.getElementById('amount-hint');
-const submitBtn      = document.getElementById('submit-btn');
-const emgBox         = document.getElementById('emg-box');
+const walletBalance = {{ user.sub_wallet_balance }};
+const normalCeiling = {{ ceiling }};
+const emergencyCeil = {{ emergency_ceiling }};
+const walletChk     = document.getElementById('wallet_only');
+const emgChk        = document.getElementById('is_emergency');
+const amountInput   = document.getElementById('needed_amount');
+const amountHint    = document.getElementById('amount-hint');
+const submitBtn     = document.getElementById('submit-btn');
+const emgBox        = document.getElementById('emg-box');
 
-function formatUGX(n) {
-  return 'UGX ' + Math.round(n).toLocaleString();
-}
+function fmt(n) { return 'UGX ' + Math.round(n).toLocaleString(); }
 
 function updateUI() {
-  const walletOnly = walletOnlyChk.checked;
-  const isEmg      = emergencyChk.checked;
-  const amount     = parseFloat(amountInput.value) || 0;
+  const wo  = walletChk.checked;
+  const emg = emgChk.checked;
+  const amt = parseFloat(amountInput.value) || 0;
 
-  // Hide emergency checkbox when wallet-only
-  emgBox.style.display = walletOnly ? 'none' : '';
-  if (walletOnly) emergencyChk.checked = false;
+  emgBox.style.display = wo ? 'none' : '';
+  if (wo) emgChk.checked = false;
 
-  if (walletOnly) {
-    submitBtn.textContent = 'Pay from Wallet →';
-    amountHint.className  = 'hint';
-    amountHint.textContent = 'Must not exceed your wallet balance (' + formatUGX(walletBalance) + ').';
-    return;
-  }
+  const cap = wo ? walletBalance : (emg ? emergencyCeil : normalCeiling);
 
-  const effectiveCeil = isEmg ? emergencyCeil : normalCeiling;
-
-  if (amount > 0 && amount > effectiveCeil) {
-    amountHint.className  = 'hint warn';
-    if (!isEmg && amount <= emergencyCeil) {
-      amountHint.textContent = 'Amount exceeds your normal ceiling. Tick "medical emergency" above to request up to ' + formatUGX(emergencyCeil) + '.';
+  if (amt > 0 && amt > cap) {
+    amountHint.className = 'hint warn';
+    if (!wo && !emg && amt <= emergencyCeil) {
+      amountHint.textContent = 'Over your ceiling. Tick "Medical emergency" to request up to ' + fmt(emergencyCeil) + '.';
     } else {
-      amountHint.textContent = 'Amount exceeds your ' + (isEmg ? 'emergency' : 'normal') + ' ceiling of ' + formatUGX(effectiveCeil) + '. Please reduce the amount.';
+      amountHint.textContent = 'Exceeds your ' + (wo ? 'wallet balance' : emg ? 'emergency ceiling' : 'ceiling') + ' of ' + fmt(cap) + '.';
     }
-  } else if (isEmg) {
-    amountHint.className  = 'hint warn';
-    amountHint.textContent = 'Emergency ceiling: ' + formatUGX(emergencyCeil) + '. Request goes to admin for review.';
   } else {
-    amountHint.className  = 'hint';
-    amountHint.textContent = 'Normal ceiling: ' + formatUGX(normalCeiling) + '. Your wallet is used first, then pool, then global reserve.';
+    amountHint.className = 'hint';
+    amountHint.textContent = '';
   }
 
-  submitBtn.textContent = isEmg ? 'Submit Emergency Request →' : 'Submit Request →';
+  submitBtn.textContent = wo ? 'Pay from Wallet →' : emg ? 'Submit Emergency Request →' : 'Submit Request →';
 }
 
-walletOnlyChk.addEventListener('change', updateUI);
-emergencyChk.addEventListener('change', updateUI);
+walletChk.addEventListener('change', updateUI);
+emgChk.addEventListener('change', updateUI);
 amountInput.addEventListener('input', updateUI);
 
-// Client-side pre-validation on submit
 document.getElementById('care-form').addEventListener('submit', function(e) {
-  const walletOnly = walletOnlyChk.checked;
-  const isEmg      = emergencyChk.checked;
-  const amount     = parseFloat(amountInput.value) || 0;
-
-  if (walletOnly) return; // server handles wallet balance check
-
-  const effectiveCeil = isEmg ? emergencyCeil : normalCeiling;
-  if (amount > effectiveCeil) {
+  const wo  = walletChk.checked;
+  const emg = emgChk.checked;
+  const amt = parseFloat(amountInput.value) || 0;
+  const cap = wo ? walletBalance : (emg ? emergencyCeil : normalCeiling);
+  if (amt > cap) {
     e.preventDefault();
-    amountHint.className  = 'hint warn';
-    amountHint.textContent = 'Your requested amount exceeds your current drawing ceiling. Please reduce the amount or submit an Exceptional Assistance Request.';
+    amountHint.className = 'hint warn';
+    amountHint.textContent = 'Amount exceeds ' + fmt(cap) + '. Please reduce it.';
   }
 });
 </script>

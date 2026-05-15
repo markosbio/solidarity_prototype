@@ -180,6 +180,46 @@ def _get_admin_phones():
         return list(ADMIN_PHONES)
 
 
+def _community_pending_count(user_id: int) -> int:
+    """Count pending_community_admin care requests in communities where user is admin/coadmin."""
+    try:
+        admin_comm_ids = [
+            m.community_id for m in
+            CommunityMembership.query.filter(
+                CommunityMembership.user_id == user_id,
+                CommunityMembership.role.in_(['admin', 'coadmin'])
+            ).all()
+        ]
+        if not admin_comm_ids:
+            return 0
+        return CareRequest.query.filter(
+            CareRequest.community_id.in_(admin_comm_ids),
+            CareRequest.status == 'pending_community_admin'
+        ).count()
+    except Exception:
+        return 0
+
+
+def _community_pending_by_id(user_id: int) -> dict:
+    """Return {community_id: pending_count} for communities the user admins."""
+    try:
+        admin_memberships = CommunityMembership.query.filter(
+            CommunityMembership.user_id == user_id,
+            CommunityMembership.role.in_(['admin', 'coadmin'])
+        ).all()
+        result = {}
+        for m in admin_memberships:
+            count = CareRequest.query.filter_by(
+                community_id=m.community_id,
+                status='pending_community_admin'
+            ).count()
+            if count:
+                result[m.community_id] = count
+        return result
+    except Exception:
+        return {}
+
+
 def _admin_pending_counts():
     """Compute badge counts for admin navigation & dashboard. Returns a dict."""
     try:
@@ -639,11 +679,13 @@ def home():
             .order_by(MobileMoneyTransaction.timestamp.desc())
             .limit(10).all()
         )
+        community_pending = _community_pending_count(user.id)
         return render_template('dashboard.html', user=user, primary_comm=primary_comm,
                                membership=membership,
                                is_admin=is_admin, ceiling=ceiling, pool_health=ph,
                                ceiling_multiplier=ceiling_multiplier,
-                               health_contributions=health_contributions)
+                               health_contributions=health_contributions,
+                               community_pending=community_pending)
     return redirect(url_for('register'))
 
 def _record_login(user, success=True):
@@ -964,11 +1006,70 @@ def community_dashboard(comm_id):
     members = CommunityMembership.query.filter_by(community_id=comm_id).all()
     for m in members:
         m.user = User.query.get(m.user_id)
+    pending_care = []
+    if membership.role in ('admin', 'coadmin'):
+        pending_care = (CareRequest.query
+                        .filter_by(community_id=comm_id, status='pending_community_admin')
+                        .order_by(CareRequest.id.desc()).all())
+        for req in pending_care:
+            req.member = User.query.get(req.user_id)
+            req.provider = VerifiedProvider.query.get(req.provider_id) if req.provider_id else None
     return render_template('community_dashboard.html',
                            community=community,
                            members=members,
                            user_role=membership.role,
-                           current_user_id=user.id)
+                           current_user_id=user.id,
+                           pending_care=pending_care)
+
+
+@app.route('/community/<int:comm_id>/care-action/<int:request_id>/<action>', methods=['POST'])
+def community_care_action(comm_id, request_id, action):
+    """Community admin approve or reject a pending_community_admin care request."""
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    user = User.query.get(session['user_id'])
+    membership = CommunityMembership.query.filter_by(
+        user_id=user.id, community_id=comm_id).first()
+    if not membership or membership.role not in ('admin', 'coadmin'):
+        flash('Not authorised.', 'error')
+        return redirect(url_for('community_dashboard', comm_id=comm_id))
+    care_req = CareRequest.query.get(request_id)
+    if not care_req or care_req.community_id != comm_id:
+        flash('Request not found.', 'error')
+        return redirect(url_for('community_dashboard', comm_id=comm_id))
+    if care_req.status != 'pending_community_admin':
+        flash('This request is no longer awaiting community review.', 'error')
+        return redirect(url_for('community_dashboard', comm_id=comm_id))
+    if action == 'approve':
+        care_req.status = 'admin_approved'
+        care_req.admin_approved = True
+        care_req.admin_id = user.id
+        db.session.commit()
+        try:
+            pool_amount = care_req.amount_from_pool or 0.0
+            if pool_amount > 0:
+                ok, ref = pay_provider(
+                    care_request_id=care_req.id, amount=pool_amount,
+                    provider_id=care_req.provider_id, user_id=care_req.user_id,
+                    community_id=comm_id)
+                if ok:
+                    care_req.payment_transaction_id = ref
+                    db.session.commit()
+        except Exception:
+            pass
+        _log_admin_action(user.id, 'community_care_approve',
+                          details=f'community={comm_id} request=#{request_id}')
+        flash(f'Request #{request_id} approved — payment triggered.', 'success')
+    elif action == 'reject':
+        care_req.status = 'rejected'
+        care_req.admin_id = user.id
+        db.session.commit()
+        _log_admin_action(user.id, 'community_care_reject',
+                          details=f'community={comm_id} request=#{request_id}')
+        flash(f'Request #{request_id} rejected.', 'success')
+    else:
+        flash('Invalid action.', 'error')
+    return redirect(url_for('community_dashboard', comm_id=comm_id))
 
 
 @app.route('/community/<int:comm_id>/promote/<int:member_id>', methods=['POST'])

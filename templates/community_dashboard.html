@@ -183,29 +183,60 @@
         </table>
     </div>
 
-    {# ── Pending major care requests ── #}
+    {# ── Pending care requests awaiting community admin review ── #}
     {% if user_role in ['admin', 'coadmin'] %}
-    <div class="card">
-        <h2 style="margin-top:0;">Pending Major Requests</h2>
-        {% set pending = namespace(list=[]) %}
-        {% for req in community.care_requests %}
-            {% if req.status == 'pending_admin' and not req.admin_approved %}
-                {% set pending.list = pending.list + [req] %}
+    <div class="card" style="border-color:{% if pending_care %}#f59e0b{% else %}#ccc{% endif %};">
+        <h2 style="margin-top:0;">
+            Care Requests — Awaiting Your Approval
+            {% if pending_care %}
+            <span style="display:inline-block; background:#dc3545; color:#fff; border-radius:12px;
+                         font-size:0.8rem; padding:2px 9px; margin-left:6px; font-weight:bold;">
+                {{ pending_care|length }}
+            </span>
             {% endif %}
+        </h2>
+        {% with msgs = get_flashed_messages(with_categories=true) %}
+          {% for cat, msg in msgs %}
+            <div class="alert alert-{{ 'success' if cat=='success' else 'error' }}">{{ msg }}</div>
+          {% endfor %}
+        {% endwith %}
+        {% if pending_care %}
+        {% for req in pending_care %}
+        <div style="border:1px solid #fcd34d; border-radius:8px; padding:12px 14px; margin-bottom:10px; background:#fffbeb;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:8px;">
+                <div>
+                    <div style="font-weight:bold; font-size:1rem;">
+                        UGX {{ "{:,.0f}".format(req.amount_needed) }}
+                        {% if req.is_emergency %}
+                        <span style="background:#dc3545; color:#fff; border-radius:4px; font-size:0.72rem; padding:2px 7px; margin-left:4px;">EMERGENCY</span>
+                        {% endif %}
+                    </div>
+                    <div style="font-size:0.85rem; color:#555; margin-top:3px;">
+                        <strong>{{ req.member.name if req.member else '—' }}</strong>
+                        · {{ req.member.phone if req.member else '' }}
+                    </div>
+                    <div style="font-size:0.82rem; color:#777; margin-top:2px;">
+                        Provider: {{ req.provider.name if req.provider else 'ID #' ~ (req.provider_id or '?') }}
+                        · Request #{{ req.id }}
+                    </div>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center; flex-shrink:0;">
+                    <form method="POST"
+                          action="{{ url_for('community_care_action', comm_id=community.id, request_id=req.id, action='approve') }}"
+                          onsubmit="return confirm('Approve request #{{ req.id }} for UGX {{ "{:,.0f}".format(req.amount_needed) }}?');">
+                        <button class="btn btn-approve">✓ Approve</button>
+                    </form>
+                    <form method="POST"
+                          action="{{ url_for('community_care_action', comm_id=community.id, request_id=req.id, action='reject') }}"
+                          onsubmit="return confirm('Reject request #{{ req.id }}?');">
+                        <button class="btn btn-deny">✗ Reject</button>
+                    </form>
+                </div>
+            </div>
+        </div>
         {% endfor %}
-        {% if pending.list %}
-            <ul>
-            {% for req in pending.list %}
-                <li>
-                    Request #{{ req.id }} – UGX {{ "{:,.0f}".format(req.amount_needed) }}
-                    from {{ req.user.name }} ({{ req.user.phone }})
-                    <a href="{{ url_for('admin_approve', request_id=req.id, action='approve') }}">Approve</a> |
-                    <a href="{{ url_for('admin_approve', request_id=req.id, action='reject') }}">Reject</a>
-                </li>
-            {% endfor %}
-            </ul>
         {% else %}
-            <p class="empty">No pending major requests.</p>
+            <p class="empty">No requests pending your review.</p>
         {% endif %}
     </div>
     {% endif %}

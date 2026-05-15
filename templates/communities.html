@@ -91,8 +91,16 @@
 
     <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
       {% if m.role in ['admin', 'coadmin'] %}
-      <a class="btn btn-sm" style="background:#17a2b8;color:white;"
-         href="{{ url_for('community_dashboard', comm_id=c.id) }}">👥 Manage Members</a>
+      <a class="btn btn-sm" style="background:#17a2b8;color:white;position:relative;"
+         href="{{ url_for('community_dashboard', comm_id=c.id) }}">👥 Manage
+        {% if pending_by_community and pending_by_community.get(c.id) %}
+        <span style="position:absolute;top:-6px;right:-6px;background:#dc3545;color:#fff;
+                     border-radius:50%;width:18px;height:18px;font-size:0.68rem;font-weight:bold;
+                     display:flex;align-items:center;justify-content:center;line-height:1;">
+          {{ pending_by_community[c.id] }}
+        </span>
+        {% endif %}
+      </a>
       {% endif %}
 
       {% if c.id != user.primary_community_id and visible_memberships|length > 1 %}

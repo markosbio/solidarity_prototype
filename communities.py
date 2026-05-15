@@ -69,6 +69,18 @@ def list_communities():
             if other_admins == 0:
                 sole_admin_ids.add(m.community_id)
 
+    # Pending care request counts for admin/coadmin communities (badge display)
+    from app import CareRequest
+    pending_by_community = {}
+    for m in my_memberships:
+        if m.role in ('admin', 'coadmin'):
+            count = CareRequest.query.filter_by(
+                community_id=m.community_id,
+                status='pending_community_admin'
+            ).count()
+            if count:
+                pending_by_community[m.community_id] = count
+
     return render_template(
         'communities.html',
         user=user,
@@ -76,6 +88,7 @@ def list_communities():
         my_community_ids=my_community_ids,
         all_communities=all_communities,
         sole_admin_ids=sole_admin_ids,
+        pending_by_community=pending_by_community,
         error=error,
     )
 
