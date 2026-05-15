@@ -154,6 +154,7 @@
   {% if role == 'super_admin' %}
   <a href="/admin/bulk-sms" {% if request.path == '/admin/bulk-sms' %}class="active"{% endif %}>📱 SMS</a>
   <a href="/admin/ussd-simulator" {% if request.path == '/admin/ussd-simulator' %}class="active"{% endif %}>🔧 USSD Sim</a>
+  <a href="/admin/simulate-contribution" {% if request.path == '/admin/simulate-contribution' %}class="active"{% endif %}>🪙 Fee Sim</a>
   <a href="/admin/settings" {% if request.path == '/admin/settings' %}class="active"{% endif %}>⚙️ Settings</a>
   <a href="/admin/global-admins" {% if request.path == '/admin/global-admins' %}class="active"{% endif %}>🔑 Admins</a>
   {% endif %}

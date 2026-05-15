@@ -2356,17 +2356,22 @@ def provider_dashboard():
     provider = Provider.query.get(session['provider_id'])
     payments = PaymentRecord.query.filter_by(provider_id=provider.id).order_by(PaymentRecord.created_at.desc()).all()
     # Summary stats
-    from datetime import date
     now = datetime.utcnow()
     month_start = datetime(now.year, now.month, 1)
-    total_earned    = sum(p.amount for p in payments if getattr(p, 'reversed', False) is not True)
-    month_payments  = [p for p in payments if p.created_at and p.created_at >= month_start]
-    month_earned    = sum(p.amount for p in month_payments if getattr(p, 'reversed', False) is not True)
-    pending_count   = sum(1 for p in payments if p.status == 'sent')
-    patients_served = len({p.user_id for p in payments if p.status not in ('reversed',)})
+    total_earned     = sum(p.amount for p in payments if getattr(p, 'reversed', False) is not True)
+    month_payments   = [p for p in payments if p.created_at and p.created_at >= month_start]
+    month_earned     = sum(p.amount for p in month_payments if getattr(p, 'reversed', False) is not True)
+    pending_count    = sum(1 for p in payments if p.status == 'sent')
+    patients_served  = len({p.user_id for p in payments if p.status not in ('reversed',)})
+    # Invoices sent to patients awaiting their approval
+    awaiting_invoices = (CareRequest.query
+                         .filter_by(provider_id=provider.id, status='pending_patient_approval')
+                         .order_by(CareRequest.created_at.desc())
+                         .all())
     return render_template('provider_dashboard.html', provider=provider, payments=payments,
                            total_earned=total_earned, month_earned=month_earned,
-                           pending_count=pending_count, patients_served=patients_served)
+                           pending_count=pending_count, patients_served=patients_served,
+                           awaiting_invoices=awaiting_invoices)
 
 @app.route('/provider/confirm/<ref>')
 def confirm_payment(ref):
@@ -2427,21 +2432,30 @@ def provider_invoice():
         return redirect(url_for('provider_dashboard'))
     description = request.form.get('description', 'Medical Treatment').strip() or 'Medical Treatment'
 
+    # Resolve community — wallet-only patients don't need one
     community = Community.query.get(user.primary_community_id) if user.primary_community_id else None
-    if not community or community.is_global_reserve:
+    if community and community.is_global_reserve:
+        community = None
+    if not community:
         ms = (CommunityMembership.query
               .filter_by(user_id=user.id)
               .join(Community, CommunityMembership.community_id == Community.id)
               .filter(Community.is_global_reserve == False)
               .first())
         community = Community.query.get(ms.community_id) if ms else None
-    if not community:
-        flash('Patient is not yet a member of any community. They need to join a community first.', 'error')
+    # If still no community, wallet-only path is fine as long as wallet covers it
+    if not community and user.sub_wallet_balance < amount:
+        flash(
+            f'{user.name} has no community and their wallet balance (UGX {user.sub_wallet_balance:,.0f}) '
+            f'is less than the invoice amount (UGX {amount:,.0f}). '
+            f'Ask the patient to top up their wallet or join a community pool.',
+            'error'
+        )
         return redirect(url_for('provider_dashboard'))
 
     care_req = CareRequest(
         user_id=user.id,
-        community_id=community.id,
+        community_id=community.id if community else None,
         provider_id=provider.id,
         amount_needed=amount,
         amount_from_sub=0,
@@ -3492,10 +3506,12 @@ def admin_monitor():
     for comm in communities_raw:
         comm.member_count = CommunityMembership.query.filter_by(community_id=comm.id).count()
         communities.append(comm)
-        if comm.pool_target and comm.pool_balance / comm.pool_target < 0.2:
-            alerts.append({'level': 'critical', 'msg': f'Pool "{comm.name}" is critically low ({comm.pool_balance/comm.pool_target*100:.0f}% full)'})
-        elif comm.large_withdrawal_paused:
-            alerts.append({'level': 'warn', 'msg': f'Pool "{comm.name}" has large withdrawals paused'})
+        # Only alert on the global reserve — individual community pools are managed by community admins
+        if comm.is_global_reserve:
+            if comm.pool_target and comm.pool_balance / comm.pool_target < 0.2:
+                alerts.append({'level': 'critical', 'msg': f'Global Reserve pool is critically low ({comm.pool_balance/comm.pool_target*100:.0f}% full) — platform-wide payouts may be affected'})
+            elif comm.large_withdrawal_paused:
+                alerts.append({'level': 'warn', 'msg': 'Global Reserve has large withdrawals paused'})
 
     if fraud_count >= 5:
         alerts.append({'level': 'critical', 'msg': f'{fraud_count} unresolved fraud alerts require review'})

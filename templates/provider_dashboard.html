@@ -157,6 +157,50 @@
   </div>
 </div>
 
+<!-- ── Invoices awaiting patient approval ── -->
+{% if awaiting_invoices %}
+<div class="section">
+  <h2>Invoices Awaiting Patient Approval
+    <span style="background:#ff9800; color:#fff; font-size:0.75rem; padding:2px 9px;
+                 border-radius:10px; margin-left:8px; font-weight:bold;">
+      {{ awaiting_invoices|length }}
+    </span>
+  </h2>
+  <p style="font-size:0.84rem; color:#666; margin-bottom:10px;">
+    These invoices have been sent to patients but not yet approved. Once a patient approves,
+    the request enters the payment queue and will appear in Incoming Payments below.
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>Ref #</th>
+        <th>Patient</th>
+        <th>Amount</th>
+        <th>Description</th>
+        <th>Sent</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for inv in awaiting_invoices %}
+    <tr>
+      <td><code>#{{ inv.id }}</code></td>
+      <td>{{ inv.user.name if inv.user else '—' }}
+        {% if inv.user %}<div style="font-size:0.75rem; color:#999;">{{ inv.user.phone }}</div>{% endif %}
+      </td>
+      <td><strong>UGX {{ "{:,.0f}".format(inv.amount_needed) }}</strong></td>
+      <td style="font-size:0.83rem; color:#555;">
+        {{ inv.invoice_description if inv.invoice_description else 'Medical Treatment' }}
+      </td>
+      <td style="font-size:0.82rem; color:#888;">{{ inv.created_at.strftime('%b %d, %H:%M') }}</td>
+      <td><span class="badge" style="background:#fff3cd; color:#856404;">⏳ Awaiting patient</span></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
 <!-- ── Incoming payments ── -->
 <div class="section">
   <h2>Incoming Payments</h2>
