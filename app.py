@@ -781,6 +781,19 @@ def home():
             .order_by(CareRequest.created_at.desc())
             .all()
         )
+        # Recently rejected requests (last 10, last 90 days)
+        from datetime import timedelta
+        _ninety = datetime.utcnow() - timedelta(days=90)
+        rejected_care = (
+            CareRequest.query
+            .filter(
+                CareRequest.user_id == user.id,
+                CareRequest.status == 'rejected',
+                CareRequest.created_at >= _ninety,
+            )
+            .order_by(CareRequest.created_at.desc())
+            .limit(10).all()
+        )
         # Provider invoices awaiting this member's approval
         pending_invoices = (
             CareRequest.query
@@ -800,6 +813,7 @@ def home():
                                admin_badge=admin_badge,
                                recent_care=recent_care,
                                pending_care=pending_care,
+                               rejected_care=rejected_care,
                                pending_invoices=pending_invoices)
     return redirect(url_for('register'))
 
@@ -1196,10 +1210,16 @@ def community_care_action(comm_id, request_id, action):
         care_req.admin_id = user.id
         db.session.commit()
         try:
-            from notifications import notify_member_care_rejected
+            from notifications import notify_member_care_rejected, notify_provider_invoice_rejected
             _cu3 = User.query.get(care_req.user_id)
             if _cu3:
                 notify_member_care_rejected(_cu3)
+            _prov3 = Provider.query.get(care_req.provider_id) if care_req.provider_id else None
+            if _prov3 and _prov3.phone:
+                notify_provider_invoice_rejected(
+                    _prov3.phone, _prov3.name,
+                    _cu3.name if _cu3 else 'patient',
+                    float(care_req.amount_needed or 0))
         except Exception:
             pass
         _log_admin_action(user.id, 'community_care_reject',
@@ -1461,7 +1481,14 @@ def request_care():
             user.net_support_balance = round((user.net_support_balance or 0.0) - needed_amount, 2)
             db.session.commit()
             try:
-                pay_provider(care_req.id)
+                ok, ref = pay_provider(
+                    care_request_id=care_req.id, amount=needed_amount,
+                    provider_id=provider_id, user_id=user.id,
+                    community_id=care_req.community_id,
+                )
+                if ok:
+                    care_req.payment_transaction_id = ref
+                    db.session.commit()
             except Exception:
                 pass
             return render_template(
@@ -2117,10 +2144,16 @@ def admin_care_action(request_id):
         care_req.status = 'rejected'
         db.session.commit()
         try:
-            from notifications import notify_member_care_rejected
+            from notifications import notify_member_care_rejected, notify_provider_invoice_rejected
             _deny_user = User.query.get(care_req.user_id)
             if _deny_user:
                 notify_member_care_rejected(_deny_user, reason)
+            _deny_prov = Provider.query.get(care_req.provider_id) if care_req.provider_id else None
+            if _deny_prov and _deny_prov.phone:
+                notify_provider_invoice_rejected(
+                    _deny_prov.phone, _deny_prov.name,
+                    _deny_user.name if _deny_user else 'patient',
+                    float(care_req.amount_needed or 0), reason)
         except Exception:
             pass
         _log_admin_action(user.id, 'care_request_denied',
@@ -2399,10 +2432,22 @@ def provider_dashboard():
                          .filter_by(provider_id=provider.id, status='pending_patient_approval')
                          .order_by(CareRequest.created_at.desc())
                          .all())
+    # Rejected invoices / care requests for this provider (last 60 days)
+    from datetime import timedelta as _td
+    _sixty = datetime.utcnow() - _td(days=60)
+    rejected_invoices = (CareRequest.query
+                         .filter(
+                             CareRequest.provider_id == provider.id,
+                             CareRequest.status == 'rejected',
+                             CareRequest.created_at >= _sixty,
+                         )
+                         .order_by(CareRequest.created_at.desc())
+                         .limit(20).all())
     return render_template('provider_dashboard.html', provider=provider, payments=payments,
                            total_earned=total_earned, month_earned=month_earned,
                            pending_count=pending_count, patients_served=patients_served,
-                           awaiting_invoices=awaiting_invoices)
+                           awaiting_invoices=awaiting_invoices,
+                           rejected_invoices=rejected_invoices)
 
 @app.route('/provider/confirm/<ref>')
 def confirm_payment(ref):

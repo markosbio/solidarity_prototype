@@ -258,6 +258,19 @@ def notify_admin_new_provider_app(admin_phones: list, provider_name: str,
         _send_sms(phone, msg)
 
 
+def notify_provider_invoice_rejected(provider_phone: str, provider_name: str,
+                                      patient_name: str, amount: float,
+                                      reason: str = '') -> None:
+    """SMS provider when one of their submitted invoices is rejected."""
+    reason_txt = f" Reason: {reason}." if reason else ''
+    msg = (
+        f"[SolidarityPool] Your invoice of UGX {amount:,.0f} for patient {patient_name} "
+        f"has been declined.{reason_txt} Log in to /provider/dashboard for details."
+    )
+    logger.info("Provider invoice rejected notification: phone={} amount={:.0f}", provider_phone, amount)
+    _send_sms(provider_phone, msg)
+
+
 def _send_sms(phone: str, message: str) -> None:
     at_username = os.getenv('AT_USERNAME')
     at_api_key = os.getenv('AT_API_KEY')

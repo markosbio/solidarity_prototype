@@ -282,6 +282,34 @@
 </div>
 {% endif %}
 
+<!-- Rejected invoices / requests -->
+{% if rejected_invoices %}
+<div class="section-title" style="color:#c0392b;">
+  Declined Requests
+  <span class="badge-count" style="background:#c0392b;">{{ rejected_invoices|length }}</span>
+</div>
+<div class="table-card">
+  <table>
+    <thead>
+      <tr><th>Ref #</th><th>Patient</th><th>Amount</th><th>Description</th><th>Date</th></tr>
+    </thead>
+    <tbody>
+    {% for inv in rejected_invoices %}
+    <tr style="opacity:0.75;">
+      <td><code style="font-size:0.82rem; color:#8895a7;">#{{ inv.id }}</code></td>
+      <td>{{ inv.user.name if inv.user else '—' }}
+        {% if inv.user %}<div style="font-size:0.74rem; color:#b0bec5;">{{ inv.user.phone }}</div>{% endif %}
+      </td>
+      <td style="font-weight:700; color:#c0392b;">UGX {{ "{:,.0f}".format(inv.amount_needed) }}</td>
+      <td style="color:#666; font-size:0.83rem;">{{ inv.invoice_description or 'Medical Treatment' }}</td>
+      <td style="color:#b0bec5; font-size:0.8rem;">{{ inv.created_at.strftime('%b %d, %Y') }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
 <!-- Incoming payments -->
 <div class="section-title">Incoming Payments</div>
 {% if payments %}

@@ -156,6 +156,14 @@
   }
   .care-pending strong { color: #4a3000; }
   .care-pending .cr-item { font-size: 0.79rem; margin-top: 5px; color: #937500; }
+  .care-rejected {
+    background: #fff5f5; border: 1.5px solid #f5c6cb; border-radius: 14px;
+    padding: 14px 16px; margin-bottom: 14px; font-size: 0.88rem; color: #721c24;
+    box-shadow: 0 2px 8px rgba(192,57,43,0.07);
+  }
+  .care-rejected strong { color: #5a1318; }
+  .cr-item-rejected { font-size: 0.79rem; margin-top: 5px; color: #a94442; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .cr-date { margin-left: auto; font-size: 0.75rem; color: #b0bec5; }
 
   /* ── Tables ─────────────────────────────────────── */
   .table-card { background: #fff; border-radius: 14px; overflow: hidden;
@@ -303,6 +311,20 @@
     {% elif cr.status == 'pending_admin' %}· Awaiting system review
     {% elif cr.status == 'pending_witness' %}· Awaiting peer witnesses
     {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Rejected care requests -->
+{% if rejected_care %}
+<div class="care-rejected">
+  <strong>{{ rejected_care|length }} declined request{{ 's' if rejected_care|length > 1 else '' }}</strong>
+  {% for cr in rejected_care %}
+  <div class="cr-item cr-item-rejected">
+    #{{ cr.id }} — UGX {{ "{:,.0f}".format(cr.amount_needed) }} · Declined
+    {% if cr.provider %}<span style="opacity:0.75"> · {{ cr.provider.name }}</span>{% endif %}
+    <span class="cr-date">{{ cr.created_at.strftime('%b %d') }}</span>
   </div>
   {% endfor %}
 </div>
