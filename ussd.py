@@ -19,7 +19,7 @@ import os
 from datetime import datetime
 from flask import Blueprint, request
 from loguru import logger
-from models import db, User, SystemState, MpesaTopup, Transaction
+from models import db, User, SystemState, MpesaTopup, Transaction, CareRequest, Community, CommunityMembership
 from trust_graph import compute_draw_ceiling, TrustGraphError
 from mpesa import stk_push, MpesaError
 
@@ -741,57 +741,110 @@ def _request_care_flow(user: User, steps: list, level: int, lang: str) -> str:
         all_providers = Provider.query.filter_by(verified=True).limit(3).all()
         examples = ', '.join(p.provider_code for p in all_providers) or 'MULAGO001'
         return f"END {t('care_bad_prov', lang, code=provider_code, examples=examples)}"
-    provider_id = provider_code
 
-    from_sub = min(user.sub_wallet_balance, needed)
-    remaining = needed - from_sub
-    user.sub_wallet_balance -= from_sub
+    # ── Funding: sub-wallet → primary community pool → global reserve ──────────
+    from_sub = round(min(user.sub_wallet_balance, needed), 2)
+    remaining = round(needed - from_sub, 2)
+    user.sub_wallet_balance = round(user.sub_wallet_balance - from_sub, 2)
 
-    state = SystemState.query.first()
     from_pool = 0.0
-    social_credit = 0.0
-    if remaining > 0 and state:
-        allowed = min(remaining, ceiling - from_sub, state.communal_pool_balance)
-        from_pool = max(allowed, 0.0)
-        state.communal_pool_balance -= from_pool
-        social_credit = remaining - from_pool
-        if social_credit > 0:
-            user.total_social_credit += social_credit
+    primary_comm = None
+    if user.primary_community_id:
+        primary_comm = Community.query.get(user.primary_community_id)
+    if remaining > 0 and primary_comm:
+        available = min(remaining, max(0.0, ceiling - from_sub), primary_comm.pool_balance)
+        from_pool = round(available, 2)
+        primary_comm.pool_balance = round(primary_comm.pool_balance - from_pool, 2)
+        remaining = round(remaining - from_pool, 2)
+
+    from_reserve = 0.0
+    global_reserve = Community.query.filter_by(is_global_reserve=True).first()
+    if remaining > 0 and global_reserve:
+        available_reserve = min(remaining, global_reserve.pool_balance)
+        from_reserve = round(available_reserve, 2)
+        global_reserve.pool_balance = round(global_reserve.pool_balance - from_reserve, 2)
+        remaining = round(remaining - from_reserve, 2)
+
+    social_credit = round(remaining, 2)
+    if social_credit > 0:
+        user.total_social_credit = round((user.total_social_credit or 0.0) + social_credit, 2)
+        try:
             from recovery import update_recovery_parameters
             update_recovery_parameters(user.id, social_credit)
+        except Exception:
+            pass
 
-    from models import WitnessRequest
-    from witness import select_witnesses, WitnessSelectionError
-    try:
-        witnesses = select_witnesses(user.id, provider_id)
-    except WitnessSelectionError:
-        witnesses = []
+    # ── Risk-tier: same logic as web ──────────────────────────────────────────
+    fraud_score = 0.0
+    is_verified_provider = provider_obj.verified
+    trust = user.trust_score or 0.0
+    if (needed <= 50_000
+            and trust >= 0.6
+            and is_verified_provider
+            and fraud_score < 0.3):
+        tier = 1
+    else:
+        tier = 2  # all non-fraud USSD requests go to community admin
 
-    req = WitnessRequest(
+    community_id = primary_comm.id if primary_comm else (
+        global_reserve.id if global_reserve else None)
+
+    care_req = CareRequest(
         user_id=user.id,
-        needed_amount=needed,
-        provider_id=provider_id,
-        from_sub=from_sub,
-        from_pool=from_pool,
+        community_id=community_id,
+        provider_id=provider_obj.id,
+        amount_needed=needed,
+        amount_from_sub=from_sub,
+        amount_from_pool=from_pool,
         social_credit=social_credit,
-        status='pending',
-        witness_ids=','.join(str(w.id) for w in witnesses),
+        is_emergency=(needed > ceiling),
+        status='approved' if tier == 1 else 'pending_community_admin',
+        risk_tier=tier,
+        admin_approved=(tier == 1),
     )
-    db.session.add(req)
+    if hasattr(care_req, 'amount_from_reserve'):
+        care_req.amount_from_reserve = from_reserve
+    db.session.add(care_req)
     db.session.commit()
 
-    try:
-        from notifications import notify_witnesses_assigned
-        notify_witnesses_assigned(user.name, needed, witnesses)
-    except Exception:
-        pass
+    if tier == 1:
+        # Auto-approve: update net_support_balance and create payment record
+        user.net_support_balance = round((user.net_support_balance or 0.0) - needed, 2)
+        db.session.commit()
+        try:
+            from payments import pay_provider
+            pay_provider(
+                care_request_id=care_req.id, amount=needed,
+                provider_id=provider_obj.id, user_id=user.id,
+                community_id=community_id)
+        except Exception:
+            pass
+        status_msg = "Auto-approved"
+    else:
+        # Notify community admins
+        try:
+            from notifications import notify_community_admin_new_request
+            if primary_comm:
+                admin_ms = CommunityMembership.query.filter(
+                    CommunityMembership.community_id == primary_comm.id,
+                    CommunityMembership.role.in_(['admin', 'coadmin'])
+                ).all()
+                phones = [User.query.get(m.user_id).phone
+                          for m in admin_ms if User.query.get(m.user_id)]
+                if phones:
+                    notify_community_admin_new_request(
+                        phones, user.name, needed, care_req.id, primary_comm.name)
+        except Exception:
+            pass
+        status_msg = "Sent to community admin"
 
-    ceiling_remaining = max(0.0, ceiling - from_pool)
+    ceiling_remaining = max(0.0, ceiling - from_pool - from_reserve)
     logger.info(
-        "USSD care request: user_id={} needed={} from_sub={} from_pool={} social_credit={}",
-        user.id, needed, from_sub, from_pool, social_credit,
+        "USSD care request: user_id={} needed={} tier={} from_sub={} from_pool={} "
+        "from_reserve={} social_credit={} req_id={}",
+        user.id, needed, tier, from_sub, from_pool, from_reserve, social_credit, care_req.id,
     )
-    return f"END {t('care_done', lang, sub=from_sub, pool=from_pool, ceil=ceiling_remaining, rid=req.id)}"
+    return f"END {t('care_done', lang, sub=from_sub, pool=from_pool, ceil=ceiling_remaining, rid=care_req.id)}"
 
 
 def _provider_check_flow(steps: list, level: int, lang: str) -> str:

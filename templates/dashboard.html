@@ -201,6 +201,10 @@
     <div class="brand-mark">🤝 SoliPool</div>
     <div class="header-actions">
       <a href="{{ url_for('change_pin') }}">🔑 PIN</a>
+      <form method="post" action="{{ url_for('logout_all_devices') }}" style="margin:0; display:inline;"
+            onsubmit="return confirm('This will log you out from all devices. Continue?')">
+        <button style="background:none;border:none;cursor:pointer;font-size:0.84rem;color:#8895a7;padding:0;">All devices</button>
+      </form>
       <a class="danger" href="{{ url_for('logout') }}">Log out</a>
     </div>
   </div>
@@ -231,35 +235,9 @@
     <div class="masked"><a href="{{ url_for('balance') }}">View in Check Balance</a></div>
   </div>
   <div class="stat-box">
-    <div class="label">Trust standing</div>
-    {% set ts = user.trust_score %}
-    {% if ts >= 0.7 %}
-      <div class="value trust-high">⭐ Strong</div>
-    {% elif ts >= 0.5 %}
-      <div class="value trust-mid">📈 Good</div>
-    {% elif ts >= 0.3 %}
-      <div class="value trust-mid">🔨 Building</div>
-    {% else %}
-      <div class="value trust-new">🌱 New</div>
-    {% endif %}
-    <div class="masked"><a href="{{ url_for('trust_history') }}">Full history (PIN)</a></div>
-  </div>
-  <div class="stat-box">
     <div class="label">Draw ceiling</div>
     <div class="value">🔒 ••••</div>
     <div class="masked"><a href="{{ url_for('balance') }}">View in Check Balance</a></div>
-  </div>
-  <div class="stat-box">
-    <div class="label">Witness standing</div>
-    {% set wa = user.witness_accuracy_score %}
-    {% if wa >= 0.8 %}
-      <div class="value trust-high">⭐ Accurate</div>
-    {% elif wa >= 0.5 %}
-      <div class="value trust-mid">✓ Fair</div>
-    {% else %}
-      <div class="value trust-new">🌱 New</div>
-    {% endif %}
-    <div class="masked"><a href="{{ url_for('balance') }}">Exact % in Check Balance</a></div>
   </div>
 </div>
 
@@ -368,11 +346,6 @@
     {% endif %}
     <span class="desc">Manage pools &amp; memberships</span>
   </a>
-  <a class="nav-btn" href="{{ url_for('providers.list_providers') }}">
-    <span class="icon">🏨</span>
-    <span class="label">Provider Registry</span>
-    <span class="desc">View verified clinics &amp; hospitals</span>
-  </a>
   <a class="nav-btn" href="{{ url_for('leaderboard') }}">
     <span class="icon">🏆</span>
     <span class="label">Leaderboard</span>
@@ -447,15 +420,6 @@
 </div>
 {% endif %}
 
-<!-- Footer -->
-<div class="footer">
-  <a class="danger" href="{{ url_for('logout') }}">← Log out</a>
-  <a href="{{ url_for('change_pin') }}">🔑 Change PIN</a>
-  <form method="post" action="{{ url_for('logout_all_devices') }}" style="margin:0;"
-        onsubmit="return confirm('This will log you out from all devices and browsers. Continue?')">
-    <button type="submit">🚪 Log out all devices</button>
-  </form>
-</div>
 
 </div><!-- /content -->
 

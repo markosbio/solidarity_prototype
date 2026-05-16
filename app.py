@@ -1166,15 +1166,15 @@ def community_care_action(comm_id, request_id, action):
                 (_cu.net_support_balance or 0.0) - float(care_req.amount_needed or 0), 2)
         db.session.commit()
         try:
-            payable = _total_payable(care_req)
-            if payable > 0:
-                ok, ref = pay_provider(
-                    care_request_id=care_req.id, amount=payable,
-                    provider_id=care_req.provider_id, user_id=care_req.user_id,
-                    community_id=care_req.community_id or comm_id)
-                if ok:
-                    care_req.payment_transaction_id = ref
-                    db.session.commit()
+            ok, ref = pay_provider(
+                care_request_id=care_req.id,
+                amount=float(care_req.amount_needed or 0),
+                provider_id=care_req.provider_id,
+                user_id=care_req.user_id,
+                community_id=care_req.community_id or comm_id)
+            if ok:
+                care_req.payment_transaction_id = ref
+                db.session.commit()
         except Exception:
             pass
         try:
@@ -1558,18 +1558,14 @@ def request_care():
             user.net_support_balance = round((user.net_support_balance or 0.0) - needed_amount, 2)
             db.session.commit()
             try:
-                pool_amount = from_pool + from_reserve
-                if pool_amount > 0:
-                    ok, ref = pay_provider(
-                        care_request_id=care_req.id, amount=pool_amount,
-                        provider_id=provider_id, user_id=user.id,
-                        community_id=care_req.community_id,
-                    )
-                    if ok:
-                        care_req.payment_transaction_id = ref
-                        db.session.commit()
-                else:
-                    pay_provider(care_req.id)
+                ok, ref = pay_provider(
+                    care_request_id=care_req.id, amount=needed_amount,
+                    provider_id=provider_id, user_id=user.id,
+                    community_id=care_req.community_id,
+                )
+                if ok:
+                    care_req.payment_transaction_id = ref
+                    db.session.commit()
             except Exception:
                 pass
 
