@@ -1020,7 +1020,7 @@ def apply_provider():
         payment_type     = request.form.get('payment_type', '').strip()
         notes            = request.form.get('notes', '').strip()
 
-        if not all([provider_name, contact_person, phone, provider_wallet_number, payment_type]):
+        if not all([provider_name, contact_person, phone, provider_wallet_number, payment_type, business_license, location]):
             form = request.form
             return render_template('apply_provider.html', submitted=False,
                                    error='All required fields must be filled in.', form=form)
@@ -2222,6 +2222,27 @@ def admin_approve(request_id, action):
     else:
         return "Invalid action"
     return f"<p>{msg}</p><p><a href='/'>Home</a> | <a href='/community/{community.id}'>Back to Community</a></p>"
+
+@app.route('/api/inbox')
+def api_inbox():
+    """Lightweight endpoint polled by the dashboard for live invoice/task counts."""
+    if 'user_id' not in session:
+        from flask import jsonify
+        return jsonify({'error': 'unauthenticated'}), 401
+    from flask import jsonify
+    uid = session['user_id']
+    pending_invoices = CareRequest.query.filter_by(
+        user_id=uid, status='pending_patient_approval').count()
+    pending_witness = CareRequest.query.filter(
+        CareRequest.status == 'pending_witness',
+        CareRequest.witness_ids.like(f'%{uid}%')
+    ).count()
+    return jsonify({
+        'pending_invoices': pending_invoices,
+        'pending_witness':  pending_witness,
+        'total':            pending_invoices + pending_witness,
+    })
+
 
 @app.route('/logout')
 def logout():

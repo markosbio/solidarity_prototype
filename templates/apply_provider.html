@@ -145,6 +145,21 @@
            value="{{ form.contact_person or '' }}" required>
   </div>
 
+  <div class="section-label">Registration &amp; location</div>
+
+  <div class="field">
+    <label>Business license / Ministry of Health number</label>
+    <input type="text" name="business_license" placeholder="e.g. MOH/2024/001234"
+           value="{{ form.business_license or '' }}" required>
+    <div class="hint">Your MoH facility registration or business license number.</div>
+  </div>
+
+  <div class="field">
+    <label>Location / district</label>
+    <input type="text" name="location" placeholder="e.g. Kampala Central, Uganda"
+           value="{{ form.location or '' }}" required>
+  </div>
+
   <div class="section-label">Contact &amp; payment</div>
 
   <div class="field">
