@@ -1,152 +1,199 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<title>Apply as Provider – SolidarityPool</title>
+<title>Apply as Provider – Solidarity Health Pool</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#2d7dd2">
 <style>
-  body { font-family: sans-serif; max-width: 560px; margin: 40px auto; padding: 0 16px; }
-  h1 { font-size: 1.5rem; margin-bottom: 4px; }
-  .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 24px; }
-  .card { border: 1px solid #ddd; border-radius: 8px; padding: 24px; background: #fafafa; }
-  .card h2 { margin: 0 0 6px; font-size: 1.05rem; }
-  .card .desc { font-size: 0.87rem; color: #555; margin-bottom: 18px; }
-  label { display: block; font-weight: bold; margin-top: 14px; font-size: 0.9rem; }
-  input, select, textarea {
-    width: 100%; padding: 9px 10px; margin-top: 4px; border: 1px solid #ccc;
-    border-radius: 4px; box-sizing: border-box; font-size: 0.95rem;
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    margin: 0; min-height: 100vh;
+    background: linear-gradient(145deg, #0f1b35 0%, #1a3060 60%, #1e4080 100%);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 24px 16px;
   }
-  textarea { resize: vertical; height: 70px; }
-  .hint { font-size: 0.78em; color: #888; margin-top: 3px; }
-  button { margin-top: 20px; padding: 11px; background: #28a745; color: white;
-           border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; width: 100%; }
-  button:hover { background: #218838; }
-  .error { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24;
-           padding: 10px 14px; border-radius: 4px; margin-bottom: 14px; font-size: 0.9rem; }
-  .success-box { background: #d4edda; border: 1px solid #c3e6cb; border-radius: 8px;
-                 padding: 24px; text-align: center; }
-  .success-box h2 { color: #155724; margin: 0 0 10px; }
-  .success-box p { color: #155724; font-size: 0.92rem; margin: 0 0 16px; }
-  .steps { background: #fff; border: 1px solid #bee5eb; border-radius: 6px;
-           padding: 14px 18px; margin-bottom: 16px; text-align: left; }
-  .steps li { font-size: 0.87rem; color: #444; margin-bottom: 6px; }
-  .back { display: inline-block; color: #2d7dd2; font-size: 0.88rem; text-decoration: none; }
-  .back:hover { text-decoration: underline; }
-  .required-note { font-size: 0.78rem; color: #888; margin-bottom: 16px; }
+  .brand { text-align: center; margin-bottom: 24px; }
+  .brand-logo { font-size: 2.2rem; margin-bottom: 6px; }
+  .brand-name { color: #fff; font-size: 1.25rem; font-weight: 700; }
+  .brand-tagline { color: rgba(255,255,255,0.5); font-size: 0.8rem; margin-top: 2px; }
+
+  .card {
+    width: 100%; max-width: 420px;
+    background: #fff; border-radius: 18px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+    overflow: hidden;
+  }
+  .card-header {
+    background: linear-gradient(135deg, #1a1a2e, #2d3250);
+    padding: 22px 26px 18px; color: #fff;
+  }
+  .card-header h1 { margin: 0 0 4px; font-size: 1.15rem; font-weight: 700; }
+  .card-header p { margin: 0; font-size: 0.8rem; color: rgba(255,255,255,0.55); line-height: 1.4; }
+  .card-body { padding: 24px 26px 20px; }
+
+  .alert { padding: 11px 14px; border-radius: 10px; margin-bottom: 16px;
+           font-size: 0.86rem; line-height: 1.45; }
+  .alert-error   { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; }
+  .alert-success { background: #f0fdf4; border: 1px solid #86efac; color: #166534; }
+
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 0.8rem; font-weight: 600;
+                 color: #374151; margin-bottom: 5px; }
+  .field input, .field select {
+    width: 100%; padding: 11px 13px;
+    border: 1.5px solid #d1d5db; border-radius: 9px;
+    font-size: 0.95rem; color: #111827; background: #fff;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .field input:focus, .field select:focus {
+    outline: none; border-color: #2d7dd2;
+    box-shadow: 0 0 0 3px rgba(45,125,210,0.12);
+  }
+  .field .hint { font-size: 0.72rem; color: #9ca3af; margin-top: 3px; line-height: 1.4; }
+
+  .section-label {
+    font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.06em; color: #6b7280; margin: 18px 0 10px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .section-label::after { content: ''; flex: 1; border-top: 1px solid #e5e7eb; }
+
+  .tos-row {
+    display: flex; gap: 10px; align-items: flex-start;
+    background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 9px;
+    padding: 12px 14px; margin-bottom: 18px;
+  }
+  .tos-row input[type=checkbox] { width: 16px; height: 16px; margin-top: 2px;
+    flex-shrink: 0; accent-color: #2d7dd2; cursor: pointer; }
+  .tos-row label { font-size: 0.78rem; color: #6b7280; line-height: 1.5; cursor: pointer; }
+  .tos-row a { color: #2d7dd2; text-decoration: none; }
+
+  .btn-submit {
+    width: 100%; padding: 13px; background: #2d7dd2; color: #fff;
+    border: none; border-radius: 10px; font-size: 1rem; font-weight: 600;
+    cursor: pointer; transition: background 0.15s, transform 0.1s;
+  }
+  .btn-submit:hover { background: #2466b8; }
+  .btn-submit:active { transform: scale(0.98); }
+
+  .footer-links { text-align: center; margin-top: 16px; font-size: 0.82rem; }
+  .footer-links a { color: rgba(255,255,255,0.65); text-decoration: none; margin: 0 8px; }
+  .footer-links a:hover { color: #fff; }
+
+  /* Success state */
+  .success-card { padding: 32px 26px; text-align: center; }
+  .success-icon { font-size: 3rem; margin-bottom: 12px; }
+  .success-card h2 { margin: 0 0 8px; font-size: 1.2rem; color: #1a1a2e; }
+  .success-card p { margin: 0 0 20px; color: #6b7280; font-size: 0.88rem; line-height: 1.55; }
+  .steps-list { text-align: left; background: #f9fafb; border: 1px solid #e5e7eb;
+                border-radius: 10px; padding: 14px 16px; margin-bottom: 20px; }
+  .steps-list li { font-size: 0.84rem; color: #555; margin-bottom: 8px; line-height: 1.4; }
+  .steps-list li:last-child { margin-bottom: 0; }
+  .btn-link { display: inline-block; padding: 10px 22px; background: #2d7dd2; color: #fff;
+              border-radius: 8px; text-decoration: none; font-size: 0.88rem; font-weight: 600; }
 </style>
 </head>
 <body>
 
-<h1>Apply as a Healthcare Provider</h1>
-<p class="subtitle">
-  Submit your facility details for admin review. Once approved, your clinic can receive
-  care fund payments directly from SolidarityPool members.
-</p>
+<div class="brand">
+  <div class="brand-logo">🤝</div>
+  <div class="brand-name">Solidarity Health Pool</div>
+  <div class="brand-tagline">Healthcare provider registration</div>
+</div>
+
+<div class="card">
 
 {% if submitted %}
-<div class="success-box">
-  <h2>✅ Application Received</h2>
-  <p>Thank you, <strong>{{ submitted_name }}</strong>! Your application has been submitted
-    and is now pending review by the SolidarityPool admin team.</p>
-  <ul class="steps">
-    <li>📋 Your application is in the review queue</li>
-    <li>📞 An admin will contact you at <strong>{{ submitted_phone }}</strong></li>
-    <li>✅ Once approved, you'll receive a provider code to log in</li>
+<div class="success-card">
+  <div class="success-icon">✅</div>
+  <h2>Application received</h2>
+  <p>Thank you, <strong>{{ submitted_name }}</strong>. Your application is now in review.</p>
+  <ul class="steps-list">
+    <li>📋 Application is in the review queue</li>
+    <li>📞 Admin will contact you at <strong>{{ submitted_phone }}</strong></li>
+    <li>✅ Once approved you'll receive a login code</li>
     <li>⏱ Review typically takes 1–3 business days</li>
   </ul>
-  <a class="back" href="{{ url_for('apply_provider') }}">Submit another application</a>
-  &nbsp;·&nbsp;
-  <a class="back" href="{{ url_for('register') }}">← Back to member registration</a>
+  <a class="btn-link" href="{{ url_for('provider_login') }}">Go to provider login →</a>
 </div>
 
 {% else %}
 
+<div class="card-header">
+  <h1>Provider Application</h1>
+  <p>Submit your details for admin review. You'll receive a login code once approved.</p>
+</div>
+<div class="card-body">
+
 {% if error %}
-<div class="error">{{ error }}</div>
+<div class="alert alert-error">{{ error }}</div>
 {% endif %}
 
-<div class="card">
-  <h2>Provider Application Form</h2>
-  <p class="desc">All fields marked * are required. Your application will appear in the admin
-    panel for verification before you can log in as a provider.</p>
-  <p class="required-note">* Required field</p>
+<form method="POST">
+  <div class="section-label">Facility details</div>
 
-  <form method="POST">
-    <label>Facility / Organisation name *
-      <input type="text" name="provider_name" placeholder="e.g. Kampala City Clinic"
-             value="{{ form.provider_name or '' }}" required>
-      <span class="hint">The name of your clinic, hospital, or healthcare facility.</span>
+  <div class="field">
+    <label>Facility or organisation name</label>
+    <input type="text" name="provider_name" placeholder="e.g. Kampala City Clinic"
+           value="{{ form.provider_name or '' }}" required>
+  </div>
+
+  <div class="field">
+    <label>Contact person name</label>
+    <input type="text" name="contact_person" placeholder="e.g. Dr. Jane Mugisha"
+           value="{{ form.contact_person or '' }}" required>
+  </div>
+
+  <div class="section-label">Contact &amp; payment</div>
+
+  <div class="field">
+    <label>Contact phone number</label>
+    <input type="tel" name="phone" placeholder="e.g. 256712345678"
+           value="{{ form.phone or '' }}" required>
+    <div class="hint">For application updates.</div>
+  </div>
+
+  <div class="field">
+    <label>Mobile wallet / payment number</label>
+    <input type="tel" name="provider_wallet_number" placeholder="e.g. 256712345678"
+           value="{{ form.provider_wallet_number or '' }}" required>
+    <div class="hint">Where care fund payments will be sent.</div>
+  </div>
+
+  <div class="field">
+    <label>Payment method</label>
+    <select name="payment_type" required>
+      <option value="">— Select —</option>
+      <option value="mtn"     {% if form.payment_type == 'mtn'     %}selected{% endif %}>MTN Mobile Money</option>
+      <option value="airtel"  {% if form.payment_type == 'airtel'  %}selected{% endif %}>Airtel Money</option>
+      <option value="mpesa"   {% if form.payment_type == 'mpesa'   %}selected{% endif %}>M-Pesa</option>
+      <option value="bank"    {% if form.payment_type == 'bank'    %}selected{% endif %}>Bank transfer</option>
+      <option value="till"    {% if form.payment_type == 'till'    %}selected{% endif %}>Till number</option>
+      <option value="paybill" {% if form.payment_type == 'paybill' %}selected{% endif %}>Paybill</option>
+    </select>
+  </div>
+
+  <div class="tos-row">
+    <input type="checkbox" name="tos_accept" id="tos" value="1" required>
+    <label for="tos">
+      I confirm the information is accurate and I agree to the
+      <a href="/terms" target="_blank">Terms of Service</a> and
+      <a href="/privacy" target="_blank">Privacy Policy</a>.
     </label>
+  </div>
 
-    <label>Contact person name *
-      <input type="text" name="contact_person" placeholder="e.g. Dr. Jane Mugisha"
-             value="{{ form.contact_person or '' }}" required>
-      <span class="hint">Name of the doctor, nurse, or administrator submitting this application — even if affiliated with the same facility as a previous applicant.</span>
-    </label>
+  <button class="btn-submit" type="submit">Submit Application →</button>
+</form>
+</div>
+{% endif %}
 
-    <label>Contact phone number *
-      <input type="tel" name="phone" placeholder="e.g. 256712345678"
-             value="{{ form.phone or '' }}" required>
-      <span class="hint">We'll use this to contact you about your application.</span>
-    </label>
-
-    <label>Mobile wallet / payment number *
-      <input type="tel" name="provider_wallet_number" placeholder="e.g. 256712345678 (MTN / Airtel)"
-             value="{{ form.provider_wallet_number or '' }}" required>
-      <span class="hint">The number care fund payments will be sent to.</span>
-    </label>
-
-    <label>Business / MOH registration number *
-      <input type="text" name="business_license" placeholder="e.g. MOH-2024-01234"
-             value="{{ form.business_license or '' }}" required>
-      <span class="hint">Ministry of Health registration or business license number.</span>
-    </label>
-
-    <label>Facility address / location *
-      <input type="text" name="location" placeholder="e.g. Plot 15, Kololo, Kampala"
-             value="{{ form.location or '' }}" required>
-    </label>
-
-    <label>Payment method *
-      <select name="payment_type" required>
-        <option value="">— Select —</option>
-        <option value="mtn" {% if form.payment_type == 'mtn' %}selected{% endif %}>MTN Mobile Money</option>
-        <option value="airtel" {% if form.payment_type == 'airtel' %}selected{% endif %}>Airtel Money</option>
-        <option value="mpesa" {% if form.payment_type == 'mpesa' %}selected{% endif %}>M-Pesa</option>
-        <option value="bank" {% if form.payment_type == 'bank' %}selected{% endif %}>Bank transfer</option>
-        <option value="till" {% if form.payment_type == 'till' %}selected{% endif %}>Till number</option>
-        <option value="paybill" {% if form.payment_type == 'paybill' %}selected{% endif %}>Paybill</option>
-      </select>
-    </label>
-
-    <label>Additional notes (optional)
-      <textarea name="notes" placeholder="Any extra information about your facility or services…">{{ form.notes or '' }}</textarea>
-    </label>
-
-    <div style="margin-top:18px; padding:14px 16px; background:#f0f8ff; border:1px solid #b8daff; border-radius:6px;">
-      <label style="display:flex; gap:10px; align-items:flex-start; font-weight:normal; cursor:pointer;">
-        <input type="checkbox" name="tos_accept" value="1" required
-               style="width:auto; margin-top:3px; flex-shrink:0;">
-        <span style="font-size:0.88rem; color:#333; line-height:1.5;">
-          I confirm that the information provided is accurate and complete. I agree to the
-          <a href="/terms" target="_blank" style="color:#2d7dd2;">Terms of Service</a> and
-          <a href="/privacy" target="_blank" style="color:#2d7dd2;">Privacy Policy</a>,
-          including SolidarityPool's provider conduct standards and data handling practices.
-          I understand that false information may result in rejection or removal from the platform.
-        </span>
-      </label>
-    </div>
-
-    <button type="submit">Submit Application →</button>
-  </form>
 </div>
 
-<p style="margin-top:16px;">
-  <a class="back" href="{{ url_for('register') }}">← Back to member registration</a>
-  &nbsp;·&nbsp;
-  <a class="back" href="{{ url_for('provider_login') }}">Already approved? Log in →</a>
-</p>
-
-{% endif %}
+<div class="footer-links">
+  <a href="{{ url_for('provider_login') }}">Already approved? Log in →</a>
+  <a href="{{ url_for('register') }}">Member registration</a>
+</div>
 
 </body>
 </html>

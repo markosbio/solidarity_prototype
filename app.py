@@ -180,6 +180,17 @@ def _get_admin_phones():
         return list(ADMIN_PHONES)
 
 
+def _total_payable(care_req) -> float:
+    """Total amount the provider should receive for this care request.
+    = wallet contribution + pool contribution + reserve contribution
+    (social_credit is the member's debt, not paid to the provider from pool)
+    """
+    from_sub     = float(care_req.amount_from_sub or 0.0)
+    from_pool    = float(care_req.amount_from_pool or 0.0)
+    from_reserve = float(getattr(care_req, 'amount_from_reserve', 0.0) or 0.0)
+    return round(from_sub + from_pool + from_reserve, 2)
+
+
 def _reverse_care_request_financials(care_req) -> None:
     """Reverse all financial side-effects of a pending care request on rejection.
 
@@ -1009,7 +1020,7 @@ def apply_provider():
         payment_type     = request.form.get('payment_type', '').strip()
         notes            = request.form.get('notes', '').strip()
 
-        if not all([provider_name, contact_person, phone, provider_wallet_number, business_license, location, payment_type]):
+        if not all([provider_name, contact_person, phone, provider_wallet_number, payment_type]):
             form = request.form
             return render_template('apply_provider.html', submitted=False,
                                    error='All required fields must be filled in.', form=form)
@@ -1138,7 +1149,7 @@ def community_care_action(comm_id, request_id, action):
         flash('Not authorised.', 'error')
         return redirect(url_for('community_dashboard', comm_id=comm_id))
     care_req = CareRequest.query.get(request_id)
-    if not care_req or care_req.community_id != comm_id:
+    if not care_req or (care_req.community_id != comm_id and care_req.community_id is not None):
         flash('Request not found.', 'error')
         return redirect(url_for('community_dashboard', comm_id=comm_id))
     if care_req.status != 'pending_community_admin':
@@ -1155,12 +1166,12 @@ def community_care_action(comm_id, request_id, action):
                 (_cu.net_support_balance or 0.0) - float(care_req.amount_needed or 0), 2)
         db.session.commit()
         try:
-            pool_amount = care_req.amount_from_pool or 0.0
-            if pool_amount > 0:
+            payable = _total_payable(care_req)
+            if payable > 0:
                 ok, ref = pay_provider(
-                    care_request_id=care_req.id, amount=pool_amount,
+                    care_request_id=care_req.id, amount=payable,
                     provider_id=care_req.provider_id, user_id=care_req.user_id,
-                    community_id=comm_id)
+                    community_id=care_req.community_id or comm_id)
                 if ok:
                     care_req.payment_transaction_id = ref
                     db.session.commit()
@@ -2085,10 +2096,9 @@ def admin_care_action(request_id):
         care_req.admin_approved = True
         care_req.admin_id = user.id
         care_req.status = 'admin_approved'
-        pool_payment = (care_req.amount_from_pool or 0.0) + (
-            care_req.amount_from_reserve if hasattr(care_req, 'amount_from_reserve') else 0.0)
+        payable = _total_payable(care_req)
         success, ref = pay_provider(
-            care_request_id=care_req.id, amount=pool_payment if pool_payment > 0 else care_req.amount_from_pool,
+            care_request_id=care_req.id, amount=payable if payable > 0 else float(care_req.amount_needed or 0),
             provider_id=care_req.provider_id, user_id=care_req.user_id,
             community_id=care_req.community_id
         )
@@ -2157,8 +2167,10 @@ def verify_witness(request_id, response):
         else:
             care_req.status = 'admin_approved'
             care_req.admin_approved = True
+            payable = _total_payable(care_req)
             success, ref = pay_provider(
-                care_request_id=care_req.id, amount=care_req.amount_from_pool,
+                care_request_id=care_req.id,
+                amount=payable if payable > 0 else float(care_req.amount_needed or 0),
                 provider_id=care_req.provider_id, user_id=care_req.user_id,
                 community_id=care_req.community_id
             )
@@ -2184,8 +2196,10 @@ def admin_approve(request_id, action):
         care_req.admin_approved = True
         care_req.admin_id = user.id
         care_req.status = 'admin_approved'
+        payable = _total_payable(care_req)
         success, ref = pay_provider(
-            care_request_id=care_req.id, amount=care_req.amount_from_pool,
+            care_request_id=care_req.id,
+            amount=payable if payable > 0 else float(care_req.amount_needed or 0),
             provider_id=care_req.provider_id, user_id=care_req.user_id,
             community_id=care_req.community_id
         )
@@ -2596,18 +2610,16 @@ def invoice_approve(request_id):
         user.net_support_balance = round((user.net_support_balance or 0.0) - needed_amount, 2)
         db.session.commit()
         try:
-            pool_amount = from_pool + from_reserve
-            if pool_amount > 0:
-                ok, ref = pay_provider(
-                    care_request_id=care_req.id, amount=pool_amount,
-                    provider_id=provider_id, user_id=user.id,
-                    community_id=care_req.community_id,
-                )
-                if ok:
-                    care_req.payment_transaction_id = ref
-                    db.session.commit()
-            else:
-                pay_provider(care_req.id)
+            payable = _total_payable(care_req)
+            ok, ref = pay_provider(
+                care_request_id=care_req.id,
+                amount=payable if payable > 0 else needed_amount,
+                provider_id=provider_id, user_id=user.id,
+                community_id=care_req.community_id,
+            )
+            if ok:
+                care_req.payment_transaction_id = ref
+                db.session.commit()
         except Exception:
             pass
         flash(f'Invoice approved. UGX {needed_amount:,.0f} has been processed for {provider.name if provider else "the provider"}.', 'success')

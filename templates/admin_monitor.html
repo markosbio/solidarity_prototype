@@ -332,7 +332,7 @@ async function refreshKPIs() {
     if (ts && d.ts) ts.textContent = d.ts.replace('T', ' ').slice(0, 16) + ' UTC';
   } catch (_) {}
 }
-setInterval(refreshKPIs, 30_000);
+setInterval(refreshKPIs, 15_000);
 
 // ── Live Pending Tasks polling (every 60 s) ────────────────────
 const TASK_MAP = {
@@ -366,10 +366,10 @@ async function refreshPendingCounts() {
     }
   } catch (_) {}
 }
-setInterval(refreshPendingCounts, 60_000);
+setInterval(refreshPendingCounts, 15_000);
 
 // ── Full page meta-refresh every 60 s ─────────────────────────
-setTimeout(() => location.reload(), 60_000);
+setTimeout(() => location.reload(), 15_000);
 </script>
 </body>
 </html>

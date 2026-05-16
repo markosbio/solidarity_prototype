@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <title>Dashboard – Solidarity Pool</title>
 <link rel="manifest" href="/static/manifest.json">
@@ -9,92 +9,226 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="SoliPool">
 <style>
-  body { font-family: sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; }
-  h1 { font-size: 1.5rem; margin-bottom: 4px; }
-  .subtitle { color: #666; margin-bottom: 24px; }
-  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
-  .stat-box { border: 1px solid #ddd; border-radius: 8px; padding: 14px 16px; background: #fafafa; }
-  .stat-box .label { font-size: 0.78rem; color: #777; margin-bottom: 4px; }
-  .stat-box .value { font-size: 1.2rem; font-weight: bold; color: #2d7dd2; }
-  .stat-box .value.trust-high { color: #28a745; }
-  .stat-box .value.trust-mid  { color: #ffc107; }
-  .stat-box .value.trust-low  { color: #dc3545; }
-  .stat-box .value.trust-new  { color: #6c757d; }
-  .stat-box .masked { font-size: 0.82rem; color: #888; margin-top: 3px; }
-  .stat-box .masked a { color: #2d7dd2; text-decoration: none; }
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    margin: 0; background: #f0f4f8; min-height: 100vh; color: #1a1a2e;
+  }
+
+  /* ── Header ─────────────────────────────────────── */
+  .header {
+    background: linear-gradient(135deg, #0f1b35 0%, #1a3060 60%, #1e4080 100%);
+    padding: 24px 20px 32px; color: #fff; position: relative;
+  }
+  .header-top { display: flex; justify-content: space-between; align-items: flex-start; }
+  .brand-mark { font-size: 1.4rem; font-weight: 800; letter-spacing: -0.02em; }
+  .header-actions { display: flex; gap: 10px; align-items: center; }
+  .header-actions a { color: rgba(255,255,255,0.7); text-decoration: none; font-size: 0.82rem;
+                      padding: 4px 10px; border: 1px solid rgba(255,255,255,0.2);
+                      border-radius: 20px; transition: all 0.15s; }
+  .header-actions a:hover { background: rgba(255,255,255,0.1); color: #fff; }
+  .header-actions a.danger { border-color: rgba(220,53,69,0.4); color: rgba(255,120,120,0.9); }
+  .header-actions a.danger:hover { background: rgba(220,53,69,0.15); color: #ff8080; }
+  .welcome-name { font-size: 1.6rem; font-weight: 700; margin: 20px 0 2px; line-height: 1.2; }
+  .welcome-phone { color: rgba(255,255,255,0.55); font-size: 0.85rem; }
+  .install-banner {
+    background: rgba(45,125,210,0.25); border: 1px solid rgba(45,125,210,0.35);
+    border-radius: 8px; padding: 9px 14px; margin-top: 12px;
+    font-size: 0.82rem; color: rgba(255,255,255,0.85); display: none;
+  }
+  #install-btn { padding: 3px 12px; background: #2d7dd2; color: white; border: none;
+                 border-radius: 14px; cursor: pointer; margin-left: 8px; font-size: 0.82rem; }
+
+  /* ── Content area ─────────────────────────────────── */
+  .content { max-width: 640px; margin: 0 auto; padding: 16px 14px 40px; }
+
+  /* ── Credit warning (pulled up to overlap header) ── */
+  .credit-warn {
+    background: #fff8e1; border: 1px solid #ffd54f; color: #6d4c00;
+    border-radius: 12px; padding: 13px 16px; font-size: 0.88rem; line-height: 1.5;
+    margin-bottom: 14px;
+  }
+  .credit-warn a { color: #c67c00; font-weight: 600; text-decoration: none; }
+  .credit-warn a:hover { text-decoration: underline; }
+
+  /* ── Stat cards grid ─────────────────────────────── */
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+  .stat-box {
+    background: #fff; border-radius: 14px;
+    padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+    border: 1px solid #e8edf3;
+  }
+  .stat-box .label { font-size: 0.72rem; font-weight: 600; color: #8895a7;
+                     text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+  .stat-box .value { font-size: 1.25rem; font-weight: 700; color: #2d7dd2; }
+  .stat-box .value.trust-high { color: #14a44d; }
+  .stat-box .value.trust-mid  { color: #e8a100; }
+  .stat-box .value.trust-low  { color: #e53935; }
+  .stat-box .value.trust-new  { color: #78909c; }
+  .stat-box .masked { font-size: 0.75rem; color: #aab3bf; margin-top: 4px; }
+  .stat-box .masked a { color: #2d7dd2; text-decoration: none; font-weight: 500; }
   .stat-box .masked a:hover { text-decoration: underline; }
-  .lock-icon { font-size: 1rem; margin-right: 3px; }
-  .section-title { font-size: 0.85rem; font-weight: bold; color: #555;
-                   text-transform: uppercase; letter-spacing: .05em; margin: 22px 0 8px; }
+
+  /* ── Community box ─────────────────────────────── */
+  .community-box {
+    background: #fff; border-radius: 14px; padding: 16px 18px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.07); border: 1px solid #e8edf3;
+    margin-bottom: 14px;
+  }
+  .community-box .comm-name { font-weight: 700; font-size: 1rem; color: #1a1a2e; }
+  .community-box .comm-pool { color: #14a44d; font-size: 0.88rem; margin-top: 3px; font-weight: 600; }
+  .community-box .invite-row { font-size: 0.75rem; color: #8895a7; margin-top: 6px; }
+  .community-box .invite-row code { background: #f0f4f8; border-radius: 4px; padding: 1px 5px; font-size: 0.82rem; }
+  .gauge-bar { height: 8px; border-radius: 4px; background: #e8edf3; overflow: hidden; margin: 10px 0 4px; }
+  .gauge-fill { height: 100%; border-radius: 4px; transition: width .4s; }
+  .gauge-fill.green { background: linear-gradient(90deg, #14a44d, #36c96c); }
+  .gauge-fill.amber { background: linear-gradient(90deg, #e8a100, #ffcc00); }
+  .gauge-fill.red   { background: linear-gradient(90deg, #e53935, #ff6b6b); }
+  .gauge-label { font-size: 0.76rem; color: #8895a7; }
+  .pool-warn { background: #fdecea; border: 1px solid #ef9a9a; color: #c62828;
+               padding: 9px 13px; border-radius: 8px; font-size: 0.82rem; margin-top: 8px; }
+  .pool-info { background: #fff8e1; border: 1px solid #ffd54f; color: #6d4c00;
+               padding: 9px 13px; border-radius: 8px; font-size: 0.82rem; margin-top: 8px; }
+
+  /* ── Section label ─────────────────────────────── */
+  .section-title {
+    font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.08em; color: #8895a7; margin: 20px 0 10px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .section-title::after { content: ''; flex: 1; border-top: 1px solid #e8edf3; }
+
+  /* ── Nav action buttons ─────────────────────────── */
   .nav-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .nav-btn { display: block; padding: 12px 16px; border: 1px solid #ddd; border-radius: 8px;
-             text-decoration: none; color: #222; background: #fff; font-size: 0.92rem; }
-  .nav-btn:hover { background: #f0f6ff; border-color: #2d7dd2; }
-  .nav-btn .icon { font-size: 1.2rem; margin-right: 6px; }
-  .nav-btn .desc { font-size: 0.76rem; color: #888; display: block; margin-top: 2px; }
-  .community-box { border: 1px solid #ddd; border-radius: 8px; padding: 14px 16px;
-                   background: #f0f8f0; margin-bottom: 12px; }
-  .community-box .comm-name { font-weight: bold; font-size: 1rem; }
-  .community-box .comm-pool { color: #28a745; font-size: 0.9rem; margin-top: 2px; }
-  .logout { font-size: 0.85rem; color: #dc3545; text-decoration: none; }
-  .logout:hover { text-decoration: underline; }
-  .credit-warn { background: #fff3cd; border: 1px solid #ffc107; padding: 10px 14px;
-                 border-radius: 6px; font-size: 0.87rem; margin-bottom: 16px; }
-  .gauge-bar { height: 10px; border-radius: 5px; background: #e9ecef; overflow: hidden; margin: 4px 0; }
-  .gauge-fill { height: 100%; border-radius: 5px; transition: width .4s; }
-  .gauge-fill.green { background: #28a745; }
-  .gauge-fill.amber { background: #ffc107; }
-  .gauge-fill.red   { background: #dc3545; }
-  .gauge-label { font-size: 0.78rem; color: #555; }
-  .pool-warn { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24;
-               padding: 8px 12px; border-radius: 6px; font-size: 0.82rem; margin-top: 6px; }
-  .pool-info { background: #fff3cd; border: 1px solid #ffc107; color: #856404;
-               padding: 8px 12px; border-radius: 6px; font-size: 0.82rem; margin-top: 6px; }
-  .install-banner { background: #e8f4f8; border: 1px solid #bee5eb; border-radius: 8px;
-                    padding: 10px 14px; font-size: 0.83rem; color: #2c4a6e;
-                    margin-bottom: 14px; display: none; }
-  #install-btn { padding: 4px 14px; background: #2d7dd2; color: white; border: none;
-                 border-radius: 4px; cursor: pointer; margin-left: 8px; font-size: 0.83rem; }
-  .contrib-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 6px; }
-  .contrib-table th { background: #f0f0f0; text-align: left; padding: 6px 8px;
-                      border-bottom: 2px solid #ddd; font-size: 0.78rem; color: #555; }
-  .contrib-table td { padding: 6px 8px; border-bottom: 1px solid #eee; }
-  .contrib-table tr:last-child td { border-bottom: none; }
-  .contrib-table .type-badge { display: inline-block; padding: 1px 7px; border-radius: 8px;
-                               font-size: 0.75rem; }
-  .badge-send { background: #d4edda; color: #155724; }
-  .badge-withdraw { background: #cce5ff; color: #004085; }
-  .contrib-empty { color: #888; font-style: italic; font-size: 0.85rem; padding: 8px 0; }
-  .pin-note { font-size: 0.78rem; color: #888; font-style: italic; text-align: center;
-              margin-top: 4px; }
-  .pin-note a { color: #2d7dd2; text-decoration: none; }
-  .pin-note a:hover { text-decoration: underline; }
+  .nav-btn {
+    display: block; padding: 14px 14px 12px;
+    background: #fff; border: 1.5px solid #e8edf3; border-radius: 14px;
+    text-decoration: none; color: #1a1a2e;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+    transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
+    position: relative;
+  }
+  .nav-btn:hover { border-color: #2d7dd2; box-shadow: 0 4px 14px rgba(45,125,210,0.15); transform: translateY(-1px); }
+  .nav-btn:active { transform: translateY(0); }
+  .nav-btn .icon { font-size: 1.4rem; display: block; margin-bottom: 6px; }
+  .nav-btn .label { font-size: 0.9rem; font-weight: 600; }
+  .nav-btn .desc { font-size: 0.74rem; color: #8895a7; display: block; margin-top: 3px; line-height: 1.35; }
+  .nav-btn.highlight { border-color: #2d7dd2; background: linear-gradient(135deg, #f0f7ff, #fff); }
+  .nav-btn.warn { border-color: #ffc107; background: linear-gradient(135deg, #fffbf0, #fff); }
+  .nav-btn.admin-btn { border-color: #ef5350; background: linear-gradient(135deg, #fff5f5, #fff); }
+  .badge-pill {
+    position: absolute; top: 10px; right: 10px;
+    background: #e53935; color: #fff; border-radius: 10px;
+    padding: 1px 7px; font-size: 0.7rem; font-weight: 700;
+  }
+
+  /* ── Pending invoices ───────────────────────────── */
+  .invoice-alert {
+    background: #fff; border: 2px solid #ff9800; border-radius: 14px;
+    padding: 14px 16px; margin-bottom: 14px;
+    box-shadow: 0 4px 16px rgba(255,152,0,0.1);
+  }
+  .invoice-alert .alert-head {
+    font-weight: 700; color: #e65100; font-size: 0.95rem; margin-bottom: 10px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .invoice-card {
+    background: #fffaf3; border: 1px solid #ffe0b2; border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 8px;
+  }
+  .invoice-card:last-child { margin-bottom: 0; }
+  .invoice-card .inv-amount { font-size: 1.1rem; font-weight: 700; color: #1a1a2e; }
+  .invoice-card .inv-from { font-size: 0.82rem; color: #666; margin-top: 2px; }
+  .invoice-card .inv-desc { font-size: 0.79rem; color: #999; margin-top: 2px; }
+  .invoice-card .inv-date { font-size: 0.74rem; color: #ccc; margin-top: 2px; }
+  .btn-review {
+    display: inline-block; background: #2d7dd2; color: #fff; text-decoration: none;
+    padding: 7px 16px; border-radius: 7px; font-size: 0.85rem; font-weight: 600;
+    margin-top: 10px; transition: background 0.15s;
+  }
+  .btn-review:hover { background: #2466b8; }
+
+  /* ── Pending care warning ───────────────────────── */
+  .care-pending {
+    background: #fff; border: 1.5px solid #ffc107; border-radius: 14px;
+    padding: 14px 16px; margin-bottom: 14px; font-size: 0.88rem; color: #6d4c00;
+    box-shadow: 0 2px 8px rgba(255,193,7,0.1);
+  }
+  .care-pending strong { color: #4a3000; }
+  .care-pending .cr-item { font-size: 0.79rem; margin-top: 5px; color: #937500; }
+
+  /* ── Tables ─────────────────────────────────────── */
+  .table-card { background: #fff; border-radius: 14px; overflow: hidden;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid #e8edf3; }
+  table { width: 100%; border-collapse: collapse; }
+  th { background: #f6f8fb; text-align: left; padding: 9px 12px;
+       font-size: 0.72rem; font-weight: 700; color: #8895a7;
+       text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #e8edf3; }
+  td { padding: 10px 12px; border-bottom: 1px solid #f0f4f8; font-size: 0.84rem; color: #1a1a2e; }
+  tr:last-child td { border-bottom: none; }
+  .type-badge { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 0.75rem; font-weight: 600; }
+  .badge-send { background: #e8f5e9; color: #1b5e20; }
+  .badge-withdraw { background: #e3f2fd; color: #0d47a1; }
+
+  .contrib-empty {
+    padding: 24px 16px; text-align: center; color: #b0bec5;
+    font-size: 0.85rem; font-style: italic;
+  }
+  .pin-note { text-align: center; font-size: 0.76rem; color: #b0bec5; padding: 10px 0 4px; }
+  .pin-note a { color: #2d7dd2; text-decoration: none; font-weight: 500; }
+
+  /* ── Footer ─────────────────────────────────────── */
+  .footer {
+    display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+    padding: 20px 0 0; margin-top: 4px;
+  }
+  .footer a { font-size: 0.84rem; color: #8895a7; text-decoration: none; }
+  .footer a:hover { color: #1a1a2e; }
+  .footer a.danger { color: #ef5350; }
+  .footer a.danger:hover { color: #c62828; }
+  .footer button {
+    background: none; border: none; cursor: pointer;
+    font-size: 0.84rem; color: #b0bec5; padding: 0;
+  }
+  .footer button:hover { color: #8895a7; }
 </style>
 </head>
 <body>
 
-<h1>Welcome, {{ user.name }}</h1>
-<p class="subtitle">{{ user.phone }}</p>
-
-<div class="install-banner" id="install-banner">
-  Install SolidarityPool as an app for quick access without a browser.
-  <button id="install-btn">Install</button>
+<!-- ── Header ───────────────────────────────────────────── -->
+<div class="header">
+  <div class="header-top">
+    <div class="brand-mark">🤝 SoliPool</div>
+    <div class="header-actions">
+      <a href="{{ url_for('change_pin') }}">🔑 PIN</a>
+      <a class="danger" href="{{ url_for('logout') }}">Log out</a>
+    </div>
+  </div>
+  <div class="welcome-name">{{ user.name }}</div>
+  <div class="welcome-phone">{{ user.phone }}</div>
+  <div class="install-banner" id="install-banner">
+    Install SoliPool as an app for faster access.
+    <button id="install-btn">Install</button>
+  </div>
 </div>
+
+<!-- ── Content ───────────────────────────────────────────── -->
+<div class="content">
 
 {% if user.total_social_credit > 0 %}
 <div class="credit-warn">
   You have <strong>outstanding social credit</strong> to repay.
-  Use <a href="{{ url_for('balance') }}">Check Balance</a> (PIN required) to see the amount,
-  or go directly to <a href="{{ url_for('repay') }}">Repay Debt</a>.
+  <a href="{{ url_for('balance') }}">Check Balance</a> to see the amount, or go directly to
+  <a href="{{ url_for('repay') }}">Repay Debt →</a>
 </div>
 {% endif %}
 
-<!-- Stats — all sensitive numbers masked; directed to PIN-gated Check Balance -->
+<!-- Stat cards -->
 <div class="stats">
   <div class="stat-box">
-    <div class="label">Sub-wallet balance</div>
+    <div class="label">Sub-wallet</div>
     <div class="value">🔒 ••••</div>
-    <div class="masked"><a href="{{ url_for('balance') }}">Check Balance to view</a></div>
+    <div class="masked"><a href="{{ url_for('balance') }}">View in Check Balance</a></div>
   </div>
   <div class="stat-box">
     <div class="label">Trust standing</div>
@@ -113,7 +247,7 @@
   <div class="stat-box">
     <div class="label">Draw ceiling</div>
     <div class="value">🔒 ••••</div>
-    <div class="masked"><a href="{{ url_for('balance') }}">Check Balance to view</a></div>
+    <div class="masked"><a href="{{ url_for('balance') }}">View in Check Balance</a></div>
   </div>
   <div class="stat-box">
     <div class="label">Witness standing</div>
@@ -129,144 +263,66 @@
   </div>
 </div>
 
+<!-- Community box -->
 {% if primary_comm %}
 <div class="community-box">
   <div class="comm-name">{{ primary_comm.name }}</div>
   <div class="comm-pool">Community pool: UGX {{ "{:,.0f}".format(primary_comm.pool_balance) }}</div>
   {% if membership and membership.role in ['admin', 'coadmin'] %}
-  <div style="font-size:0.78rem; color:#555; margin-top:4px;">
+  <div class="invite-row">
     Invite code: <code>{{ primary_comm.invite_code }}</code>
   </div>
   {% endif %}
-  <div style="margin-top:10px;">
-    <div class="gauge-bar">
-      <div class="gauge-fill {{ pool_health.color }}" style="width:{{ pool_health.pct }}%"></div>
-    </div>
-    <div class="gauge-label">
-      Pool health: <strong>{{ pool_health.pct }}% — {{ pool_health.label }}</strong>
-    </div>
-    {% if pool_health.pct < 30 %}
-    <div class="pool-warn">
-      Pool is critically low. Draw ceilings are reduced and large withdrawals are paused.
-      Contribute to help restore it.
-    </div>
-    {% elif pool_health.pct < 60 %}
-    <div class="pool-info">
-      Pool is running fair — draw ceilings are slightly reduced. Extra contributions help.
-    </div>
-    {% endif %}
-    {% if ceiling_multiplier and ceiling_multiplier < 1.0 %}
-    <div style="font-size:0.78rem; color:#721c24; margin-top:4px;">
-      Your effective ceiling is {{ "%.0f"|format(ceiling_multiplier * 100) }}% of normal due to pool health rules.
-    </div>
-    {% endif %}
+  <div class="gauge-bar">
+    <div class="gauge-fill {{ pool_health.color }}" style="width:{{ pool_health.pct }}%"></div>
   </div>
+  <div class="gauge-label">Pool health: <strong>{{ pool_health.pct }}% — {{ pool_health.label }}</strong></div>
+  {% if pool_health.pct < 30 %}
+  <div class="pool-warn">Pool is critically low. Draw ceilings are reduced and large withdrawals are paused.</div>
+  {% elif pool_health.pct < 60 %}
+  <div class="pool-info">Pool running fair — draw ceilings slightly reduced. Extra contributions help.</div>
+  {% endif %}
+  {% if ceiling_multiplier and ceiling_multiplier < 1.0 %}
+  <div style="font-size:0.76rem; color:#c62828; margin-top:6px;">
+    Your effective ceiling is {{ "%.0f"|format(ceiling_multiplier * 100) }}% of normal due to pool health rules.
+  </div>
+  {% endif %}
 </div>
 {% else %}
-<div class="credit-warn">
+<div class="credit-warn" style="border-color:#90caf9; background:#e3f2fd; color:#0d47a1;">
   You are not in a community yet.
-  <a href="{{ url_for('communities.list_communities') }}">Join or create one →</a>
+  <a href="{{ url_for('communities.list_communities') }}" style="color:#1565c0;">Join or create one →</a>
 </div>
 {% endif %}
 
-<div class="section-title">Actions</div>
-<div class="nav-grid">
-  <a class="nav-btn" href="{{ url_for('balance') }}" style="border-color:#2d7dd2;">
-    <span class="icon">🔐</span>Check Balance
-    <span class="desc">PIN-verified: wallet, ceiling &amp; credit details</span>
-  </a>
-  <a class="nav-btn" href="{{ url_for('request_care') }}">
-    <span class="icon">🏥</span>Request Care
-    <span class="desc">Draw from the community care pool (PIN)</span>
-  </a>
-  {% if user.total_social_credit > 0 %}
-  <a class="nav-btn" href="{{ url_for('repay') }}" style="border-color:#ffc107;">
-    <span class="icon">💳</span>Repay Debt
-    <span class="desc">Clear outstanding social credit (PIN)</span>
-  </a>
-  {% endif %}
-  <a class="nav-btn" href="{{ url_for('trust_history') }}">
-    <span class="icon">📊</span>Trust History
-    <span class="desc">View your reputation timeline (PIN)</span>
-  </a>
-</div>
-
-<div class="section-title">Community</div>
-<div class="nav-grid">
-  <a class="nav-btn" href="{{ url_for('communities.list_communities') }}" style="position:relative;">
-    <span class="icon">🤝</span>My Communities
-    {% if community_pending and community_pending > 0 %}
-    <span style="position:absolute;top:8px;right:10px;background:#dc3545;color:#fff;
-                 border-radius:10px;padding:1px 7px;font-size:0.72rem;font-weight:bold;">
-      {{ community_pending }}
-    </span>
-    {% endif %}
-    <span class="desc">Manage pools &amp; memberships</span>
-  </a>
-  <a class="nav-btn" href="{{ url_for('providers.list_providers') }}">
-    <span class="icon">🏨</span>Provider Registry
-    <span class="desc">View verified clinics &amp; hospitals</span>
-  </a>
-  <a class="nav-btn" href="{{ url_for('leaderboard') }}">
-    <span class="icon">🏆</span>Leaderboard
-    <span class="desc">Top pool contributors this month</span>
-  </a>
-  {% if is_admin %}
-  <a class="nav-btn" href="/admin" style="border-color:#dc3545; background:linear-gradient(135deg,#fff5f5,#fff); position:relative;">
-    <span class="icon">🛡</span>Admin Panel
-    {% if admin_badge and admin_badge > 0 %}
-    <span style="position:absolute;top:8px;right:10px;background:#dc3545;color:#fff;
-                 border-radius:10px;padding:1px 7px;font-size:0.72rem;font-weight:bold;">
-      {{ admin_badge }}
-    </span>
-    {% endif %}
-    <span class="desc">Care queue, fraud alerts, trust, providers &amp; more</span>
-  </a>
-  {% endif %}
-</div>
-
-<!-- Provider invoices awaiting patient approval -->
+<!-- Pending invoices -->
 {% if pending_invoices %}
-<div style="margin-top:14px; background:#fff3e0; border:2px solid #ff9800; border-radius:10px; padding:14px 16px;">
-  <div style="font-weight:bold; color:#e65100; font-size:0.97rem; margin-bottom:8px;">
-    📋 You have {{ pending_invoices|length }} invoice{{ 's' if pending_invoices|length > 1 else '' }} waiting for your review
-  </div>
+<div class="invoice-alert">
+  <div class="alert-head">📋 {{ pending_invoices|length }} invoice{{ 's' if pending_invoices|length > 1 else '' }} awaiting your review</div>
   {% for inv in pending_invoices %}
   {% set inv_provider = inv.provider %}
-  <div style="background:#fff; border:1px solid #ffcc80; border-radius:8px; padding:12px 14px; margin-bottom:10px;">
-    <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:8px;">
-      <div>
-        <div style="font-weight:bold; font-size:1.05rem;">UGX {{ "{:,.0f}".format(inv.amount_needed) }}</div>
-        <div style="font-size:0.85rem; color:#555; margin-top:2px;">
-          From: <strong>{{ inv_provider.name if inv_provider else 'Unknown Provider' }}</strong>
-        </div>
-        {% if inv.invoice_description %}
-        <div style="font-size:0.82rem; color:#777; margin-top:2px;">{{ inv.invoice_description }}</div>
-        {% endif %}
-        <div style="font-size:0.78rem; color:#aaa; margin-top:2px;">Received {{ inv.created_at.strftime('%b %d, %Y') }}</div>
-      </div>
-      <div style="display:flex; gap:8px; flex-shrink:0;">
-        <a href="{{ url_for('invoice_review', request_id=inv.id) }}"
-           style="background:#2d7dd2; color:#fff; text-decoration:none; padding:8px 16px;
-                  border-radius:6px; font-size:0.88rem; font-weight:bold;">
-          Review →
-        </a>
-      </div>
-    </div>
+  <div class="invoice-card">
+    <div class="inv-amount">UGX {{ "{:,.0f}".format(inv.amount_needed) }}</div>
+    <div class="inv-from">From: <strong>{{ inv_provider.name if inv_provider else 'Unknown Provider' }}</strong></div>
+    {% if inv.invoice_description %}
+    <div class="inv-desc">{{ inv.invoice_description }}</div>
+    {% endif %}
+    <div class="inv-date">Received {{ inv.created_at.strftime('%b %d, %Y') }}</div>
+    <a class="btn-review" href="{{ url_for('invoice_review', request_id=inv.id) }}">Review →</a>
   </div>
   {% endfor %}
 </div>
 {% endif %}
 
-<!-- Pending care request warning -->
+<!-- Pending care requests -->
 {% if pending_care %}
-<div class="credit-warn" style="margin-top:14px;">
-  You have <strong>{{ pending_care|length }} care request{{ 's' if pending_care|length > 1 else '' }} awaiting review</strong>.
+<div class="care-pending">
+  <strong>{{ pending_care|length }} care request{{ 's' if pending_care|length > 1 else '' }} in progress</strong>
   {% for cr in pending_care %}
-  <div style="font-size:0.82rem; margin-top:4px; color:#856404;">
+  <div class="cr-item">
     #{{ cr.id }} — UGX {{ "{:,.0f}".format(cr.amount_needed) }}
-    {% if cr.status == 'pending_community_admin' %}· Awaiting community admin approval
-    {% elif cr.status == 'pending_admin' %}· Awaiting system review (flagged)
+    {% if cr.status == 'pending_community_admin' %}· Awaiting community admin
+    {% elif cr.status == 'pending_admin' %}· Awaiting system review
     {% elif cr.status == 'pending_witness' %}· Awaiting peer witnesses
     {% endif %}
   </div>
@@ -274,46 +330,95 @@
 </div>
 {% endif %}
 
-<!-- Recent care support received -->
+<!-- Actions -->
+<div class="section-title">Actions</div>
+<div class="nav-grid">
+  <a class="nav-btn highlight" href="{{ url_for('balance') }}">
+    <span class="icon">🔐</span>
+    <span class="label">Check Balance</span>
+    <span class="desc">Wallet, ceiling &amp; credit details (PIN)</span>
+  </a>
+  <a class="nav-btn" href="{{ url_for('request_care') }}">
+    <span class="icon">🏥</span>
+    <span class="label">Request Care</span>
+    <span class="desc">Draw from the community pool (PIN)</span>
+  </a>
+  {% if user.total_social_credit > 0 %}
+  <a class="nav-btn warn" href="{{ url_for('repay') }}">
+    <span class="icon">💳</span>
+    <span class="label">Repay Debt</span>
+    <span class="desc">Clear outstanding social credit (PIN)</span>
+  </a>
+  {% endif %}
+  <a class="nav-btn" href="{{ url_for('trust_history') }}">
+    <span class="icon">📊</span>
+    <span class="label">Trust History</span>
+    <span class="desc">Your reputation timeline (PIN)</span>
+  </a>
+</div>
+
+<!-- Community -->
+<div class="section-title">Community</div>
+<div class="nav-grid">
+  <a class="nav-btn" href="{{ url_for('communities.list_communities') }}" style="position:relative;">
+    <span class="icon">🤝</span>
+    <span class="label">My Communities</span>
+    {% if community_pending and community_pending > 0 %}
+    <span class="badge-pill">{{ community_pending }}</span>
+    {% endif %}
+    <span class="desc">Manage pools &amp; memberships</span>
+  </a>
+  <a class="nav-btn" href="{{ url_for('providers.list_providers') }}">
+    <span class="icon">🏨</span>
+    <span class="label">Provider Registry</span>
+    <span class="desc">View verified clinics &amp; hospitals</span>
+  </a>
+  <a class="nav-btn" href="{{ url_for('leaderboard') }}">
+    <span class="icon">🏆</span>
+    <span class="label">Leaderboard</span>
+    <span class="desc">Top pool contributors this month</span>
+  </a>
+  {% if is_admin %}
+  <a class="nav-btn admin-btn" href="/admin" style="position:relative;">
+    <span class="icon">🛡</span>
+    <span class="label">Admin Panel</span>
+    {% if admin_badge and admin_badge > 0 %}
+    <span class="badge-pill">{{ admin_badge }}</span>
+    {% endif %}
+    <span class="desc">Care queue, fraud alerts &amp; trust</span>
+  </a>
+  {% endif %}
+</div>
+
+<!-- Recent care support -->
 {% if recent_care %}
 <div class="section-title">Care Support Received</div>
-<table class="contrib-table">
+<div class="table-card">
+<table>
   <thead>
-    <tr>
-      <th>Date</th>
-      <th>Amount</th>
-      <th>Provider</th>
-      <th>Status</th>
-    </tr>
+    <tr><th>Date</th><th>Amount</th><th>Provider</th><th>Status</th></tr>
   </thead>
   <tbody>
   {% for cr in recent_care %}
   <tr>
     <td>{{ cr.created_at.strftime('%b %d') }}</td>
-    <td>UGX {{ "{:,.0f}".format(cr.amount_needed) }}</td>
-    <td style="font-size:0.8rem;">
-      {% if cr.provider %}{{ cr.provider.name[:16] }}{% else %}—{% endif %}
-    </td>
-    <td>
-      <span class="type-badge badge-send">approved</span>
-    </td>
+    <td style="font-weight:600;">UGX {{ "{:,.0f}".format(cr.amount_needed) }}</td>
+    <td style="color:#666;">{% if cr.provider %}{{ cr.provider.name[:16] }}{% else %}—{% endif %}</td>
+    <td><span class="type-badge badge-send">approved</span></td>
   </tr>
   {% endfor %}
   </tbody>
 </table>
+</div>
 {% endif %}
 
-<!-- Health Contributions — dates and types only; amounts hidden behind PIN -->
+<!-- Health Contributions -->
 <div class="section-title">Health Contributions</div>
 {% if health_contributions %}
-<table class="contrib-table">
+<div class="table-card">
+<table>
   <thead>
-    <tr>
-      <th>Date</th>
-      <th>Type</th>
-      <th>Contribution</th>
-      <th>Wallet credit</th>
-    </tr>
+    <tr><th>Date</th><th>Type</th><th>Contribution</th><th>Wallet credit</th></tr>
   </thead>
   <tbody>
   {% for tx in health_contributions %}
@@ -324,32 +429,35 @@
         {{ tx.type }}
       </span>
     </td>
-    <td>🔒 ••••</td>
-    <td>🔒 ••••</td>
+    <td style="color:#b0bec5;">🔒 ••••</td>
+    <td style="color:#b0bec5;">🔒 ••••</td>
   </tr>
   {% endfor %}
   </tbody>
 </table>
-<p class="pin-note">
+<div class="pin-note">
   Exact amounts visible in <a href="{{ url_for('balance') }}">Check Balance</a> (PIN required).
-</p>
+</div>
+</div>
 {% else %}
-<p class="contrib-empty">
-  No health contributions yet. Contributions are logged automatically when
-  mobile money fees are processed.
-</p>
+<div class="table-card">
+<div class="contrib-empty">
+  No health contributions yet. Contributions are logged automatically when mobile money fees are processed.
+</div>
+</div>
 {% endif %}
 
-<p style="margin-top:28px; display:flex; gap:20px; align-items:center; flex-wrap:wrap;">
-  <a class="logout" href="{{ url_for('logout') }}">← Log out</a>
-  <a href="{{ url_for('change_pin') }}" style="font-size:0.85rem; color:#555; text-decoration:none;">🔑 Change PIN</a>
+<!-- Footer -->
+<div class="footer">
+  <a class="danger" href="{{ url_for('logout') }}">← Log out</a>
+  <a href="{{ url_for('change_pin') }}">🔑 Change PIN</a>
   <form method="post" action="{{ url_for('logout_all_devices') }}" style="margin:0;"
         onsubmit="return confirm('This will log you out from all devices and browsers. Continue?')">
-    <button type="submit" style="background:none;border:none;cursor:pointer;font-size:0.85rem;color:#888;padding:0;">
-      🚪 Log out all devices
-    </button>
+    <button type="submit">🚪 Log out all devices</button>
   </form>
-</p>
+</div>
+
+</div><!-- /content -->
 
 <script>
 if ('serviceWorker' in navigator) {
